@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Xcode build / derived data
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Code coverage / profiling artifacts
+*.profraw
+default.profraw
+
+# Scratch
+woodshed-diag.log
