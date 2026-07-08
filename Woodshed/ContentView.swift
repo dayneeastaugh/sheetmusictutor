@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var cursorCommand = CursorCommand()
     @StateObject private var bridge = NotationBridge()
     @StateObject private var audio = AudioEnginePlayer()
+    @StateObject private var midi = MIDIInput()
 
     // Cursor-sync state: a schedule of (playback time → notated beat). A display
     // timer reads the audio clock and moves the OSMD cursor to the matching beat.
@@ -31,6 +32,10 @@ struct ContentView: View {
     @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
     @State private var handMode = 0                 // 0 = both, 1 = RH only, 2 = LH only
     @State private var tempoPct: Double = 100        // playback tempo percentage
+    @State private var scoreLitNotes: Set<Int> = []  // score notes sounding now (on the keyboard)
+    @State private var showScoreNotes = true         // light up score notes during playback
+    @State private var outputMode = 0                // 0 = PC speakers, 1 = piano, 2 = both
+    @State private var pianoSounding: Set<Int> = []  // notes currently sent to the piano (MIDI out)
     // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
@@ -50,6 +55,7 @@ struct ContentView: View {
                 .onChange(of: sampleName) { _, _ in score = nil; errorText = nil; ingest() }
 
                 notationSection
+                keyboardSection
 
                 if let errorText {
                     Text("⚠️ \(errorText)")
@@ -67,7 +73,11 @@ struct ContentView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear(perform: ingest)
+        .onAppear {
+            audio.pianoClick = { level in midi.sendClick(level) }
+            applyOutput()
+            ingest()
+        }
     }
 
     // MARK: - Notation
@@ -127,16 +137,60 @@ struct ContentView: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(width: 100, alignment: .leading)
                 Slider(value: $tempoPct, in: 25...120, step: 5) { Text("Tempo") }
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: 220)
                     .onChange(of: tempoPct) { _, v in audio.setRate(Float(v) / 100) }
+
+                Picker("Output", selection: $outputMode) {
+                    Text("🔊 Speakers").tag(0)
+                    Text("🎹 Piano").tag(1)
+                    Text("Both").tag(2)
+                }
+                .fixedSize()
+                .onChange(of: outputMode) { _, _ in applyOutput() }
             }
         }
         .onReceive(tick) { _ in advanceCursorWithPlayback() }
     }
 
+    /// Apply the audio-output selection to both playback and the metronome:
+    /// PC speakers audible unless "Piano" only; piano (MIDI) used for "Piano"/"Both".
+    private func applyOutput() {
+        audio.setSpeakerOutput(outputMode != 1)
+        audio.setMetronomeOutput(speakers: outputMode != 1, piano: outputMode != 0)
+        if outputMode == 0 { flushPianoOutput() }   // leaving piano output → release notes
+    }
+
+    private func flushPianoOutput() {
+        for n in pianoSounding { midi.sendNoteOff(n) }
+        if !pianoSounding.isEmpty { midi.allNotesOff() }
+        pianoSounding = []
+    }
+
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
     private func applyHands() {
         audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
+    }
+
+    // MARK: - MIDI keyboard
+
+    @ViewBuilder
+    private var keyboardSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("MIDI input").font(.headline)
+                Toggle("Show score notes", isOn: $showScoreNotes)
+                    .toggleStyle(.switch)
+                    .font(.caption)
+                Spacer()
+                Text(midi.status).font(.caption).foregroundStyle(.secondary)
+            }
+            PianoKeyboardView(litNotes: midi.activeNotes,
+                              scoreNotes: showScoreNotes ? scoreLitNotes : [],
+                              onPress: { audio.playNote($0) },
+                              onRelease: { audio.stopNote($0) })
+            Text("Green = you playing · Blue = the score. Play your piano to light up keys — or click the keyboard to test.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Playback + cursor sync
@@ -159,7 +213,11 @@ struct ContentView: View {
     /// Smooth mode interpolates a continuous beat (fluid glide); step mode jumps to
     /// the latest note's exact notated beat when it changes.
     private func advanceCursorWithPlayback() {
-        guard audio.isPlaying else { return }
+        guard audio.isPlaying else {
+            if !scoreLitNotes.isEmpty { scoreLitNotes = [] }
+            flushPianoOutput()
+            return
+        }
         let t = audio.currentTime
         if scoreDuration > 0 && t > scoreDuration + 0.5 {   // reached the end
             audio.stop()
@@ -170,6 +228,30 @@ struct ContentView: View {
         } else {
             let target = discreteBeat(at: t)
             if target != lastDiscreteBeat { lastDiscreteBeat = target; bridge.seek(target) }
+        }
+
+        let events = score?.events ?? []
+        // Light up the score notes currently sounding, on the keyboard.
+        if showScoreNotes {
+            let sounding = Set(events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
+                                     .map(\.pitch))
+            if sounding != scoreLitNotes { scoreLitNotes = sounding }
+        } else if !scoreLitNotes.isEmpty {
+            scoreLitNotes = []
+        }
+
+        // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.
+        if outputMode != 0 {
+            let rhOn = handMode != 2, lhOn = handMode != 1
+            let target = Set(events.filter { e in
+                e.onsetSeconds <= t && t < e.onsetSeconds + e.durationSeconds
+                    && (e.hand == .right ? rhOn : (e.hand == .left ? lhOn : true))
+            }.map(\.pitch))
+            for n in target.subtracting(pianoSounding) { midi.sendNoteOn(n) }
+            for n in pianoSounding.subtracting(target) { midi.sendNoteOff(n) }
+            pianoSounding = target
+        } else if !pianoSounding.isEmpty {
+            flushPianoOutput()
         }
     }
 

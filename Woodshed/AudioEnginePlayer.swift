@@ -27,6 +27,9 @@ final class AudioEnginePlayer: ObservableObject {
     // One sampler per hand so each can be muted/soloed independently.
     private let samplerRH = AVAudioUnitSampler()
     private let samplerLH = AVAudioUnitSampler()
+    // Both samplers feed this submix; muting it silences PC-speaker playback without
+    // touching the metronome (which goes straight to the main mixer).
+    private let pianoMix = AVAudioMixerNode()
     private var sequencer: AVAudioSequencer?
     private var playbackRate: Float = 1.0   // tempo % / 100 (1.0 = written tempo)
 
@@ -45,11 +48,19 @@ final class AudioEnginePlayer: ObservableObject {
     private var nextClick = 0
     private let metroQueue = DispatchQueue(label: "woodshed.metronome", qos: .userInteractive)
 
+    // Metronome click routing (mirrors the playback output selection).
+    private var metronomeSpeakers = true
+    private var metronomePiano = false
+    /// Set by the app to send a click to the piano over MIDI (called off the main thread).
+    var pianoClick: ((ClickLevel) -> Void)?
+
     init() {
         engine.attach(samplerRH)
         engine.attach(samplerLH)
-        engine.connect(samplerRH, to: engine.mainMixerNode, format: nil)
-        engine.connect(samplerLH, to: engine.mainMixerNode, format: nil)
+        engine.attach(pianoMix)
+        engine.connect(samplerRH, to: pianoMix, format: nil)
+        engine.connect(samplerLH, to: pianoMix, format: nil)
+        engine.connect(pianoMix, to: engine.mainMixerNode, format: nil)
         engine.attach(clickNode)
         let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
         clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
@@ -163,15 +174,23 @@ final class AudioEnginePlayer: ObservableObject {
         metroTimer?.cancel(); metroTimer = nil
     }
 
+    /// Route the metronome click to PC speakers, the piano (MIDI), or both.
+    func setMetronomeOutput(speakers: Bool, piano: Bool) {
+        metronomeSpeakers = speakers
+        metronomePiano = piano
+    }
+
     private func click(_ level: ClickLevel) {
-        let buf: AVAudioPCMBuffer?
-        switch level {
-        case .downbeat: buf = downbeatBuf
-        case .beat:     buf = beatBuf
-        case .sub:      buf = subBuf
+        if metronomeSpeakers {
+            let buf: AVAudioPCMBuffer?
+            switch level {
+            case .downbeat: buf = downbeatBuf
+            case .beat:     buf = beatBuf
+            case .sub:      buf = subBuf
+            }
+            if let b = buf { clickNode.scheduleBuffer(b, at: nil, options: .interrupts, completionHandler: nil) }
         }
-        guard let b = buf else { return }
-        clickNode.scheduleBuffer(b, at: nil, options: .interrupts, completionHandler: nil)
+        if metronomePiano { pianoClick?(level) }
     }
 
     /// Load the system GM sound bank (Acoustic Grand Piano) into both hand samplers.
@@ -216,6 +235,12 @@ final class AudioEnginePlayer: ObservableObject {
         samplerLH.volume = lhAudible ? 1 : 0
     }
 
+    /// Mute/unmute the PC-speaker output of the sampled piano (the metronome is
+    /// unaffected). When off, playback can still go to the piano over MIDI.
+    func setSpeakerOutput(_ on: Bool) {
+        pianoMix.outputVolume = on ? 1 : 0
+    }
+
     /// Set playback speed as a fraction (0.25–1.2). Pitch is preserved (it's MIDI).
     /// The cursor + synced metronome follow automatically (they run in musical time).
     func setRate(_ rate: Float) {
@@ -226,6 +251,11 @@ final class AudioEnginePlayer: ObservableObject {
 
     /// Real elapsed playback time in seconds (same time base as our parsed onsets).
     var currentTime: TimeInterval { sequencer?.currentPositionInSeconds ?? 0 }
+
+    // MARK: - Live note playing (on-screen keyboard testing)
+
+    func playNote(_ note: Int) { samplerRH.startNote(UInt8(clamping: note), withVelocity: 90, onChannel: 0) }
+    func stopNote(_ note: Int) { samplerRH.stopNote(UInt8(clamping: note), onChannel: 0) }
 
     /// Start playback, optionally preceded by an N-bar count-in.
     func play(countInBars: Int = 0) {
