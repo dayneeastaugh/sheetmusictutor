@@ -24,8 +24,17 @@ import Combine
 final class NotationBridge: ObservableObject {
     /// Latest status from the notation web view ("ready", "loaded svg=…", "error: …").
     @Published var status: String = ""
+    /// Set by the web view once created; used to drive the cursor directly (no SwiftUI
+    /// state churn) at the playback frame rate.
+    weak var webView: WKWebView?
+
     func post(_ s: String) {
         DispatchQueue.main.async { self.status = s }
+    }
+
+    /// Smoothly position the cursor at a (fractional) notated beat.
+    func seek(_ beat: Double) {
+        webView?.evaluateJavaScript("window.cursorSeekBeat(\(beat))")
     }
 }
 
@@ -53,6 +62,7 @@ struct NotationWebView {
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         context.coordinator.webView = web
+        bridge.webView = web   // let the bridge drive the cursor directly during playback
 
         // Paint under/around the page white so an empty or still-loading webview
         // never shows a black backdrop in Dark Mode.

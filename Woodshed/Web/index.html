@@ -66,6 +66,7 @@
       if (c.clientWidth > 0) {
         osmd.render();
         if (osmd.cursor) { osmd.cursor.show(); }
+        buildAnchors();
         pendingRender = false;
         post("loaded svg=" + c.querySelectorAll("svg").length + " containerW=" + c.clientWidth);
       } else {
@@ -93,6 +94,43 @@
         document.getElementById("err").textContent = "OSMD error: " + e;
         post("error: load — " + e);
       });
+    };
+
+    // Anchor table: for every cursor stop, its notated beat and pixel position.
+    // Built once per render; used to interpolate a smooth cursor between notes.
+    var anchors = [];
+    function buildAnchors() {
+      var el = osmd.cursor && osmd.cursor.cursorElement;
+      if (!el) return;
+      osmd.cursor.reset();
+      anchors = [];
+      var guard = 0;
+      while (!osmd.cursor.iterator.endReached && guard < 100000) {
+        anchors.push({ b: osmd.cursor.iterator.currentTimeStamp.RealValue * 4,
+                       left: el.offsetLeft, top: el.offsetTop });
+        osmd.cursor.next(); guard++;
+      }
+      osmd.cursor.reset();
+      osmd.cursor.show();
+    }
+
+    // Position the cursor at a (possibly fractional) notated beat. Interpolates the
+    // horizontal position within a system for fluid motion; snaps across line breaks
+    // (where the stop's vertical position changes).
+    window.cursorSeekBeat = function (cb) {
+      var A = anchors, el = osmd.cursor && osmd.cursor.cursorElement;
+      if (!A.length || !el) return;
+      var i = 0;
+      while (i + 1 < A.length && A[i + 1].b <= cb) i++;
+      var x = A[i].left, top = A[i].top;
+      if (i + 1 < A.length && A[i + 1].top === A[i].top) {
+        var span = A[i + 1].b - A[i].b;
+        var f = span > 0 ? (cb - A[i].b) / span : 0;
+        if (f < 0) f = 0; else if (f > 1) f = 1;
+        x = A[i].left + f * (A[i + 1].left - A[i].left);
+      }
+      el.style.left = x + "px";
+      el.style.top = top + "px";
     };
 
     window.cursorNext = function () {

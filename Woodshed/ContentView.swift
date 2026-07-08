@@ -26,8 +26,10 @@ struct ContentView: View {
     // timer reads the audio clock and moves the OSMD cursor to the matching beat.
     @State private var schedule: [(time: Double, beat: Double)] = []
     @State private var scoreDuration: Double = 0
-    @State private var lastSentBeat: Double = -1
-    private let tick = Timer.publish(every: 0.03, on: .main, in: .common).autoconnect()
+    @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
+    @State private var lastDiscreteBeat: Double = -1
+    // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
+    private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
     private let sampleNames = ["Fly Me To the Moon",
                                "chopin-nocturne-op-9-no-2-e-flat-major"]
@@ -91,6 +93,9 @@ struct ContentView: View {
                     get: { audio.metronomeOn },
                     set: { audio.setMetronome($0) }))
                     .toggleStyle(.button)
+                Toggle(cursorSmooth ? "⟿ Smooth" : "⇥ Step", isOn: $cursorSmooth)
+                    .toggleStyle(.button)
+                    .help("Cursor motion: smooth glide vs. jump note-to-note")
                 Button("Step cursor ▶") { cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "next") }
                     .disabled(audio.isPlaying)
                 Button("Reset ⟲") { resetCursor() }
@@ -114,13 +119,13 @@ struct ContentView: View {
     }
 
     private func resetCursor() {
-        lastSentBeat = -1
+        lastDiscreteBeat = -1
         cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "reset")
     }
 
-    /// On each timer tick, move the OSMD cursor to the notated beat the playback
-    /// clock has reached. Driving by beat (not by step count) is robust to swing,
-    /// rubato, chords, and rest-only cursor stops.
+    /// On each timer tick, advance the cursor to where the playback clock is.
+    /// Smooth mode interpolates a continuous beat (fluid glide); step mode jumps to
+    /// the latest note's exact notated beat when it changes.
     private func advanceCursorWithPlayback() {
         guard audio.isPlaying else { return }
         let t = audio.currentTime
@@ -128,13 +133,34 @@ struct ContentView: View {
             audio.stop()
             return
         }
-        // The notated beat of the latest note whose onset time has passed.
-        var targetBeat = schedule.first?.beat ?? 0
-        for entry in schedule where entry.time <= t { targetBeat = entry.beat }
-        if targetBeat != lastSentBeat {
-            lastSentBeat = targetBeat
-            cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "toBeat", beat: targetBeat)
+        if cursorSmooth {
+            bridge.seek(continuousBeat(at: t))
+        } else {
+            let target = discreteBeat(at: t)
+            if target != lastDiscreteBeat { lastDiscreteBeat = target; bridge.seek(target) }
         }
+    }
+
+    /// The exact notated beat of the latest note whose onset time has passed.
+    private func discreteBeat(at t: Double) -> Double {
+        var target = schedule.first?.beat ?? 0
+        for e in schedule where e.time <= t { target = e.beat }
+        return target
+    }
+
+    /// Interpolate the notated beat at playback time `t` from the (time → beat)
+    /// schedule, giving a smoothly-advancing position between note onsets.
+    private func continuousBeat(at t: Double) -> Double {
+        guard let first = schedule.first else { return 0 }
+        if t <= first.time { return first.beat }
+        var i = 0
+        while i + 1 < schedule.count && schedule[i + 1].time <= t { i += 1 }
+        if i + 1 < schedule.count {
+            let a = schedule[i], b = schedule[i + 1]
+            let f = b.time > a.time ? (t - a.time) / (b.time - a.time) : 0
+            return a.beat + f * (b.beat - a.beat)
+        }
+        return schedule[i].beat
     }
 
     // MARK: - Sections
@@ -209,7 +235,6 @@ struct ContentView: View {
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
-            lastSentBeat = -1
             audio.load(midiURL: midiURL)
             audio.configureMetronome(clickGrid: fused.clickGrid)
             print("=== Woodshed fused: \(sampleName) — \(fused.events.count) events, tempo \(fused.tempoBPM) ===")
