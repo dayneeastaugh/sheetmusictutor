@@ -41,6 +41,11 @@ final class NotationBridge: ObservableObject {
     func setHandColors(_ on: Bool) {
         webView?.evaluateJavaScript("window.setHandColorMode(\(on), '#1565C0', '#C62828')")
     }
+
+    /// Force N measures per line/system (0 = automatic layout).
+    func setMeasuresPerSystem(_ n: Int) {
+        webView?.evaluateJavaScript("window.setMeasuresPerSystem(\(n))")
+    }
 }
 
 /// A cursor command with a nonce, so SwiftUI can tell us "run this again" by

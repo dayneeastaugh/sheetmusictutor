@@ -188,15 +188,25 @@
         }
       }
     }
-    // Re-render with the colours applied, then rebuild the cursor anchors.
+    // Re-render (after a colour or layout change), rebuild the cursor anchors, and
+    // reset the follow-scroll (the cursor is back at the start after a re-render).
     function recolorAndRerender() {
       applyNoteColors();
       osmd.render();
       buildAnchors();
       if (osmd.cursor) { osmd.cursor.show(); }
+      lastScrollTop = -1;
+      var c = document.getElementById("osmdContainer");
+      if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
     }
     window.setHandColorMode = function (on, rh, lh) {
       handColors = on ? { rh: rh, lh: lh } : null;
+      recolorAndRerender();
+    };
+    // Force a fixed number of measures per line (system). 0 = automatic (OSMD default).
+    window.setMeasuresPerSystem = function (n) {
+      var er = osmd.EngravingRules || osmd.rules;
+      er.RenderXMeasuresPerLineAkaSystem = n;
       recolorAndRerender();
     };
 

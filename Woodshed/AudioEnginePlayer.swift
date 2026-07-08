@@ -28,10 +28,15 @@ final class AudioEnginePlayer: ObservableObject {
     // One sampler per hand so each can be muted/soloed independently.
     private let samplerRH = AVAudioUnitSampler()
     private let samplerLH = AVAudioUnitSampler()
-    // Both samplers feed this submix; muting it silences PC-speaker playback without
-    // touching the metronome (which goes straight to the main mixer).
-    private let pianoMix = AVAudioMixerNode()
     private var sequencer: AVAudioSequencer?
+
+    // Speaker (sampler) audibility state. Both hand mute and speaker-output routing
+    // resolve to the samplers' volume — a sampler is audible only if its hand is on
+    // AND PC-speaker output is enabled. (An intermediate mixer's outputVolume does
+    // NOT mute reliably, so we gate at the samplers themselves.)
+    private var rhAudible = true
+    private var lhAudible = true
+    private var speakersOn = true
     private var playbackRate: Float = 1.0   // tempo % / 100 (1.0 = written tempo)
 
     // Metronome: a generated click played through its own player node. It is driven
@@ -58,10 +63,8 @@ final class AudioEnginePlayer: ObservableObject {
     init() {
         engine.attach(samplerRH)
         engine.attach(samplerLH)
-        engine.attach(pianoMix)
-        engine.connect(samplerRH, to: pianoMix, format: nil)
-        engine.connect(samplerLH, to: pianoMix, format: nil)
-        engine.connect(pianoMix, to: engine.mainMixerNode, format: nil)
+        engine.connect(samplerRH, to: engine.mainMixerNode, format: nil)
+        engine.connect(samplerLH, to: engine.mainMixerNode, format: nil)
         engine.attach(clickNode)
         let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
         clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
@@ -232,14 +235,22 @@ final class AudioEnginePlayer: ObservableObject {
 
     /// Set which hands are audible (mute = volume 0). RH/LH route to separate samplers.
     func setHands(rhAudible: Bool, lhAudible: Bool) {
-        samplerRH.volume = rhAudible ? 1 : 0
-        samplerLH.volume = lhAudible ? 1 : 0
+        self.rhAudible = rhAudible
+        self.lhAudible = lhAudible
+        applySamplerVolumes()
     }
 
     /// Mute/unmute the PC-speaker output of the sampled piano (the metronome is
-    /// unaffected). When off, playback can still go to the piano over MIDI.
+    /// unaffected — it's a separate node). When off, playback can still go to the
+    /// piano over MIDI.
     func setSpeakerOutput(_ on: Bool) {
-        pianoMix.outputVolume = on ? 1 : 0
+        speakersOn = on
+        applySamplerVolumes()
+    }
+
+    private func applySamplerVolumes() {
+        samplerRH.volume = (rhAudible && speakersOn) ? 1 : 0
+        samplerLH.volume = (lhAudible && speakersOn) ? 1 : 0
     }
 
     /// Set playback speed as a fraction (0.25–1.2). Pitch is preserved (it's MIDI).

@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var scoreDuration: Double = 0
     @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
     @State private var colorHands = false           // colour noteheads by hand (RH blue / LH red)
+    @State private var barsPerLine = 0              // measures per line/system (0 = auto)
     @State private var lastDiscreteBeat: Double = -1
     @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
     @State private var handMode = 0                 // 0 = both, 1 = RH only, 2 = LH only
@@ -122,6 +123,13 @@ struct ContentView: View {
                     .toggleStyle(.button)
                     .onChange(of: colorHands) { _, v in bridge.setHandColors(v) }
                     .help("Colour noteheads: right hand blue, left hand red")
+                Picker("Bars/line", selection: $barsPerLine) {
+                    Text("Bars/line: Auto").tag(0)
+                    ForEach(1...5, id: \.self) { Text("\($0) / line").tag($0) }
+                }
+                .fixedSize()
+                .onChange(of: barsPerLine) { _, v in bridge.setMeasuresPerSystem(v) }
+                .help("How many bars to show per line (Auto = fit to width)")
                 Button("Step cursor ▶") { cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "next") }
                     .disabled(audio.isPlaying)
                 Button("Reset ⟲") { resetCursor() }
