@@ -249,8 +249,13 @@ final class AudioEnginePlayer: ObservableObject {
     }
 
     private func applySamplerVolumes() {
-        samplerRH.volume = (rhAudible && speakersOn) ? 1 : 0
-        samplerLH.volume = (lhAudible && speakersOn) ? 1 : 0
+        let rh = rhAudible && speakersOn
+        let lh = lhAudible && speakersOn
+        samplerRH.volume = rh ? 1 : 0
+        samplerLH.volume = lh ? 1 : 0
+        // Belt-and-suspenders: also drive the sampler's own gain to silence.
+        samplerRH.overallGain = rh ? 0 : -120
+        samplerLH.overallGain = lh ? 0 : -120
     }
 
     /// Set playback speed as a fraction (0.25–1.2). Pitch is preserved (it's MIDI).

@@ -49,6 +49,21 @@ struct ContentView: View {
 
     /// A fumbled note position, for the review marks.
     private struct Mistake: Hashable { let beat: Double; let pitch: Int }
+
+    // Tempo/grade mode: play along at tempo; grade the pass afterwards.
+    @State private var gradeMode = false
+    @State private var playedNotes: [(pitch: Int, time: Double)] = []   // what you played, with times
+    @State private var gradeResult: GradeResult?
+    private let gradeTolerance = 0.30   // musical seconds; a note counts if within this of expected
+
+    struct GradeResult {
+        var accuracy: Double   // hits / expected
+        var hits: Int
+        var total: Int
+        var missed: Int
+        var extra: Int         // notes you played that matched nothing
+        var avgMs: Double      // mean absolute timing error of hits
+    }
     // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
@@ -177,8 +192,66 @@ struct ContentView: View {
         .onReceive(tick) { _ in advanceCursorWithPlayback() }
         .onChange(of: midi.activeNotes) { old, new in
             let added = new.subtracting(old)
-            if waitMode, !added.isEmpty { handleWaitInput(added) }
+            if added.isEmpty { return }
+            if waitMode { handleWaitInput(added) }
+            if gradeMode, audio.isRunning {
+                let t = audio.currentTime
+                for p in added { playedNotes.append((pitch: p, time: t)) }
+            }
         }
+        .onChange(of: audio.isPlaying) { was, now in
+            if was && !now && gradeMode { gradePass() }   // pass ended → grade it
+        }
+    }
+
+    // MARK: - Tempo (grade) mode
+
+    /// Toggle grade mode. Mutually exclusive with Wait mode.
+    private func setGradeMode(_ on: Bool) {
+        if on {
+            if waitMode { setWaitMode(false) }
+            gradeMode = true
+            playedNotes = []; gradeResult = nil
+            mistakesShown = false; bridge.clearMistakes()
+        } else {
+            gradeMode = false
+        }
+    }
+
+    /// Grade the just-finished pass: match played notes to expected ones (nearest of
+    /// the same pitch within tolerance), tally hits/missed/wrong + timing, mark misses.
+    private func gradePass() {
+        guard let events = score?.events else { return }
+        let rhOn = handMode != 2, lhOn = handMode != 1
+        let expected = events
+            .filter { ($0.hand == .left) ? lhOn : rhOn }
+            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
+            .sorted { $0.onset < $1.onset }
+        let played = playedNotes.sorted { $0.time < $1.time }
+        var used = Array(repeating: false, count: played.count)
+        let tolerance = gradeTolerance   // musical seconds (auto-widens in real time at slow tempo)
+        var hits = 0, missed = 0
+        var absErrors: [Double] = []
+        var missedNotes: [(beat: Double, pitch: Int)] = []
+        for e in expected {
+            var best = -1, bestDelta = tolerance + 1
+            for j in played.indices where !used[j] && played[j].pitch == e.pitch {
+                let d = abs(played[j].time - e.onset)
+                if d <= tolerance && d < bestDelta { bestDelta = d; best = j }
+            }
+            if best >= 0 {
+                used[best] = true; hits += 1
+                absErrors.append(abs(played[best].time - e.onset))
+            } else {
+                missed += 1; missedNotes.append((beat: e.beat, pitch: e.pitch))
+            }
+        }
+        let extra = used.filter { !$0 }.count
+        let total = expected.count
+        let avgMs = absErrors.isEmpty ? 0 : absErrors.reduce(0, +) / Double(absErrors.count) * 1000
+        gradeResult = GradeResult(accuracy: total > 0 ? Double(hits) / Double(total) : 0,
+                                  hits: hits, total: total, missed: missed, extra: extra, avgMs: avgMs)
+        if !missedNotes.isEmpty { bridge.markMistakes(missedNotes); mistakesShown = true }
     }
 
     // MARK: - Wait mode
@@ -188,6 +261,7 @@ struct ContentView: View {
     private func setWaitMode(_ on: Bool) {
         waitMode = on
         if on {
+            gradeMode = false; gradeResult = nil
             audio.stop()
             mistakes = []; mistakesShown = false
             bridge.clearMistakes()
@@ -301,11 +375,20 @@ struct ContentView: View {
                 Toggle("🎯 Wait mode", isOn: Binding(get: { waitMode }, set: { setWaitMode($0) }))
                     .toggleStyle(.button)
                     .help("Step through the score — advances only when you play the right notes")
+                Toggle("🎼 Grade", isOn: Binding(get: { gradeMode }, set: { setGradeMode($0) }))
+                    .toggleStyle(.button)
+                    .help("Play along at tempo, then grade your accuracy and timing")
                 if waitMode {
                     Text((waitIndex < waitSteps.count
                           ? "Play the blue notes (red = wrong)  ·  \(waitIndex + 1)/\(waitSteps.count)"
                           : "✓ Complete") + "  ·  Fumbles: \(mistakes.count)")
                         .font(.caption).foregroundStyle(.green)
+                }
+                if gradeMode, let r = gradeResult {
+                    Text("Accuracy \(Int(r.accuracy * 100))%  ·  \(r.hits)/\(r.total)  ·  Missed \(r.missed)  ·  Wrong \(r.extra)  ·  ±\(Int(r.avgMs))ms")
+                        .font(.caption).foregroundStyle(r.accuracy >= 0.95 ? .green : .primary)
+                } else if gradeMode {
+                    Text("Press Play and play along").font(.caption).foregroundStyle(.secondary)
                 }
                 if mistakesShown {
                     Text("Red = notes you fumbled").font(.caption).foregroundStyle(Color(red: 0.83, green: 0.18, blue: 0.18))
@@ -318,9 +401,9 @@ struct ContentView: View {
                 Text(midi.status).font(.caption).foregroundStyle(.secondary)
             }
             PianoKeyboardView(litNotes: midi.activeNotes,
-                              scoreRH: (showScoreNotes || waitMode) ? scoreLitRH : [],
-                              scoreLH: (showScoreNotes || waitMode) ? scoreLitLH : [],
-                              flagWrong: waitMode,
+                              scoreRH: (showScoreNotes || waitMode || gradeMode) ? scoreLitRH : [],
+                              scoreLH: (showScoreNotes || waitMode || gradeMode) ? scoreLitLH : [],
+                              flagWrong: waitMode || gradeMode,
                               onPress: { audio.playNote($0) },
                               onRelease: { audio.stopNote($0) })
             Text("Green = you · Score notes: RH blue, LH red (single blue if hand-colour is off). Click the keyboard to test.")
@@ -334,6 +417,10 @@ struct ContentView: View {
         if audio.isPlaying {
             audio.stop()
         } else {
+            if gradeMode {   // fresh recording for this pass
+                playedNotes = []; gradeResult = nil
+                mistakesShown = false; bridge.clearMistakes()
+            }
             resetCursor()
             audio.play(countInBars: countInBars)
         }
@@ -371,9 +458,20 @@ struct ContentView: View {
         }
 
         let events = score?.events ?? []
-        // Light up the score notes currently sounding, on the keyboard — split by hand
-        // (RH blue, LH red) when hand-colouring is on, else all in one set (blue).
-        if showScoreNotes {
+        // Keyboard highlight. In Grade mode, show the notes playable *now* (within the
+        // grading tolerance window) as blue so anything else you play flags red — live
+        // feedback matching how the pass is scored. Otherwise show the exact sounding
+        // notes (RH blue / LH red when hand-colouring is on).
+        if gradeMode {
+            let rhOn = handMode != 2, lhOn = handMode != 1
+            let now = events.filter { abs($0.onsetSeconds - t) <= gradeTolerance && (($0.hand == .left) ? lhOn : rhOn) }
+            let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))
+            let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
+            let newRH = colorHands ? rh : rh.union(lh)
+            let newLH = colorHands ? lh : []
+            if newRH != scoreLitRH { scoreLitRH = newRH }
+            if newLH != scoreLitLH { scoreLitLH = newLH }
+        } else if showScoreNotes {
             let now = events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
             let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))   // right + unknown
             let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
