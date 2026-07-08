@@ -111,6 +111,29 @@ tempo-aware tolerance and early/late labelling are open.
 **Open:** re-evaluate **GRDB vs SwiftData** before building — SwiftData is more idiomatic for a new
 multiplatform app; GRDB was chosen in the PRD for transparent SQL. Not yet decided.
 
+### ADR-016 — Section looping: manual reposition + CC123, not AVMusicTrack loopRange
+**2026-07-08.** Section practice loops by watching the playback clock in the cursor tick and calling
+`AVAudioSequencer.currentPositionInSeconds = sectionStart` on the boundary, plus an All-Notes-Off
+(CC 123) to both samplers to avoid hung notes, and a metronome re-sync (clicks skip past the start
+position so we don't fire a burst of past clicks).
+**Rationale:** full control over loop bounds, cursor, metronome, and Wait/Grade scoping; the click-skip
+is a real fix needed for any mid-piece start, not just loops.
+**Rejected:** `AVMusicTrack.isLoopingEnabled` / `loopRange` (less control over sub-range + the cursor
+and metronome would still need manual re-sync). Grade mode intentionally does **not** loop (plays the
+section once, then grades) to avoid accumulating played notes across passes.
+
+### ADR-017 — Per-pass mistake marks via a DOM overlay, not OSMD re-render
+**2026-07-08.** For per-pass grading during a section loop, missed notes are ringed with
+absolutely-positioned DOM elements over the notation (`markMissed`), computed from OSMD note
+`PositionAndShape.AbsolutePosition × 10 × zoom`. Wait-mode's one-shot review still re-colours
+noteheads (`markMistakes`).
+**Rationale:** a full OSMD `render()` per loop (every few seconds) causes a visible hitch, especially
+on dense scores; an overlay updates in <1 ms and stays aligned through the follow-scroll transform.
+**Rejected:** re-colouring noteheads each pass (too slow); one grade only at stop (defeats "see
+progress each pass").
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - Resolve ADR-015 (GRDB vs SwiftData) before starting the persistence layer.
+- Section loop has no silent reset gap and repositioning may briefly clip a sounding note; evaluate if
+  it needs smoothing (ADR-016).

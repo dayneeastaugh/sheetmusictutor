@@ -21,6 +21,8 @@ navigation stack, no sheets/modals. All controls are inline on the one screen.
      `Reset ⟲`, audio status caption.
    - **Playback row:** Hands segmented picker (Both / R.H. / L.H.), `Tempo NNN%` + slider (25–120),
      Output picker (🔊 Speakers / 🎹 Piano / Both).
+   - **Section row:** "Section" label, from-bar / to-bar steppers, `🔁 Loop`, `Whole piece` reset, and
+     a "bars X–Y of N" caption when a sub-section is active.
 4. **MIDI input section**
    - Header: "MIDI input" + `🎯 Wait mode` + `🎼 Grade` + mode status + `Show score notes` + MIDI
      connection status.
@@ -67,8 +69,14 @@ headers, `.caption`/`.caption2` for statuses/legends. The diagnostic dump uses
   transform (0.35 s ease) to keep the active + next line in view.
 - **Keyboard:** press/drag plays notes (mouse/touch) via a high-priority drag gesture; MIDI input
   lights keys live.
-- **Wait/Grade feedback:** blue (needed / in-window), green (correct held), red (wrong held); review
-  marks appear on the score on exit and are removed with "Clear marks".
+- **Section select on the score:** click/drag across bars to set the practice loop. A translucent
+  blue highlight (rgba(21,101,192,0.13) fill, 0.45 border) marks the range without obscuring the
+  notes; it spans multiple systems. "Whole piece" clears it. Stays in sync with the bar steppers.
+- **Wait/Grade feedback:** blue (needed / in-window), green (correct held), red (wrong held); Wait-mode
+  review marks appear on the score on exit and are removed with "Clear marks".
+- **Per-pass grading (Grade + Loop):** misses **ring red progressively** as the cursor passes each note
+  you didn't play (open circle, doesn't fill the notehead); the rings **wipe at each loop restart**.
+  Each loop shows "Pass N: X% · Missed · Wrong · ±ms" and a "Progress 72→80→87%" accuracy trend.
 - **Keyboard shortcut:** Space = Play/Stop.
 
 ## Design conventions to preserve

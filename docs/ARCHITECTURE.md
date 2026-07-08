@@ -129,6 +129,16 @@ command. See the JS bridge contract below.
 
 Wait and Grade are mutually exclusive.
 
+**Section practice** overlays all modes: a bar range (`sectionStart`/`sectionEnd`) maps via
+`FusedScore.measureStartBeats` + `secondsAtBeat` to a time range. `AudioEnginePlayer.startSeconds` sets
+where playback begins; the cursor tick loops back (`loopBackToStart`, which clears hanging sampler
+notes with CC 123 and re-syncs the metronome) when `loopSection` is on, else stops. Wait/Grade only
+consider events inside the section (`inSection(beat)`). Grade mode matches in **real time**: `handleGradeNoteOn` matches each key you play to the nearest
+expected note (same pitch, within `gradeTolerance`); `advanceGradeMisses` rings a note the moment its
+window closes unmatched (progressive misses via the cheap `markMissed` overlay — no OSMD re-render).
+With **Loop on**, each pass is tallied into `gradeHistory` and the rings wipe at loop restart, giving a
+per-pass accuracy trend for mastery drilling.
+
 ## The WKWebView JS bridge
 
 `ContentView`/`NotationBridge` → JS (`webView.evaluateJavaScript`). This is the **contract**;
@@ -142,6 +152,12 @@ changing either side requires changing both (`NotationWebView.swift` ↔ `Web/in
 | `window.setHandColorMode(on, rhHex, lhHex)` | Colour noteheads by hand |
 | `window.setMeasuresPerSystem(n)` | Fix N bars per line (0 = auto) |
 | `window.markMistakes(pairs)` / `clearMistakes()` | Mark/clear review noteheads red `[[beat,midi],…]` |
+| `window.setSelection(startBar, endBar)` / `clearSelection()` | Draw/clear the section highlight (bars, 1-based) |
+| `window.markMissed(pairs)` / `clearMissed()` | Ring missed notes via a cheap overlay (no re-render) — updated every practice pass |
+
+JS → Swift also posts `select:startBar:endBar` when the user drags a bar selection on the score
+(routed by `NotationBridge.post` to `onSelect`). Bar pixel rects are computed from OSMD measure
+bounding boxes (`AbsolutePosition × 10 × zoom`) after each render.
 
 JS → Swift: `window.webkit.messageHandlers.osmd.postMessage(status)` → `NotationBridge.post` →
 `@Published status`. The bridge builds anchor tables (beat→pixel) after each render so the cursor

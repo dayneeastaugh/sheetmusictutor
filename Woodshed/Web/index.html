@@ -68,6 +68,7 @@
         if (osmd.cursor) { osmd.cursor.show(); }
         buildAnchors();
         if (handColors) { recolorAndRerender(); }   // reapply hand colours after a fresh load
+        refreshSelection();
         pendingRender = false;
         post("loaded svg=" + c.querySelectorAll("svg").length + " containerW=" + c.clientWidth);
       } else {
@@ -198,6 +199,7 @@
       lastScrollTop = -1;
       var c = document.getElementById("osmdContainer");
       if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
+      refreshSelection();
     }
     window.setHandColorMode = function (on, rh, lh) {
       handColors = on ? { rh: rh, lh: lh } : null;
@@ -247,8 +249,142 @@
       lastScrollTop = -1;
       var c = document.getElementById("osmdContainer");
       if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
+      refreshSelection();
     }
     window.clearMistakes = function () { recolorAndRerender(); };
+
+    // --- Section selection (drag bars on the score to set the practice loop) ---
+    // A translucent overlay highlights the selected bars without obscuring the notes.
+    var measRects = [], selStart = 0, selEnd = 0;   // bars are 1-based; 0 = no selection
+
+    function buildMeasureRects() {
+      measRects = [];
+      if (!osmd.graphic || !osmd.graphic.measureList) return;
+      var ml = osmd.graphic.measureList, f = 10 * osmd.zoom;   // OSMD units → pixels
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row || !row[0]) continue;
+        var top = row[0].PositionAndShape, bot = row[row.length - 1].PositionAndShape;
+        var x = top.AbsolutePosition.x * f, y = top.AbsolutePosition.y * f;
+        var bottom = (bot.AbsolutePosition.y + bot.Size.height) * f;
+        measRects.push({ m: m, x: x, y: y, w: top.Size.width * f, h: bottom - y });
+      }
+    }
+
+    function selOverlay() {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return null;
+      if (getComputedStyle(cont).position === "static") cont.style.position = "relative";
+      var ov = document.getElementById("selOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "selOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:1;";
+        cont.appendChild(ov);
+      }
+      return ov;
+    }
+
+    function drawSelection() {
+      var ov = selOverlay(); if (!ov) return; ov.innerHTML = "";
+      if (selStart < 1 || selEnd < 1) return;
+      var a = Math.min(selStart, selEnd) - 1, b = Math.max(selStart, selEnd) - 1;
+      measRects.forEach(function (r) {
+        if (r.m < a || r.m > b) return;
+        var d = document.createElement("div");
+        d.style.cssText = "position:absolute;left:" + r.x + "px;top:" + r.y + "px;width:" +
+          r.w + "px;height:" + r.h + "px;background:rgba(21,101,192,0.13);" +
+          "border:1px solid rgba(21,101,192,0.45);border-radius:3px;";
+        ov.appendChild(d);
+      });
+    }
+
+    window.setSelection = function (startBar, endBar) { selStart = startBar; selEnd = endBar; drawSelection(); };
+    window.clearSelection = function () { selStart = 0; selEnd = 0; drawSelection(); };
+
+    function measureAt(clientX, clientY) {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return -1;
+      var rr = cont.getBoundingClientRect();
+      var px = clientX - rr.left, py = clientY - rr.top;
+      var row = measRects.filter(function (r) { return py >= r.y && py <= r.y + r.h; });
+      if (!row.length) return -1;
+      for (var i = 0; i < row.length; i++) if (px >= row[i].x && px <= row[i].x + row[i].w) return row[i].m;
+      var best = -1, bd = 1e9;
+      row.forEach(function (r) { var d = Math.abs(px - (r.x + r.w / 2)); if (d < bd) { bd = d; best = r.m; } });
+      return best;
+    }
+
+    (function () {
+      var dragging = false, anchor = -1;
+      function onMove(e) {
+        if (!dragging) return;
+        var m = measureAt(e.clientX, e.clientY); if (m < 0) return;
+        selStart = Math.min(anchor, m) + 1; selEnd = Math.max(anchor, m) + 1; drawSelection();
+      }
+      function onUp() {
+        if (!dragging) return; dragging = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        post("select:" + selStart + ":" + selEnd);
+      }
+      window._attachSelection = function () {
+        var cont = document.getElementById("osmdContainer");
+        if (!cont || cont._selAttached) return;
+        cont._selAttached = true;
+        cont.addEventListener("mousedown", function (e) {
+          var m = measureAt(e.clientX, e.clientY); if (m < 0) return;
+          dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; drawSelection();
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+          e.preventDefault();
+        });
+      };
+    })();
+
+    // Rebuild rects + reattach + redraw overlays after any (re)render.
+    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); }
+
+    // --- Missed-note markers (cheap overlay, updated every practice pass; no re-render) ---
+    var missedPairs = [];   // [[beat, midi], …]
+    function missedOverlay() {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return null;
+      if (getComputedStyle(cont).position === "static") cont.style.position = "relative";
+      var ov = document.getElementById("missedOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "missedOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:2;";
+        cont.appendChild(ov);
+      }
+      return ov;
+    }
+    function drawMissed() {
+      var ov = missedOverlay(); if (!ov) return; ov.innerHTML = "";
+      if (!missedPairs.length || !osmd.graphic) return;
+      var want = {};
+      missedPairs.forEach(function (p) { want[Math.round(p[0] * 100) + ":" + p[1]] = true; });
+      var ml = osmd.graphic.measureList, f = 10 * osmd.zoom;
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row) continue;
+        for (var s = 0; s < row.length; s++) {
+          var gm = row[s]; if (!gm || !gm.staffEntries) continue;
+          gm.staffEntries.forEach(function (se) {
+            var sse = se.sourceStaffEntry; if (!sse || !sse.AbsoluteTimestamp) return;
+            var key0 = Math.round(sse.AbsoluteTimestamp.RealValue * 4 * 100);
+            (se.graphicalVoiceEntries || []).forEach(function (gve) {
+              (gve.notes || []).forEach(function (n) {
+                var sn = n.sourceNote; if (!sn || sn.halfTone == null) return;
+                if (!want[key0 + ":" + (sn.halfTone + 12)]) return;
+                var ps = n.PositionAndShape; if (!ps) return;
+                var x = ps.AbsolutePosition.x * f, y = ps.AbsolutePosition.y * f;
+                var d = document.createElement("div");
+                d.style.cssText = "position:absolute;left:" + (x - 9) + "px;top:" + (y - 9) +
+                  "px;width:18px;height:18px;border:2px solid rgba(211,47,47,0.9);border-radius:50%;";
+                ov.appendChild(d);
+              });
+            });
+          });
+        }
+      }
+    }
+    window.markMissed = function (pairs) { missedPairs = pairs || []; drawMissed(); };
+    window.clearMissed = function () { missedPairs = []; drawMissed(); };
 
     // Move the cursor to a notated beat position (quarter beats from the start).
     // Steps forward using OSMD's own timestamps, so it self-corrects and is robust

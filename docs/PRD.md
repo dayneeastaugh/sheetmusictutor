@@ -53,11 +53,17 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Matching — Wait mode** — advance only when the required note(s) are played; live blue/green/red
   feedback; fumbles marked red on the score for review.
 - **Matching — Tempo/Grade mode** — play along at tempo; windowed greedy matcher scores hit / missed /
-  wrong + mean timing (±300 ms tolerance in musical time); missed notes marked red.
+  wrong + mean timing (±300 ms tolerance in musical time); missed notes marked red. With section
+  **Loop** on, each pass is graded and a per-pass **accuracy trend** is shown so you can see progress
+  as you drill a section; the notes you're still missing are ringed on the score, updated every pass.
+- **Section focus & looping** — select a bar range (from/to bar) and play or **loop** just that
+  section; a "Whole piece" reset. Playback, cursor, metronome, and Wait/Grade are all scoped to the
+  section. (Named/saved clips and drag-to-select are not yet built — see Planned.)
 
 ### Planned (from the roadmap, not yet built)
 - Score **import + library** (Files/iCloud/AirDrop/drag-drop; tags, last-practised, target tempo).
-- **Section focus & looping** (bar ranges, named clips, A/B loop, seamless wrap).
+- **Section refinements** — named/saved clips per piece, drag-across-notes selection, silent reset gap
+  between loops, A/B markers.
 - **Speed trainer** — manual, auto-by-reps, and **auto-by-accuracy** tempo ramps.
 - **Rhythm tools** — rhythm-only playback, subdivision grid, tap-along trainer, count display.
 - **Mastery gating** — advance only on N clean passes; hands-separate → hands-together gating.

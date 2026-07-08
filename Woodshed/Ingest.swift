@@ -153,6 +153,10 @@ enum Ingest {
                           metronomeBarPattern: barPattern,
                           metronomePulseSeconds: pulseSeconds,
                           trackHands: midi.trackHands,
+                          measureStartBeats: xml.measures.map { $0.startBeat },
+                          totalBeats: xml.measures.last.map { $0.startBeat + $0.lengthBeats }
+                                      ?? (events.map { $0.notatedBeat }.max() ?? 0),
+                          secondsAtBeat: midi.secondsAtBeat,
                           reconciliations: reconciliations)
     }
 

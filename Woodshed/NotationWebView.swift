@@ -27,9 +27,26 @@ final class NotationBridge: ObservableObject {
     /// Set by the web view once created; used to drive the cursor directly (no SwiftUI
     /// state churn) at the playback frame rate.
     weak var webView: WKWebView?
+    /// Called when the user drags a bar selection on the score: (startBar, endBar), 1-based.
+    var onSelect: ((Int, Int) -> Void)?
 
     func post(_ s: String) {
+        if s.hasPrefix("select:") {
+            let parts = s.dropFirst(7).split(separator: ":")
+            if parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) {
+                DispatchQueue.main.async { self.onSelect?(a, b) }
+            }
+            return
+        }
         DispatchQueue.main.async { self.status = s }
+    }
+
+    /// Highlight a bar range on the score (1-based) / clear the highlight.
+    func setSelection(_ start: Int, _ end: Int) {
+        webView?.evaluateJavaScript("window.setSelection(\(start),\(end))")
+    }
+    func clearSelection() {
+        webView?.evaluateJavaScript("window.clearSelection()")
     }
 
     /// Smoothly position the cursor at a (fractional) notated beat.
@@ -55,6 +72,15 @@ final class NotationBridge: ObservableObject {
     /// Restore normal note colours (clear the mistake marks).
     func clearMistakes() {
         webView?.evaluateJavaScript("window.clearMistakes()")
+    }
+
+    /// Ring the missed notes (cheap overlay, no re-render — safe to call every pass).
+    func markMissed(_ pairs: [(beat: Double, pitch: Int)]) {
+        let js = pairs.map { "[\($0.beat),\($0.pitch)]" }.joined(separator: ",")
+        webView?.evaluateJavaScript("window.markMissed([\(js)])")
+    }
+    func clearMissed() {
+        webView?.evaluateJavaScript("window.clearMissed()")
     }
 }
 

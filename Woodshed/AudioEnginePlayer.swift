@@ -38,6 +38,7 @@ final class AudioEnginePlayer: ObservableObject {
     private var lhAudible = true
     private var speakersOn = true
     private var playbackRate: Float = 1.0   // tempo % / 100 (1.0 = written tempo)
+    var startSeconds: Double = 0            // where playback begins (section start; 0 = whole piece)
 
     // Metronome: a generated click played through its own player node. It is driven
     // by the PLAYBACK clock (the sequencer position) against the piece's beat-time
@@ -119,7 +120,10 @@ final class AudioEnginePlayer: ObservableObject {
     /// Playback-synced: fire grid clicks as the sequencer position reaches them.
     private func startSynced() {
         stopMetroTimer()
-        nextClick = 0
+        // Skip clicks before the current position (playback may start mid-piece for a
+        // section, or loop back) so we don't fire a burst of past clicks.
+        let now = currentTime
+        nextClick = clickGrid.firstIndex { $0.time >= now - 0.02 } ?? clickGrid.count
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -291,7 +295,7 @@ final class AudioEnginePlayer: ObservableObject {
         guard isPlaying, let seq = sequencer else { return }   // may have been stopped mid count-in
         do {
             if !engine.isRunning { try engine.start() }
-            seq.currentPositionInSeconds = 0
+            seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
             if metronomeOn { startSynced() }
@@ -301,12 +305,29 @@ final class AudioEnginePlayer: ObservableObject {
         }
     }
 
+    /// Jump back to the section start for a loop: reposition, clear hanging sampler
+    /// notes, and re-sync the metronome to the new position.
+    func loopBackToStart() {
+        sequencer?.currentPositionInSeconds = startSeconds
+        allSamplerNotesOff()
+        if metronomeOn { startSynced() }
+    }
+
+    /// All-notes-off on both piano samplers (used when looping to avoid stuck notes).
+    private func allSamplerNotesOff() {
+        for ch: UInt8 in 0..<16 {
+            samplerRH.sendController(123, withValue: 0, onChannel: ch)
+            samplerLH.sendController(123, withValue: 0, onChannel: ch)
+        }
+    }
+
     func stop() {
         stopMetroTimer()
         if let seq = sequencer {
             if seq.isPlaying { seq.stop() }
-            seq.currentPositionInSeconds = 0
+            seq.currentPositionInSeconds = startSeconds
         }
+        allSamplerNotesOff()
         isPlaying = false
         isRunning = false
         if metronomeOn { startFreeRun() }   // resume the free-run click when stopped

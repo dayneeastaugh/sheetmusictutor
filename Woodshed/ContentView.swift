@@ -30,6 +30,10 @@ struct ContentView: View {
     @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
     @State private var colorHands = false           // colour noteheads by hand (RH blue / LH red)
     @State private var barsPerLine = 0              // measures per line/system (0 = auto)
+    // Section practice: play/loop a bar range instead of the whole piece.
+    @State private var sectionStart = 1             // first bar (1-based)
+    @State private var sectionEnd = 1               // last bar (inclusive)
+    @State private var loopSection = false          // repeat the section
     @State private var lastDiscreteBeat: Double = -1
     @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
     @State private var handMode = 0                 // 0 = both, 1 = RH only, 2 = LH only
@@ -52,8 +56,15 @@ struct ContentView: View {
 
     // Tempo/grade mode: play along at tempo; grade the pass afterwards.
     @State private var gradeMode = false
-    @State private var playedNotes: [(pitch: Int, time: Double)] = []   // what you played, with times
     @State private var gradeResult: GradeResult?
+    @State private var gradeHistory: [GradeResult] = []   // one entry per pass this session (progress)
+    // Real-time grading state for the current pass:
+    @State private var gradeExpected: [(pitch: Int, onset: Double, beat: Double, matched: Bool)] = []
+    @State private var gradeMissed: Set<Mistake> = []   // notes already flagged missed (ringed) this pass
+    @State private var gradeCheckIdx = 0                // expected notes up to here have had their window close
+    @State private var gradeHits = 0
+    @State private var gradeWrong = 0
+    @State private var gradeTiming: [Double] = []       // |timing error| of hits
     private let gradeTolerance = 0.30   // musical seconds; a note counts if within this of expected
 
     struct GradeResult {
@@ -103,6 +114,7 @@ struct ContentView: View {
         }
         .onAppear {
             audio.pianoClick = { level in midi.sendClick(level) }
+            bridge.onSelect = { start, end in sectionStart = start; sectionEnd = end }
             applyOutput()
             ingest()
         }
@@ -188,19 +200,36 @@ struct ContentView: View {
                 .fixedSize()
                 .onChange(of: outputMode) { _, _ in applyOutput() }
             }
+            HStack(spacing: 12) {
+                Text("Section").font(.subheadline).bold()
+                Stepper("bars \(sectionStart)–\(sectionEnd)", value: $sectionStart, in: 1...measureCount)
+                    .fixedSize()
+                    .onChange(of: sectionStart) { _, v in
+                        if sectionEnd < v { sectionEnd = v }
+                        onSectionChanged()
+                    }
+                Stepper("to \(sectionEnd)", value: $sectionEnd, in: sectionStart...measureCount)
+                    .fixedSize()
+                    .onChange(of: sectionEnd) { _, _ in onSectionChanged() }
+                Toggle("🔁 Loop", isOn: $loopSection).toggleStyle(.button)
+                Button("Whole piece") { sectionStart = 1; sectionEnd = measureCount; onSectionChanged() }
+                    .disabled(isFullPiece)
+                if !isFullPiece {
+                    Text("bars \(sectionStart)–\(sectionEnd) of \(measureCount)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         .onReceive(tick) { _ in advanceCursorWithPlayback() }
         .onChange(of: midi.activeNotes) { old, new in
             let added = new.subtracting(old)
             if added.isEmpty { return }
             if waitMode { handleWaitInput(added) }
-            if gradeMode, audio.isRunning {
-                let t = audio.currentTime
-                for p in added { playedNotes.append((pitch: p, time: t)) }
-            }
+            if gradeMode, audio.isRunning { handleGradeNoteOn(added) }
         }
         .onChange(of: audio.isPlaying) { was, now in
-            if was && !now && gradeMode { gradePass() }   // pass ended → grade it
+            // Stopped in Grade mode → tally the final (possibly partial) pass.
+            if was && !now && gradeMode { finalizeGradePass() }
         }
     }
 
@@ -211,47 +240,72 @@ struct ContentView: View {
         if on {
             if waitMode { setWaitMode(false) }
             gradeMode = true
-            playedNotes = []; gradeResult = nil
-            mistakesShown = false; bridge.clearMistakes()
+            gradeResult = nil; gradeHistory = []
+            startGradePass()
         } else {
             gradeMode = false
+            gradeResult = nil; gradeHistory = []
+            bridge.clearMissed()
         }
     }
 
-    /// Grade the just-finished pass: match played notes to expected ones (nearest of
-    /// the same pitch within tolerance), tally hits/missed/wrong + timing, mark misses.
-    private func gradePass() {
-        guard let events = score?.events else { return }
+    /// The section's expected notes (selected hands), sorted by onset, for grading.
+    private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double, matched: Bool)] {
+        guard let events = score?.events else { return [] }
         let rhOn = handMode != 2, lhOn = handMode != 1
-        let expected = events
-            .filter { ($0.hand == .left) ? lhOn : rhOn }
-            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
+        return events
+            .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
+            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat, matched: false) }
             .sorted { $0.onset < $1.onset }
-        let played = playedNotes.sorted { $0.time < $1.time }
-        var used = Array(repeating: false, count: played.count)
-        let tolerance = gradeTolerance   // musical seconds (auto-widens in real time at slow tempo)
-        var hits = 0, missed = 0
-        var absErrors: [Double] = []
-        var missedNotes: [(beat: Double, pitch: Int)] = []
-        for e in expected {
-            var best = -1, bestDelta = tolerance + 1
-            for j in played.indices where !used[j] && played[j].pitch == e.pitch {
-                let d = abs(played[j].time - e.onset)
-                if d <= tolerance && d < bestDelta { bestDelta = d; best = j }
+    }
+
+    /// Begin a fresh grading pass (Play start / each loop): reset tallies, wipe rings.
+    private func startGradePass() {
+        gradeExpected = buildGradeExpected()
+        gradeMissed = []; gradeCheckIdx = 0; gradeHits = 0; gradeWrong = 0; gradeTiming = []
+        bridge.markMissed([])
+    }
+
+    /// A note-on during a graded pass: match it to the nearest expected note (same
+    /// pitch, within tolerance of now) → hit; otherwise it's a wrong/extra note.
+    private func handleGradeNoteOn(_ added: Set<Int>) {
+        let t = audio.currentTime
+        for p in added {
+            var best = -1, bestD = gradeTolerance + 1
+            for i in gradeExpected.indices where !gradeExpected[i].matched && gradeExpected[i].pitch == p {
+                let d = abs(gradeExpected[i].onset - t)
+                if d <= gradeTolerance && d < bestD { bestD = d; best = i }
             }
             if best >= 0 {
-                used[best] = true; hits += 1
-                absErrors.append(abs(played[best].time - e.onset))
+                gradeExpected[best].matched = true; gradeHits += 1; gradeTiming.append(bestD)
             } else {
-                missed += 1; missedNotes.append((beat: e.beat, pitch: e.pitch))
+                gradeWrong += 1
             }
         }
-        let extra = used.filter { !$0 }.count
-        let total = expected.count
-        let avgMs = absErrors.isEmpty ? 0 : absErrors.reduce(0, +) / Double(absErrors.count) * 1000
-        gradeResult = GradeResult(accuracy: total > 0 ? Double(hits) / Double(total) : 0,
-                                  hits: hits, total: total, missed: missed, extra: extra, avgMs: avgMs)
-        if !missedNotes.isEmpty { bridge.markMistakes(missedNotes); mistakesShown = true }
+    }
+
+    /// On each tick, ring any expected note whose window has now closed unmatched —
+    /// so misses appear progressively as the cursor passes them.
+    private func advanceGradeMisses(_ t: Double) {
+        var changed = false
+        while gradeCheckIdx < gradeExpected.count && gradeExpected[gradeCheckIdx].onset + gradeTolerance < t {
+            let e = gradeExpected[gradeCheckIdx]
+            if !e.matched { gradeMissed.insert(Mistake(beat: e.beat, pitch: e.pitch)); changed = true }
+            gradeCheckIdx += 1
+        }
+        if changed { bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) }) }
+    }
+
+    /// Tally the finished pass into the progress history.
+    private func finalizeGradePass() {
+        let total = gradeExpected.count
+        guard total > 0 else { return }
+        let missed = gradeExpected.filter { !$0.matched }.count
+        let avgMs = gradeTiming.isEmpty ? 0 : gradeTiming.reduce(0, +) / Double(gradeTiming.count) * 1000
+        let r = GradeResult(accuracy: Double(gradeHits) / Double(total),
+                            hits: gradeHits, total: total, missed: missed, extra: gradeWrong, avgMs: avgMs)
+        gradeResult = r
+        gradeHistory.append(r)
     }
 
     // MARK: - Wait mode
@@ -297,6 +351,7 @@ struct ContentView: View {
         for e in events {
             let isLeft = e.hand == .left
             if isLeft ? !lhOn : !rhOn { continue }
+            if !inSection(e.notatedBeat) { continue }   // scope Wait mode to the section
             let key = Int((e.notatedBeat * 100).rounded())
             var entry = map[key] ?? (beat: e.notatedBeat, rh: [], lh: [])
             if isLeft { entry.lh.insert(e.pitch) } else { entry.rh.insert(e.pitch) }
@@ -355,6 +410,41 @@ struct ContentView: View {
         pianoSounding = []
     }
 
+    // MARK: - Section practice
+
+    private var measureCount: Int { max(1, score?.measureStartBeats.count ?? 1) }
+
+    /// Notated beat where the section begins.
+    private var sectionStartBeat: Double {
+        guard let m = score?.measureStartBeats, sectionStart - 1 < m.count, sectionStart >= 1 else { return 0 }
+        return m[sectionStart - 1]
+    }
+    /// Notated beat where the section ends (start of the bar after `sectionEnd`, or end of piece).
+    private var sectionEndBeat: Double {
+        guard let s = score else { return 0 }
+        return sectionEnd < s.measureStartBeats.count ? s.measureStartBeats[sectionEnd] : s.totalBeats
+    }
+    private var sectionStartTime: Double { score?.secondsAtBeat(sectionStartBeat) ?? 0 }
+    private var sectionEndTime: Double { score?.secondsAtBeat(sectionEndBeat) ?? scoreDuration }
+    private var isFullPiece: Bool { sectionStart <= 1 && sectionEnd >= measureCount }
+
+    /// Is a notated beat inside the current section? (Used to scope Wait/Grade.)
+    private func inSection(_ beat: Double) -> Bool {
+        beat >= sectionStartBeat - 0.001 && beat < sectionEndBeat - 0.001
+    }
+
+    /// React to a section change: update the on-score highlight, rebuild Wait steps,
+    /// or preview the cursor there.
+    private func onSectionChanged() {
+        if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
+        if waitMode {
+            waitSteps = buildWaitSteps(); waitIndex = 0
+            if waitSteps.isEmpty { setWaitMode(false) } else { showWaitStep(0) }
+        } else if !audio.isPlaying {
+            bridge.seek(sectionStartBeat)   // jump the cursor to the section start as a preview
+        }
+    }
+
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
     private func applyHands() {
         audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
@@ -384,11 +474,20 @@ struct ContentView: View {
                           : "✓ Complete") + "  ·  Fumbles: \(mistakes.count)")
                         .font(.caption).foregroundStyle(.green)
                 }
-                if gradeMode, let r = gradeResult {
-                    Text("Accuracy \(Int(r.accuracy * 100))%  ·  \(r.hits)/\(r.total)  ·  Missed \(r.missed)  ·  Wrong \(r.extra)  ·  ±\(Int(r.avgMs))ms")
-                        .font(.caption).foregroundStyle(r.accuracy >= 0.95 ? .green : .primary)
-                } else if gradeMode {
-                    Text("Press Play and play along").font(.caption).foregroundStyle(.secondary)
+                if gradeMode {
+                    if let r = gradeResult {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Pass \(gradeHistory.count): \(Int(r.accuracy * 100))%  ·  Missed \(r.missed)  ·  Wrong \(r.extra)  ·  ±\(Int(r.avgMs))ms")
+                                .foregroundStyle(r.accuracy >= 0.95 ? .green : .primary)
+                            if gradeHistory.count > 1 {
+                                Text("Progress " + gradeHistory.suffix(10).map { "\(Int($0.accuracy * 100))" }.joined(separator: "→") + "%")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                    } else {
+                        Text("Play along — turn on 🔁 Loop to grade every pass").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 if mistakesShown {
                     Text("Red = notes you fumbled").font(.caption).foregroundStyle(Color(red: 0.83, green: 0.18, blue: 0.18))
@@ -417,11 +516,12 @@ struct ContentView: View {
         if audio.isPlaying {
             audio.stop()
         } else {
-            if gradeMode {   // fresh recording for this pass
-                playedNotes = []; gradeResult = nil
-                mistakesShown = false; bridge.clearMistakes()
+            if gradeMode {   // fresh practice session: reset progress + start a pass
+                gradeResult = nil; gradeHistory = []
+                startGradePass()
             }
             resetCursor()
+            audio.startSeconds = sectionStartTime   // play from the section start
             audio.play(countInBars: countInBars)
         }
     }
@@ -446,8 +546,18 @@ struct ContentView: View {
         }
         guard audio.isRunning else { return }   // counting in — don't follow/emit notes yet
         let t = audio.currentTime
-        if scoreDuration > 0 && t > scoreDuration + 0.5 {   // reached the end
-            audio.stop()
+        // Reached the end of the section (or piece): loop it, or stop.
+        let endTime = sectionEndTime + 0.05
+        if endTime > 0 && t >= endTime {
+            if loopSection {
+                if gradeMode { finalizeGradePass() }   // tally the pass into the progress history
+                flushPianoOutput()
+                lastDiscreteBeat = -1
+                audio.loopBackToStart()   // jump to section start, clear hanging notes
+                if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
+            } else {
+                audio.stop()   // onChange(isPlaying) grades the final pass in Grade mode
+            }
             return
         }
         if cursorSmooth {
@@ -456,6 +566,8 @@ struct ContentView: View {
             let target = discreteBeat(at: t)
             if target != lastDiscreteBeat { lastDiscreteBeat = target; bridge.seek(target) }
         }
+
+        if gradeMode { advanceGradeMisses(t) }   // ring missed notes as the cursor passes them
 
         let events = score?.events ?? []
         // Keyboard highlight. In Grade mode, show the notes playable *now* (within the
@@ -593,6 +705,11 @@ struct ContentView: View {
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
+            sectionStart = 1
+            sectionEnd = fused.measureStartBeats.count      // whole piece by default
+            bridge.clearSelection()
+            bridge.clearMissed(); gradeResult = nil; gradeHistory = []
+            audio.startSeconds = 0
             audio.load(midiURL: midiURL, trackHands: fused.trackHands)
             applyHands()
             audio.configureMetronome(clickGrid: fused.clickGrid,

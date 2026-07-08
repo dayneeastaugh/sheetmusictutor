@@ -59,6 +59,9 @@ Per-hand ingestion audit: `xmlSoundingCount`, `midiCount`, `matched`, `ornamentR
 - `clickGrid: [(time, level: ClickLevel)]` — metronome click times + emphasis, from barlines/meter
 - `metronomeBarPattern: [ClickLevel]` + `metronomePulseSeconds` — for count-in & free-run metronome
 - `trackHands: [Hand]` — MIDI track → hand, for per-hand audio routing
+- `measureStartBeats: [Double]`, `totalBeats: Double`, `secondsAtBeat: (Double) -> Double` — bar
+  structure + beat→seconds converter, for **section practice** (bar range → beat range → play/loop
+  time range)
 - `reconciliations: [Reconciliation]`
 
 ### Runtime-only structs (in `ContentView`, not persisted)

@@ -133,6 +133,10 @@ struct FusedScore {
     var metronomeBarPattern: [ClickLevel]
     var metronomePulseSeconds: Double
     var trackHands: [Hand]      // MIDI track → hand, for per-hand audio routing
+    // Section-practice support: bar structure + a beat→seconds converter.
+    var measureStartBeats: [Double]        // notated start beat of each measure (bar N-1 = index)
+    var totalBeats: Double                 // notated length of the whole piece, in quarter beats
+    var secondsAtBeat: (Double) -> Double  // convert any notated beat to playback seconds (tempo map)
     var reconciliations: [Reconciliation]
 }
 
