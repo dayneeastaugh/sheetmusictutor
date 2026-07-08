@@ -32,10 +32,13 @@ final class AudioEnginePlayer: ObservableObject {
     // grid, so clicks land on the beats as they play — following tempo changes/rubato.
     private let clickNode = AVAudioPlayerNode()
     private var clickFormat: AVAudioFormat!
-    private var clickBuffer: AVAudioPCMBuffer?
-    private var accentBuffer: AVAudioPCMBuffer?
+    private var downbeatBuf: AVAudioPCMBuffer?   // strong (bar downbeat)
+    private var beatBuf: AVAudioPCMBuffer?       // medium (main beat)
+    private var subBuf: AVAudioPCMBuffer?        // light (subdivision)
     private var metroTimer: DispatchSourceTimer?
-    private var clickGrid: [(time: Double, accent: Bool)] = []  // click times + downbeat flags
+    private var clickGrid: [(time: Double, level: ClickLevel)] = []  // synced click times + emphasis
+    private var barPattern: [ClickLevel] = []    // one bar of pulses (count-in / free-run)
+    private var pulseSeconds: Double = 0.5       // seconds between pulses at the initial tempo
     private var nextClick = 0
     private let metroQueue = DispatchQueue(label: "woodshed.metronome", qos: .userInteractive)
 
@@ -46,8 +49,9 @@ final class AudioEnginePlayer: ObservableObject {
         let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
         clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
         engine.connect(clickNode, to: engine.mainMixerNode, format: clickFormat)
-        clickBuffer  = makeClick(frequency: 1000, amplitude: 0.5)  // normal beat
-        accentBuffer = makeClick(frequency: 1500, amplitude: 0.7)  // downbeat
+        downbeatBuf = makeClick(frequency: 1600, amplitude: 0.72)  // strong
+        beatBuf     = makeClick(frequency: 1200, amplitude: 0.55)  // medium
+        subBuf      = makeClick(frequency: 900,  amplitude: 0.38)  // light
         do {
             try engine.start()
             clickNode.play()
@@ -74,31 +78,75 @@ final class AudioEnginePlayer: ObservableObject {
 
     // MARK: - Metronome
 
-    /// Provide the precomputed click grid (click times + downbeat accents) for the piece.
-    func configureMetronome(clickGrid: [(time: Double, accent: Bool)]) {
+    /// Provide the piece's synced click grid plus the one-bar pattern + pulse spacing
+    /// used for the count-in and the free-running (no-playback) metronome.
+    func configureMetronome(clickGrid: [(time: Double, level: ClickLevel)],
+                            barPattern: [ClickLevel], pulseSeconds: Double) {
         self.clickGrid = clickGrid
+        self.barPattern = barPattern
+        self.pulseSeconds = pulseSeconds
+        if metronomeOn && !isPlaying { startFreeRun() }   // pick up the new tempo/meter
     }
 
-    /// Toggle the metronome. It only sounds while playback is running, and it clicks
-    /// on the piece's barlines/pulses (in sync with the music).
+    /// Toggle the metronome. While playing it locks to the music; while stopped it
+    /// free-runs at the score tempo so you can practise without the recording.
     func setMetronome(_ on: Bool) {
         metronomeOn = on
-        if on && isPlaying { startMetroTimer() } else { stopMetroTimer() }
+        stopMetroTimer()
+        if on { isPlaying ? startSynced() : startFreeRun() }
     }
 
-    private func startMetroTimer() {
+    /// Playback-synced: fire grid clicks as the sequencer position reaches them.
+    private func startSynced() {
         stopMetroTimer()
         nextClick = 0
-        // Poll the playback position often (~4 ms) and fire any clicks we've reached.
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             let t = self.currentTime
             while self.nextClick < self.clickGrid.count && self.clickGrid[self.nextClick].time <= t {
-                self.click(accent: self.clickGrid[self.nextClick].accent)
+                self.click(self.clickGrid[self.nextClick].level)
                 self.nextClick += 1
             }
+        }
+        metroTimer = timer
+        timer.resume()
+    }
+
+    /// Free-running: click the bar pattern on a steady timer, no playback needed.
+    private func startFreeRun() {
+        stopMetroTimer()
+        guard !barPattern.isEmpty, pulseSeconds > 0 else { return }
+        var idx = 0
+        let timer = DispatchSource.makeTimerSource(queue: metroQueue)
+        timer.schedule(deadline: .now(), repeating: pulseSeconds, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.click(self.barPattern[idx % self.barPattern.count])
+            idx += 1
+        }
+        metroTimer = timer
+        timer.resume()
+    }
+
+    /// Click N bars of the pattern, then call `completion` on the next downbeat.
+    private func startCountIn(bars: Int, completion: @escaping () -> Void) {
+        stopMetroTimer()
+        guard bars > 0, !barPattern.isEmpty, pulseSeconds > 0 else { completion(); return }
+        let total = bars * barPattern.count
+        var idx = 0
+        let timer = DispatchSource.makeTimerSource(queue: metroQueue)
+        timer.schedule(deadline: .now(), repeating: pulseSeconds, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if idx >= total {
+                timer.cancel()
+                DispatchQueue.main.async { completion() }
+                return
+            }
+            self.click(self.barPattern[idx % self.barPattern.count])
+            idx += 1
         }
         metroTimer = timer
         timer.resume()
@@ -108,9 +156,15 @@ final class AudioEnginePlayer: ObservableObject {
         metroTimer?.cancel(); metroTimer = nil
     }
 
-    private func click(accent: Bool) {
-        guard let buf = accent ? accentBuffer : clickBuffer else { return }
-        clickNode.scheduleBuffer(buf, at: nil, options: .interrupts, completionHandler: nil)
+    private func click(_ level: ClickLevel) {
+        let buf: AVAudioPCMBuffer?
+        switch level {
+        case .downbeat: buf = downbeatBuf
+        case .beat:     buf = beatBuf
+        case .sub:      buf = subBuf
+        }
+        guard let b = buf else { return }
+        clickNode.scheduleBuffer(b, at: nil, options: .interrupts, completionHandler: nil)
     }
 
     /// Load the system GM sound bank and select Acoustic Grand Piano (program 0).
@@ -145,16 +199,28 @@ final class AudioEnginePlayer: ObservableObject {
     /// Real elapsed playback time in seconds (same time base as our parsed onsets).
     var currentTime: TimeInterval { sequencer?.currentPositionInSeconds ?? 0 }
 
-    func play() {
-        guard let seq = sequencer else { return }
+    /// Start playback, optionally preceded by an N-bar count-in.
+    func play(countInBars: Int = 0) {
+        guard sequencer != nil else { return }
+        isPlaying = true          // reflect immediately; count-in counts as "playing"
+        stopMetroTimer()          // stop any free-run click
+        if countInBars > 0 {
+            startCountIn(bars: countInBars) { [weak self] in self?.reallyStart() }
+        } else {
+            reallyStart()
+        }
+    }
+
+    private func reallyStart() {
+        guard isPlaying, let seq = sequencer else { return }   // may have been stopped mid count-in
         do {
             if !engine.isRunning { try engine.start() }
             seq.currentPositionInSeconds = 0
             try seq.start()
-            isPlaying = true
-            if metronomeOn { startMetroTimer() }
+            if metronomeOn { startSynced() }
         } catch {
             status = "play error: \(error.localizedDescription)"
+            isPlaying = false
         }
     }
 
@@ -165,5 +231,6 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = 0
         }
         isPlaying = false
+        if metronomeOn { startFreeRun() }   // resume the free-run click when stopped
     }
 }

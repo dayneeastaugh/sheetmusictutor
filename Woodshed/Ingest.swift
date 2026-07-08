@@ -138,12 +138,20 @@ enum Ingest {
 
         events.sort { ($0.onsetSeconds, $0.pitch) < ($1.onsetSeconds, $1.pitch) }
 
+        // First full bar's meter drives the count-in / free-run pattern.
+        let firstFull = xml.measures.first { $0.lengthBeats >= Double($0.num) * 4 / Double($0.den) - 0.01 }
+        let fm = firstFull ?? (startBeat: 0, lengthBeats: 4, num: 4, den: 4)
+        let barPattern = (0..<max(1, fm.num)).map { clickLevel(pulseIndex: $0, num: fm.num, den: fm.den) }
+        let pulseSeconds = (4.0 / Double(fm.den)) * (60.0 / tempo)
+
         return FusedScore(tempoBPM: tempo,
                           timeSignature: xml.timeSignature ?? midi.timeSignature,
                           keyFifths: xml.keyFifths,
                           events: events,
                           clickGrid: buildClickGrid(measures: xml.measures,
                                                     secondsAtBeat: midi.secondsAtBeat),
+                          metronomeBarPattern: barPattern,
+                          metronomePulseSeconds: pulseSeconds,
                           reconciliations: reconciliations)
     }
 
@@ -189,14 +197,24 @@ enum Ingest {
 
     // MARK: - Metronome click grid
 
+    /// Emphasis for a pulse within a bar: index 0 is the downbeat; in compound
+    /// meters (x/8, x divisible by 3) every third subdivision is a main beat and the
+    /// rest are light subdivisions; simple meters treat every beat as a main beat.
+    static func clickLevel(pulseIndex: Int, num: Int, den: Int) -> ClickLevel {
+        if pulseIndex == 0 { return .downbeat }
+        let compound = (den == 8 && num % 3 == 0)
+        if compound { return pulseIndex % 3 == 0 ? .beat : .sub }
+        return .beat
+    }
+
     /// Build metronome clicks from the actual barlines and each measure's meter.
-    /// The first pulse of every *full* bar is a downbeat accent; a short pickup
-    /// measure gets an un-accented click so the first accent lands on bar 1.
+    /// The first pulse of every *full* bar is a downbeat; a short pickup measure gets
+    /// light clicks so the first strong beat lands on bar 1.
     private static func buildClickGrid(
         measures: [(startBeat: Double, lengthBeats: Double, num: Int, den: Int)],
         secondsAtBeat: (Double) -> Double
-    ) -> [(time: Double, accent: Bool)] {
-        var grid: [(time: Double, accent: Bool)] = []
+    ) -> [(time: Double, level: ClickLevel)] {
+        var grid: [(time: Double, level: ClickLevel)] = []
         for m in measures {
             // Click the beat unit named by the denominator: eighths for x/8
             // (so 12/8 clicks all 12 eighths), quarters for x/4, etc.
@@ -204,11 +222,12 @@ enum Ingest {
             let fullBarBeats = Double(m.num) * 4.0 / Double(m.den)
             let isFullBar = m.lengthBeats >= fullBarBeats - 0.01
             var b = m.startBeat
-            var first = true
+            var index = 0
             let end = m.startBeat + m.lengthBeats
             while b < end - 1e-6 {
-                grid.append((time: secondsAtBeat(b), accent: first && isFullBar))
-                first = false
+                let level: ClickLevel = isFullBar ? clickLevel(pulseIndex: index, num: m.num, den: m.den) : .sub
+                grid.append((time: secondsAtBeat(b), level: level))
+                index += 1
                 b += pulse
             }
         }

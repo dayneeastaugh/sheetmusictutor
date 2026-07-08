@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var scoreDuration: Double = 0
     @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
     @State private var lastDiscreteBeat: Double = -1
+    @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
     // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
@@ -89,6 +90,13 @@ struct ContentView: View {
             HStack {
                 Button(audio.isPlaying ? "◼ Stop" : "▶︎ Play") { togglePlay() }
                     .keyboardShortcut(.space, modifiers: [])
+                Picker("Count-in", selection: $countInBars) {
+                    Text("No count-in").tag(0)
+                    Text("1-bar count-in").tag(1)
+                    Text("2-bar count-in").tag(2)
+                }
+                .labelsHidden()
+                .disabled(audio.isPlaying)
                 Toggle("🎵 Metronome", isOn: Binding(
                     get: { audio.metronomeOn },
                     set: { audio.setMetronome($0) }))
@@ -114,7 +122,7 @@ struct ContentView: View {
             audio.stop()
         } else {
             resetCursor()
-            audio.play()
+            audio.play(countInBars: countInBars)
         }
     }
 
@@ -236,7 +244,9 @@ struct ContentView: View {
             schedule = beatSchedule(fused.events)
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
             audio.load(midiURL: midiURL)
-            audio.configureMetronome(clickGrid: fused.clickGrid)
+            audio.configureMetronome(clickGrid: fused.clickGrid,
+                                     barPattern: fused.metronomeBarPattern,
+                                     pulseSeconds: fused.metronomePulseSeconds)
             print("=== Woodshed fused: \(sampleName) — \(fused.events.count) events, tempo \(fused.tempoBPM) ===")
             for r in fused.reconciliations {
                 print("\(r.hand.rawValue): XML=\(r.xmlSoundingCount) MIDI=\(r.midiCount) matched=\(r.matched) " +

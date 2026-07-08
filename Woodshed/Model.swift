@@ -115,14 +115,22 @@ struct Reconciliation {
                         && matched + ornamentRealizations == midiCount }
 }
 
+/// Metronome click emphasis. Compound meters (e.g. 12/8) use all three tiers:
+/// strong downbeat, medium on each main beat, light on the other subdivisions.
+enum ClickLevel { case downbeat, beat, sub }
+
 struct FusedScore {
     var tempoBPM: Double
     var timeSignature: (num: Int, den: Int)?
     var keyFifths: Int
     var events: [NoteEvent]     // sorted by onset
-    // Metronome click grid: playback time (seconds) of each click + whether it's a
-    // bar downbeat (accent). Built from barlines + per-measure meter.
-    var clickGrid: [(time: Double, accent: Bool)]
+    // Metronome click grid: playback time (seconds) of each click + its emphasis.
+    // Built from barlines + per-measure meter (drives the playback-synced metronome).
+    var clickGrid: [(time: Double, level: ClickLevel)]
+    // One full bar of pulse levels + the seconds between pulses at the initial tempo,
+    // used for the count-in and the free-running (no-playback) metronome.
+    var metronomeBarPattern: [ClickLevel]
+    var metronomePulseSeconds: Double
     var reconciliations: [Reconciliation]
 }
 
