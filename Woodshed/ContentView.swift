@@ -28,11 +28,13 @@ struct ContentView: View {
     @State private var schedule: [(time: Double, beat: Double)] = []
     @State private var scoreDuration: Double = 0
     @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
+    @State private var colorHands = false           // colour noteheads by hand (RH blue / LH red)
     @State private var lastDiscreteBeat: Double = -1
     @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
     @State private var handMode = 0                 // 0 = both, 1 = RH only, 2 = LH only
     @State private var tempoPct: Double = 100        // playback tempo percentage
-    @State private var scoreLitNotes: Set<Int> = []  // score notes sounding now (on the keyboard)
+    @State private var scoreLitRH: Set<Int> = []     // score notes sounding now — right hand
+    @State private var scoreLitLH: Set<Int> = []     // score notes sounding now — left hand
     @State private var showScoreNotes = true         // light up score notes during playback
     @State private var outputMode = 0                // 0 = PC speakers, 1 = piano, 2 = both
     @State private var pianoSounding: Set<Int> = []  // notes currently sent to the piano (MIDI out)
@@ -116,6 +118,10 @@ struct ContentView: View {
                 Toggle(cursorSmooth ? "⟿ Smooth" : "⇥ Step", isOn: $cursorSmooth)
                     .toggleStyle(.button)
                     .help("Cursor motion: smooth glide vs. jump note-to-note")
+                Toggle("🎨 Colour hands", isOn: $colorHands)
+                    .toggleStyle(.button)
+                    .onChange(of: colorHands) { _, v in bridge.setHandColors(v) }
+                    .help("Colour noteheads: right hand blue, left hand red")
                 Button("Step cursor ▶") { cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "next") }
                     .disabled(audio.isPlaying)
                 Button("Reset ⟲") { resetCursor() }
@@ -185,10 +191,11 @@ struct ContentView: View {
                 Text(midi.status).font(.caption).foregroundStyle(.secondary)
             }
             PianoKeyboardView(litNotes: midi.activeNotes,
-                              scoreNotes: showScoreNotes ? scoreLitNotes : [],
+                              scoreRH: showScoreNotes ? scoreLitRH : [],
+                              scoreLH: showScoreNotes ? scoreLitLH : [],
                               onPress: { audio.playNote($0) },
                               onRelease: { audio.stopNote($0) })
-            Text("Green = you playing · Blue = the score. Play your piano to light up keys — or click the keyboard to test.")
+            Text("Green = you · Score notes: RH blue, LH red (single blue if hand-colour is off). Click the keyboard to test.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
@@ -214,10 +221,12 @@ struct ContentView: View {
     /// the latest note's exact notated beat when it changes.
     private func advanceCursorWithPlayback() {
         guard audio.isPlaying else {
-            if !scoreLitNotes.isEmpty { scoreLitNotes = [] }
+            if !scoreLitRH.isEmpty { scoreLitRH = [] }
+            if !scoreLitLH.isEmpty { scoreLitLH = [] }
             flushPianoOutput()
             return
         }
+        guard audio.isRunning else { return }   // counting in — don't follow/emit notes yet
         let t = audio.currentTime
         if scoreDuration > 0 && t > scoreDuration + 0.5 {   // reached the end
             audio.stop()
@@ -231,13 +240,19 @@ struct ContentView: View {
         }
 
         let events = score?.events ?? []
-        // Light up the score notes currently sounding, on the keyboard.
+        // Light up the score notes currently sounding, on the keyboard — split by hand
+        // (RH blue, LH red) when hand-colouring is on, else all in one set (blue).
         if showScoreNotes {
-            let sounding = Set(events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
-                                     .map(\.pitch))
-            if sounding != scoreLitNotes { scoreLitNotes = sounding }
-        } else if !scoreLitNotes.isEmpty {
-            scoreLitNotes = []
+            let now = events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
+            let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))   // right + unknown
+            let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
+            let newRH = colorHands ? rh : rh.union(lh)
+            let newLH = colorHands ? lh : []
+            if newRH != scoreLitRH { scoreLitRH = newRH }
+            if newLH != scoreLitLH { scoreLitLH = newLH }
+        } else {
+            if !scoreLitRH.isEmpty { scoreLitRH = [] }
+            if !scoreLitLH.isEmpty { scoreLitLH = [] }
         }
 
         // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.

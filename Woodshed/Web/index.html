@@ -67,6 +67,7 @@
         osmd.render();
         if (osmd.cursor) { osmd.cursor.show(); }
         buildAnchors();
+        if (handColors) { recolorAndRerender(); }   // reapply hand colours after a fresh load
         pendingRender = false;
         post("loaded svg=" + c.querySelectorAll("svg").length + " containerW=" + c.clientWidth);
       } else {
@@ -131,19 +132,74 @@
       }
       el.style.left = x + "px";
       el.style.top = top + "px";
+      followScroll(top);
     };
+
+    // Follow-scroll: keep the active system near the top so the current line and the
+    // next line stay in view. We translate the notation up with a CSS transform
+    // (not window.scrollTo) because the WKWebView isn't internally scrollable — a
+    // transform works whether or not the host view scrolls. Only updates on a line
+    // change, so the horizontal glide within a line isn't disturbed; the shift is
+    // animated for smoothness.
+    var lastScrollTop = -1;
+    function followScroll(top) {
+      if (top === lastScrollTop) return;
+      lastScrollTop = top;
+      var c = document.getElementById("osmdContainer");
+      c.style.transition = "transform 0.35s ease";
+      c.style.transform = "translateY(" + (-Math.max(0, top - 20)) + "px)";
+    }
 
     window.cursorNext = function () {
       try { osmd.cursor.next(); } catch (e) {}
     };
     window.cursorReset = function () {
-      try { osmd.cursor.reset(); osmd.cursor.show(); } catch (e) {}
+      try {
+        osmd.cursor.reset(); osmd.cursor.show();
+        lastScrollTop = -1;
+        var c = document.getElementById("osmdContainer");
+        c.style.transition = "transform 0.35s ease";
+        c.style.transform = "translateY(0px)";
+      } catch (e) {}
     };
     // Advance the cursor by k steps in one call (used by timed playback so we don't
     // pay a JS round-trip per note).
     window.cursorForward = function (k) {
       try { for (var i = 0; i < k; i++) { osmd.cursor.next(); } } catch (e) {}
     };
+    // Per-hand note colouring. null = default black; else {rh, lh} hex colours.
+    // staffIndex 0 = top staff (RH), 1 = bottom staff (LH).
+    var handColors = null;
+    function applyNoteColors() {
+      if (!osmd.graphic || !osmd.graphic.measureList) return;
+      var ml = osmd.graphic.measureList;
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row) continue;
+        for (var s = 0; s < row.length; s++) {
+          var color = handColors ? (s === 0 ? handColors.rh : handColors.lh) : "#000000";
+          var gm = row[s]; if (!gm || !gm.staffEntries) continue;
+          gm.staffEntries.forEach(function (se) {
+            (se.graphicalVoiceEntries || []).forEach(function (gve) {
+              (gve.notes || []).forEach(function (n) {
+                if (n.sourceNote) { n.sourceNote.NoteheadColor = color; }
+              });
+            });
+          });
+        }
+      }
+    }
+    // Re-render with the colours applied, then rebuild the cursor anchors.
+    function recolorAndRerender() {
+      applyNoteColors();
+      osmd.render();
+      buildAnchors();
+      if (osmd.cursor) { osmd.cursor.show(); }
+    }
+    window.setHandColorMode = function (on, rh, lh) {
+      handColors = on ? { rh: rh, lh: lh } : null;
+      recolorAndRerender();
+    };
+
     // Move the cursor to a notated beat position (quarter beats from the start).
     // Steps forward using OSMD's own timestamps, so it self-corrects and is robust
     // to swing, rubato, and rest-only stops. qTarget is in quarter-note beats.

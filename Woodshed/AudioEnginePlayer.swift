@@ -19,7 +19,8 @@ import AVFoundation
 import Combine
 
 final class AudioEnginePlayer: ObservableObject {
-    @Published var isPlaying = false
+    @Published var isPlaying = false     // includes the count-in
+    @Published var isRunning = false     // the sequencer clock is actually advancing
     @Published var metronomeOn = false
     @Published var status = ""
 
@@ -261,6 +262,7 @@ final class AudioEnginePlayer: ObservableObject {
     func play(countInBars: Int = 0) {
         guard sequencer != nil else { return }
         isPlaying = true          // reflect immediately; count-in counts as "playing"
+        isRunning = false         // ...but the clock isn't advancing during the count-in
         stopMetroTimer()          // stop any free-run click
         if countInBars > 0 {
             startCountIn(bars: countInBars) { [weak self] in self?.reallyStart() }
@@ -275,6 +277,7 @@ final class AudioEnginePlayer: ObservableObject {
             if !engine.isRunning { try engine.start() }
             seq.currentPositionInSeconds = 0
             try seq.start()
+            isRunning = true
             if metronomeOn { startSynced() }
         } catch {
             status = "play error: \(error.localizedDescription)"
@@ -289,6 +292,7 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = 0
         }
         isPlaying = false
+        isRunning = false
         if metronomeOn { startFreeRun() }   // resume the free-run click when stopped
     }
 }

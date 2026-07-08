@@ -36,6 +36,11 @@ final class NotationBridge: ObservableObject {
     func seek(_ beat: Double) {
         webView?.evaluateJavaScript("window.cursorSeekBeat(\(beat))")
     }
+
+    /// Colour noteheads by hand (RH blue, LH red) or restore default black.
+    func setHandColors(_ on: Bool) {
+        webView?.evaluateJavaScript("window.setHandColorMode(\(on), '#1565C0', '#C62828')")
+    }
 }
 
 /// A cursor command with a nonce, so SwiftUI can tell us "run this again" by

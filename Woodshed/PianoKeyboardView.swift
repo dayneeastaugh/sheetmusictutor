@@ -12,14 +12,20 @@ import SwiftUI
 struct PianoKeyboardView: View {
     /// Notes you're playing on the MIDI piano (highlighted green).
     var litNotes: Set<Int>
-    /// Notes sounding in the score during playback (highlighted blue).
-    var scoreNotes: Set<Int> = []
+    /// Score notes sounding now — right hand (blue) and left hand (red). When hand
+    /// colouring is off, the app puts everything in `scoreRH` so it all shows blue.
+    var scoreRH: Set<Int> = []
+    var scoreLH: Set<Int> = []
     /// Called when a key is pressed / released by mouse or touch (for testing).
     var onPress: (Int) -> Void = { _ in }
     var onRelease: (Int) -> Void = { _ in }
 
     private let low = 21    // A0 — full 88-key piano
     private let high = 108  // C8
+
+    // Match the notation's hand colours (RH #1565C0, LH #C62828).
+    private static let rhColor = Color(red: 21 / 255, green: 101 / 255, blue: 192 / 255)
+    private static let lhColor = Color(red: 198 / 255, green: 40 / 255, blue: 40 / 255)
 
     @State private var mouseNote: Int? = nil
 
@@ -30,11 +36,12 @@ struct PianoKeyboardView: View {
     /// Everything to draw as "played by you": live MIDI notes plus the mouse-held note.
     private var lit: Set<Int> { mouseNote.map { litNotes.union([$0]) } ?? litNotes }
 
-    /// Key colour: your notes win (green), then the score's notes (blue), else the
-    /// natural key colour.
+    /// Key colour: your notes win (green), then the score's notes by hand
+    /// (RH blue, LH red), else the natural key colour.
     private func color(_ note: Int, white: Bool) -> Color {
         if lit.contains(note) { return white ? Color.green.opacity(0.75) : Color.green }
-        if scoreNotes.contains(note) { return white ? Color.blue.opacity(0.55) : Color.blue.opacity(0.85) }
+        if scoreRH.contains(note) { return white ? Self.rhColor.opacity(0.6) : Self.rhColor }
+        if scoreLH.contains(note) { return white ? Self.lhColor.opacity(0.6) : Self.lhColor }
         return white ? .white : .black
     }
 
