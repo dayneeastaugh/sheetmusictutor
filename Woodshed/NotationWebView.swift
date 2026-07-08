@@ -46,6 +46,16 @@ final class NotationBridge: ObservableObject {
     func setMeasuresPerSystem(_ n: Int) {
         webView?.evaluateJavaScript("window.setMeasuresPerSystem(\(n))")
     }
+
+    /// Mark noteheads red for review: `pairs` are (notated beat, MIDI pitch).
+    func markMistakes(_ pairs: [(beat: Double, pitch: Int)]) {
+        let js = pairs.map { "[\($0.beat),\($0.pitch)]" }.joined(separator: ",")
+        webView?.evaluateJavaScript("window.markMistakes([\(js)])")
+    }
+    /// Restore normal note colours (clear the mistake marks).
+    func clearMistakes() {
+        webView?.evaluateJavaScript("window.clearMistakes()")
+    }
 }
 
 /// A cursor command with a nonce, so SwiftUI can tell us "run this again" by

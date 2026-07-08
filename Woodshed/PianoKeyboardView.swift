@@ -16,6 +16,8 @@ struct PianoKeyboardView: View {
     /// colouring is off, the app puts everything in `scoreRH` so it all shows blue.
     var scoreRH: Set<Int> = []
     var scoreLH: Set<Int> = []
+    /// Wait mode: colour held notes that aren't currently required as wrong (red).
+    var flagWrong: Bool = false
     /// Called when a key is pressed / released by mouse or touch (for testing).
     var onPress: (Int) -> Void = { _ in }
     var onRelease: (Int) -> Void = { _ in }
@@ -36,10 +38,15 @@ struct PianoKeyboardView: View {
     /// Everything to draw as "played by you": live MIDI notes plus the mouse-held note.
     private var lit: Set<Int> { mouseNote.map { litNotes.union([$0]) } ?? litNotes }
 
-    /// Key colour: your notes win (green), then the score's notes by hand
-    /// (RH blue, LH red), else the natural key colour.
+    /// Key colour: a held note is green if it's wanted (or any note outside Wait
+    /// mode), red if it's a wrong note in Wait mode; otherwise the score's notes by
+    /// hand (RH blue, LH red), else the natural key colour.
     private func color(_ note: Int, white: Bool) -> Color {
-        if lit.contains(note) { return white ? Color.green.opacity(0.75) : Color.green }
+        if lit.contains(note) {
+            let wanted = scoreRH.contains(note) || scoreLH.contains(note)
+            if flagWrong && !wanted { return white ? Color.red.opacity(0.7) : Color.red }
+            return white ? Color.green.opacity(0.75) : Color.green
+        }
         if scoreRH.contains(note) { return white ? Self.rhColor.opacity(0.6) : Self.rhColor }
         if scoreLH.contains(note) { return white ? Self.lhColor.opacity(0.6) : Self.lhColor }
         return white ? .white : .black

@@ -210,6 +210,46 @@
       recolorAndRerender();
     };
 
+    // Mistake review: colour specific noteheads red so the player can see what they
+    // got wrong. `pairs` is [[beatQuarters, midiPitch], …]. Matched against each
+    // note's absolute beat and pitch (OSMD halfTone + 12 = MIDI).
+    window.markMistakes = function (pairs) {
+      var want = {};
+      pairs.forEach(function (p) { want[Math.round(p[0] * 100) + ":" + p[1]] = true; });
+      applyNoteColors();   // reset to the baseline (hand colours / black) first
+      var ml = osmd.graphic.measureList;
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row) continue;
+        for (var s = 0; s < row.length; s++) {
+          var gm = row[s]; if (!gm || !gm.staffEntries) continue;
+          gm.staffEntries.forEach(function (se) {
+            var sse = se.sourceStaffEntry;
+            if (!sse || !sse.AbsoluteTimestamp) return;
+            var key0 = Math.round(sse.AbsoluteTimestamp.RealValue * 4 * 100);
+            (se.graphicalVoiceEntries || []).forEach(function (gve) {
+              (gve.notes || []).forEach(function (n) {
+                var sn = n.sourceNote;
+                if (sn && sn.halfTone != null && want[key0 + ":" + (sn.halfTone + 12)]) {
+                  sn.NoteheadColor = "#D32F2F";   // red
+                }
+              });
+            });
+          });
+        }
+      }
+      recolorAndRerenderKeepingColors();
+    };
+    // Re-render without resetting note colours (markMistakes already set them).
+    function recolorAndRerenderKeepingColors() {
+      osmd.render();
+      buildAnchors();
+      if (osmd.cursor) { osmd.cursor.show(); }
+      lastScrollTop = -1;
+      var c = document.getElementById("osmdContainer");
+      if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
+    }
+    window.clearMistakes = function () { recolorAndRerender(); };
+
     // Move the cursor to a notated beat position (quarter beats from the start).
     // Steps forward using OSMD's own timestamps, so it self-corrects and is robust
     // to swing, rubato, and rest-only stops. qTarget is in quarter-note beats.

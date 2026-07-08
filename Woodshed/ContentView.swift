@@ -39,6 +39,16 @@ struct ContentView: View {
     @State private var showScoreNotes = true         // light up score notes during playback
     @State private var outputMode = 0                // 0 = PC speakers, 1 = piano, 2 = both
     @State private var pianoSounding: Set<Int> = []  // notes currently sent to the piano (MIDI out)
+    // Wait mode: step through the score, advancing only when you play the right notes.
+    @State private var waitMode = false
+    @State private var waitSteps: [(beat: Double, rh: Set<Int>, lh: Set<Int>)] = []
+    @State private var waitIndex = 0
+    @State private var waitPlayed: Set<Int> = []     // note-ons accumulated for the current step
+    @State private var mistakes: Set<Mistake> = []   // notes at steps where a wrong note was played
+    @State private var mistakesShown = false         // mistakes currently marked red on the score
+
+    /// A fumbled note position, for the review marks.
+    private struct Mistake: Hashable { let beat: Double; let pitch: Int }
     // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
@@ -105,6 +115,7 @@ struct ContentView: View {
             HStack {
                 Button(audio.isPlaying ? "◼ Stop" : "▶︎ Play") { togglePlay() }
                     .keyboardShortcut(.space, modifiers: [])
+                    .disabled(waitMode)
                 Picker("Count-in", selection: $countInBars) {
                     Text("No count-in").tag(0)
                     Text("1-bar count-in").tag(1)
@@ -164,6 +175,96 @@ struct ContentView: View {
             }
         }
         .onReceive(tick) { _ in advanceCursorWithPlayback() }
+        .onChange(of: midi.activeNotes) { old, new in
+            let added = new.subtracting(old)
+            if waitMode, !added.isEmpty { handleWaitInput(added) }
+        }
+    }
+
+    // MARK: - Wait mode
+
+    /// Turn Wait mode on/off. On: stop playback, build the step list (per selected
+    /// hands), and park on the first note. Off: clear and reset the cursor.
+    private func setWaitMode(_ on: Bool) {
+        waitMode = on
+        if on {
+            audio.stop()
+            mistakes = []; mistakesShown = false
+            bridge.clearMistakes()
+            waitSteps = buildWaitSteps()
+            waitIndex = 0
+            if waitSteps.isEmpty { waitMode = false; return }
+            showWaitStep(0)
+        } else {
+            scoreLitRH = []; scoreLitLH = []
+            // On exit, mark the fumbled notes red on the score for review.
+            if !mistakes.isEmpty {
+                bridge.markMistakes(mistakes.map { (beat: $0.beat, pitch: $0.pitch) })
+                mistakesShown = true
+            } else {
+                resetCursor()
+            }
+        }
+    }
+
+    private func clearMistakeMarks() {
+        bridge.clearMistakes()
+        mistakes = []
+        mistakesShown = false
+        resetCursor()
+    }
+
+    /// Group the score into steps (one per notated beat that has notes for the
+    /// selected hands), each carrying the required RH/LH pitches.
+    private func buildWaitSteps() -> [(beat: Double, rh: Set<Int>, lh: Set<Int>)] {
+        guard let events = score?.events else { return [] }
+        let rhOn = handMode != 2, lhOn = handMode != 1
+        var map: [Int: (beat: Double, rh: Set<Int>, lh: Set<Int>)] = [:]
+        for e in events {
+            let isLeft = e.hand == .left
+            if isLeft ? !lhOn : !rhOn { continue }
+            let key = Int((e.notatedBeat * 100).rounded())
+            var entry = map[key] ?? (beat: e.notatedBeat, rh: [], lh: [])
+            if isLeft { entry.lh.insert(e.pitch) } else { entry.rh.insert(e.pitch) }
+            map[key] = entry
+        }
+        return map.values.sorted { $0.beat < $1.beat }
+    }
+
+    /// Park the cursor on step `i` and show ALL its required notes on the keyboard
+    /// (blue = still needed). The set shrinks as you play the right notes.
+    private func showWaitStep(_ i: Int) {
+        guard i < waitSteps.count else { return }
+        waitPlayed = []
+        let s = waitSteps[i]
+        bridge.seek(s.beat)
+        scoreLitRH = s.rh.union(s.lh)
+        scoreLitLH = []
+    }
+
+    /// A note-on arrived: record it, update what's still missing, and advance once
+    /// every required note has been played. Wrong/extra notes don't block (they show
+    /// red on the keyboard while held).
+    private func handleWaitInput(_ added: Set<Int>) {
+        guard waitIndex < waitSteps.count else { return }
+        waitPlayed.formUnion(added)
+        let required = waitSteps[waitIndex].rh.union(waitSteps[waitIndex].lh)
+        // Any note that isn't wanted at this step is a fumble — record the step's
+        // notes so they can be reviewed (marked red) afterwards.
+        if !added.subtracting(required).isEmpty {
+            let beat = waitSteps[waitIndex].beat
+            for p in required { mistakes.insert(Mistake(beat: beat, pitch: p)) }
+        }
+        if required.isSubset(of: waitPlayed) {
+            waitIndex += 1
+            if waitIndex < waitSteps.count {
+                showWaitStep(waitIndex)
+            } else {
+                scoreLitRH = []; scoreLitLH = []   // reached the end
+            }
+        } else {
+            scoreLitRH = required.subtracting(waitPlayed)   // only the still-missing notes
+        }
     }
 
     /// Apply the audio-output selection to both playback and the metronome:
@@ -183,6 +284,11 @@ struct ContentView: View {
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
     private func applyHands() {
         audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
+        if waitMode {                       // rebuild the step list for the new hands
+            waitSteps = buildWaitSteps()
+            waitIndex = 0
+            if waitSteps.isEmpty { setWaitMode(false) } else { showWaitStep(0) }
+        }
     }
 
     // MARK: - MIDI keyboard
@@ -192,6 +298,19 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("MIDI input").font(.headline)
+                Toggle("🎯 Wait mode", isOn: Binding(get: { waitMode }, set: { setWaitMode($0) }))
+                    .toggleStyle(.button)
+                    .help("Step through the score — advances only when you play the right notes")
+                if waitMode {
+                    Text((waitIndex < waitSteps.count
+                          ? "Play the blue notes (red = wrong)  ·  \(waitIndex + 1)/\(waitSteps.count)"
+                          : "✓ Complete") + "  ·  Fumbles: \(mistakes.count)")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                if mistakesShown {
+                    Text("Red = notes you fumbled").font(.caption).foregroundStyle(Color(red: 0.83, green: 0.18, blue: 0.18))
+                    Button("Clear marks") { clearMistakeMarks() }
+                }
                 Toggle("Show score notes", isOn: $showScoreNotes)
                     .toggleStyle(.switch)
                     .font(.caption)
@@ -199,8 +318,9 @@ struct ContentView: View {
                 Text(midi.status).font(.caption).foregroundStyle(.secondary)
             }
             PianoKeyboardView(litNotes: midi.activeNotes,
-                              scoreRH: showScoreNotes ? scoreLitRH : [],
-                              scoreLH: showScoreNotes ? scoreLitLH : [],
+                              scoreRH: (showScoreNotes || waitMode) ? scoreLitRH : [],
+                              scoreLH: (showScoreNotes || waitMode) ? scoreLitLH : [],
+                              flagWrong: waitMode,
                               onPress: { audio.playNote($0) },
                               onRelease: { audio.stopNote($0) })
             Text("Green = you · Score notes: RH blue, LH red (single blue if hand-colour is off). Click the keyboard to test.")
@@ -229,8 +349,11 @@ struct ContentView: View {
     /// the latest note's exact notated beat when it changes.
     private func advanceCursorWithPlayback() {
         guard audio.isPlaying else {
-            if !scoreLitRH.isEmpty { scoreLitRH = [] }
-            if !scoreLitLH.isEmpty { scoreLitLH = [] }
+            // In Wait mode the keyboard shows the required notes — don't clear them.
+            if !waitMode {
+                if !scoreLitRH.isEmpty { scoreLitRH = [] }
+                if !scoreLitLH.isEmpty { scoreLitLH = [] }
+            }
             flushPianoOutput()
             return
         }

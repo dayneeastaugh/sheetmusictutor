@@ -1,0 +1,1 @@
+{"version":"0.0.1","configurations":[{"name":"webtest","runtimeExecutable":"python3","runtimeArgs":["-m","http.server","8800","--directory","/private/tmp/claude-501/-Users-dayneeastaugh-Documents-xCode-Apps-Woodshed/ccb888d9-d8d2-4ce4-9659-af16dfeea8b3/scratchpad/webtest"],"port":8800}]}
