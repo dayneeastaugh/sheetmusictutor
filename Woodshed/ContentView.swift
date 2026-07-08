@@ -29,6 +29,8 @@ struct ContentView: View {
     @State private var cursorSmooth = true          // smooth glide vs. discrete note-to-note
     @State private var lastDiscreteBeat: Double = -1
     @State private var countInBars = 0              // 0 = off, else bars of count-in before Play
+    @State private var handMode = 0                 // 0 = both, 1 = RH only, 2 = LH only
+    @State private var tempoPct: Double = 100        // playback tempo percentage
     // ~50 Hz so the cursor glides smoothly (the web view interpolates position).
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
@@ -111,8 +113,30 @@ struct ContentView: View {
                     Text(audio.status).font(.caption).foregroundStyle(.orange)
                 }
             }
+            HStack(spacing: 12) {
+                Picker("Hands", selection: $handMode) {
+                    Text("Both hands").tag(0)
+                    Text("R.H. only").tag(1)
+                    Text("L.H. only").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .onChange(of: handMode) { _, _ in applyHands() }
+
+                Text("Tempo \(Int(tempoPct))%")
+                    .font(.system(.body, design: .monospaced))
+                    .frame(width: 100, alignment: .leading)
+                Slider(value: $tempoPct, in: 25...120, step: 5) { Text("Tempo") }
+                    .frame(maxWidth: 260)
+                    .onChange(of: tempoPct) { _, v in audio.setRate(Float(v) / 100) }
+            }
         }
         .onReceive(tick) { _ in advanceCursorWithPlayback() }
+    }
+
+    /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
+    private func applyHands() {
+        audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
     }
 
     // MARK: - Playback + cursor sync
@@ -243,7 +267,8 @@ struct ContentView: View {
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
-            audio.load(midiURL: midiURL)
+            audio.load(midiURL: midiURL, trackHands: fused.trackHands)
+            applyHands()
             audio.configureMetronome(clickGrid: fused.clickGrid,
                                      barPattern: fused.metronomeBarPattern,
                                      pulseSeconds: fused.metronomePulseSeconds)

@@ -160,7 +160,8 @@ enum MIDIParser {
                          tempoBPM: firstTempoBPM,
                          timeSignature: timeSignature,
                          notes: notes,
-                         secondsAtBeat: secondsAtBeat)
+                         secondsAtBeat: secondsAtBeat,
+                         trackHands: handForTrack)
     }
 
     // MARK: - Helpers

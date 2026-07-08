@@ -24,8 +24,11 @@ final class AudioEnginePlayer: ObservableObject {
     @Published var status = ""
 
     private let engine = AVAudioEngine()
-    private let sampler = AVAudioUnitSampler()
+    // One sampler per hand so each can be muted/soloed independently.
+    private let samplerRH = AVAudioUnitSampler()
+    private let samplerLH = AVAudioUnitSampler()
     private var sequencer: AVAudioSequencer?
+    private var playbackRate: Float = 1.0   // tempo % / 100 (1.0 = written tempo)
 
     // Metronome: a generated click played through its own player node. It is driven
     // by the PLAYBACK clock (the sequencer position) against the piece's beat-time
@@ -43,8 +46,10 @@ final class AudioEnginePlayer: ObservableObject {
     private let metroQueue = DispatchQueue(label: "woodshed.metronome", qos: .userInteractive)
 
     init() {
-        engine.attach(sampler)
-        engine.connect(sampler, to: engine.mainMixerNode, format: nil)
+        engine.attach(samplerRH)
+        engine.attach(samplerLH)
+        engine.connect(samplerRH, to: engine.mainMixerNode, format: nil)
+        engine.connect(samplerLH, to: engine.mainMixerNode, format: nil)
         engine.attach(clickNode)
         let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
         clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
@@ -119,8 +124,9 @@ final class AudioEnginePlayer: ObservableObject {
         stopMetroTimer()
         guard !barPattern.isEmpty, pulseSeconds > 0 else { return }
         var idx = 0
+        let interval = pulseSeconds / Double(playbackRate)   // slower at reduced tempo
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
-        timer.schedule(deadline: .now(), repeating: pulseSeconds, leeway: .milliseconds(1))
+        timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             self.click(self.barPattern[idx % self.barPattern.count])
@@ -136,8 +142,9 @@ final class AudioEnginePlayer: ObservableObject {
         guard bars > 0, !barPattern.isEmpty, pulseSeconds > 0 else { completion(); return }
         let total = bars * barPattern.count
         var idx = 0
+        let interval = pulseSeconds / Double(playbackRate)   // count in at the chosen tempo
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
-        timer.schedule(deadline: .now(), repeating: pulseSeconds, leeway: .milliseconds(1))
+        timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             if idx >= total {
@@ -167,7 +174,7 @@ final class AudioEnginePlayer: ObservableObject {
         clickNode.scheduleBuffer(b, at: nil, options: .interrupts, completionHandler: nil)
     }
 
-    /// Load the system GM sound bank and select Acoustic Grand Piano (program 0).
+    /// Load the system GM sound bank (Acoustic Grand Piano) into both hand samplers.
     private func loadPianoSound() {
         let dls = URL(fileURLWithPath:
             "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls")
@@ -176,24 +183,45 @@ final class AudioEnginePlayer: ObservableObject {
             return
         }
         do {
-            try sampler.loadSoundBankInstrument(at: dls, program: 0, bankMSB: 0x79, bankLSB: 0)
+            try samplerRH.loadSoundBankInstrument(at: dls, program: 0, bankMSB: 0x79, bankLSB: 0)
+            try samplerLH.loadSoundBankInstrument(at: dls, program: 0, bankMSB: 0x79, bankLSB: 0)
         } catch {
             status = "sound load error: \(error.localizedDescription)"
         }
     }
 
-    /// Point the player at a MIDI file, routing all its tracks to the piano sampler.
-    func load(midiURL: URL) {
+    /// Point the player at a MIDI file, routing each track to its hand's sampler.
+    func load(midiURL: URL, trackHands: [Hand]) {
         stop()
         let seq = AVAudioSequencer(audioEngine: engine)
         do {
             try seq.load(from: midiURL, options: [])
-            for track in seq.tracks { track.destinationAudioUnit = sampler }
+            for (i, track) in seq.tracks.enumerated() {
+                let hand = i < trackHands.count ? trackHands[i] : .right
+                track.destinationAudioUnit = (hand == .left) ? samplerLH : samplerRH
+            }
+            seq.rate = playbackRate
             seq.prepareToPlay()
             sequencer = seq
         } catch {
             status = "midi load error: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Per-hand mute / solo and tempo
+
+    /// Set which hands are audible (mute = volume 0). RH/LH route to separate samplers.
+    func setHands(rhAudible: Bool, lhAudible: Bool) {
+        samplerRH.volume = rhAudible ? 1 : 0
+        samplerLH.volume = lhAudible ? 1 : 0
+    }
+
+    /// Set playback speed as a fraction (0.25–1.2). Pitch is preserved (it's MIDI).
+    /// The cursor + synced metronome follow automatically (they run in musical time).
+    func setRate(_ rate: Float) {
+        playbackRate = max(0.05, rate)
+        sequencer?.rate = playbackRate
+        if metronomeOn && !isPlaying { startFreeRun() }   // rescale the free-run interval
     }
 
     /// Real elapsed playback time in seconds (same time base as our parsed onsets).

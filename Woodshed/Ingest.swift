@@ -152,6 +152,7 @@ enum Ingest {
                                                     secondsAtBeat: midi.secondsAtBeat),
                           metronomeBarPattern: barPattern,
                           metronomePulseSeconds: pulseSeconds,
+                          trackHands: midi.trackHands,
                           reconciliations: reconciliations)
     }
 

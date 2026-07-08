@@ -40,6 +40,7 @@ struct MidiScore {
     var timeSignature: (num: Int, den: Int)?
     var notes: [MidiNote]                // sorted by onset time
     var secondsAtBeat: (Double) -> Double // convert any quarter-beat position to seconds (tempo map)
+    var trackHands: [Hand]               // hand assigned to each SMF track (for audio routing)
     var rightHandCount: Int { notes.filter { $0.hand == .right }.count }
     var leftHandCount: Int  { notes.filter { $0.hand == .left  }.count }
 }
@@ -131,6 +132,7 @@ struct FusedScore {
     // used for the count-in and the free-running (no-playback) metronome.
     var metronomeBarPattern: [ClickLevel]
     var metronomePulseSeconds: Double
+    var trackHands: [Hand]      // MIDI track → hand, for per-hand audio routing
     var reconciliations: [Reconciliation]
 }
 
