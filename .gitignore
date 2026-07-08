@@ -17,3 +17,6 @@ default.profraw
 
 # Scratch
 woodshed-diag.log
+
+# Local preview/dev scratch
+.claude/launch.json
