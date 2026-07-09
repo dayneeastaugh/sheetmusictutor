@@ -1,14 +1,19 @@
 # Design — Woodshed
 
-The current UI is a **Phase-0 diagnostic surface**, not a designed product. It's a single dense
-screen optimised for proving functionality, using stock SwiftUI controls. This doc records the
-conventions that *do* exist and flags that a real design pass is still owed.
+A **first structural redesign** has landed: a `NavigationSplitView` shell, a notation-hero practice
+screen, and a wrapping control bar that adapts between Mac and iPad. It still uses stock SwiftUI
+controls with no bespoke type/spacing system — a full visual design pass (tokens, colour-blind-safe
+scheme, intentional Dark Mode) is still owed (see Open Questions). This doc records the conventions
+that exist.
 
 ## Navigation structure
 
-A `NavigationStack`: **Library** (root) → **Practice** (`PracticeView`, pushed when a song is
-selected). The redesign target is a `NavigationSplitView` (sidebar library + practice detail) for
-Mac/iPad. The practice screen itself is still one dense vertical `ScrollView` of inline controls.
+A `NavigationSplitView`: **Library** (sidebar) + **Practice** (detail). On Mac the sidebar is a
+persistent left column; on iPad it collapses to a slide-over reachable from a menu button. Selecting
+a song in the sidebar loads it into the detail pane (selection is by song **id**, so renaming/
+favouriting — which mint a new `Song` value with the same id — never drops the detail). Switching
+songs gives a fresh `PracticeSession` (via `.id(song.id)`); a rename keeps the current session. An
+empty detail shows a `ContentUnavailableView` prompt.
 
 ## Screen inventory
 
@@ -23,23 +28,27 @@ with swipe-to-delete as an iPad extra.
 > buttons/menus over gesture-only affordances so the same UI works on Mac and iPad.
 
 ### Practice (`PracticeView`, top → bottom)
-1. **Notation section**
-   - Header: "Notation (OSMD)" + a live status caption (from the web bridge).
-   - The `WKWebView` notation (fixed **360 pt** tall, white background, rounded 8 pt, hairline border).
-   - **Transport row:** `▶︎ Play / ◼ Stop` (Space), Count-in picker (No / 1-bar / 2-bar), `🎵 Metronome`,
-     `⟿ Smooth / ⇥ Step` cursor toggle, `🎨 Colour hands`, Bars/line picker (Auto / 1–5), `Step cursor`,
-     `Reset ⟲`, audio status caption.
-   - **Playback row:** Hands segmented picker (Both / R.H. / L.H.), `Tempo NNN%` + slider (25–120),
-     Output picker (🔊 Speakers / 🎹 Piano / Both).
-   - **Section row:** "Section" label, from-bar / to-bar steppers, `🔁 Loop`, `Whole piece` reset, and
-     a "bars X–Y of N" caption when a sub-section is active.
-4. **MIDI input section**
-   - Header: "MIDI input" + `🎯 Wait mode` + `🎼 Grade` + mode status + `Show score notes` + MIDI
-     connection status.
-   - The 88-key `PianoKeyboardView` (fixed **90 pt** tall).
-   - Legend caption + (in review) "Clear marks" button.
-5. **Diagnostic dump** — score summary (tempo, time signature, key, event count), the per-hand
-   reconciliation table (✅/⚠️), and the first 24 note events. Monospaced.
+The notation is the **hero** (fills the pane); everything else is thin chrome around it. No outer
+`ScrollView` — the screen fills the detail pane and the control bar wraps instead of scrolling.
+
+1. **Header row** — a **mode segmented control** `Practice · Wait · Grade` (the three mutually-exclusive
+   modes, replacing the old scattered toggles) on the left; an audio-status caption and the
+   `▶︎ Play / ◼ Stop` button (`.borderedProminent`, Space shortcut, disabled in Wait mode) on the right.
+   On macOS a `navigationSubtitle` shows tempo · time-sig · key · note count.
+2. **Status line** — one caption that shows whatever's relevant: Wait progress (`n/N` + fumbles),
+   Grade pass result + accuracy trend, "Red = notes you fumbled" + **Clear marks**, the active
+   section range, or the web-bridge status.
+3. **Notation** — the `WKWebView` at `maxHeight: .infinity` (white, rounded 8 pt, hairline border).
+   If the song fails to load, a `ContentUnavailableView` replaces it.
+4. **Control bar** — a **`FlowLayout`** (wraps on narrow widths) of labelled groups: **Hands**
+   (segmented Both/R.H./L.H.), **Tempo** (% + slider 25–120), **Section** (from/to steppers, `🔁 Loop`,
+   `All`), plus a **Metronome** toggle and an **Output** menu (Speakers / Piano / Both).
+5. **Keyboard** — the 88-key `PianoKeyboardView` (**always visible**; 88 pt on Mac, 74 pt on iPad),
+   with a legend + MIDI connection status beneath.
+6. **More menu** (toolbar `⋯`) — the less-used controls: Count-in, Smooth cursor, Highlight score
+   notes, Colour hands, Bars per line, Step cursor forward, Reset cursor, and **Show diagnostics…**.
+7. **Diagnostics** (behind the More menu, in a sheet) — score summary, the per-hand reconciliation
+   table (✅/⚠️), and the first 24 note events. Monospaced. Off the main flow but one tap away.
 
 ## Colour tokens (as used in code)
 
@@ -59,26 +68,34 @@ colour-blind-safe (red-green) — flagged for the design pass.
 
 ## Typography
 
-Stock SwiftUI system font throughout. `.title2.bold()` for the screen title, `.headline` for section
-headers, `.caption`/`.caption2` for statuses/legends. The diagnostic dump uses
-`.system(.body/.footnote, design: .monospaced)`. **No custom type scale or font.**
+Stock SwiftUI system font throughout. Screen title via `navigationTitle`; `.caption`/`.caption2` for
+the status line and legends; the diagnostics sheet uses `.system(.body/.footnote, design: .monospaced)`.
+**No custom type scale or font.**
 
 ## Spacing / layout rules
 
-- Root `VStack(spacing: 14)` inside a padded `ScrollView`; sections use `VStack(spacing: 6)`.
-- Control rows are `HStack`s of stock buttons/pickers/toggles (`.toggleStyle(.button)` for the mode
-  toggles; `.pickerStyle(.segmented)` for hands/piece; menu pickers elsewhere).
-- Fixed heights: notation 360 pt, keyboard 90 pt. Widths are flexible/`.fixedSize()` on pickers.
-- No spacing/size token system; values are inline literals.
+- Practice root is a `VStack(spacing: 10)` that **fills** the detail pane (no `ScrollView`); the
+  notation takes `maxHeight: .infinity`.
+- The control bar is a **`FlowLayout`** (custom `Layout`) of control groups, so it sits in one row on
+  a wide Mac window and wraps to several rows on a narrow iPad one — no size-class branching.
+- A control **group** is an `HStack` with a hairline `RoundedRectangle` border (`corner 8`,
+  `secondary.opacity(0.25)`). Mode = `.pickerStyle(.segmented)`; Metronome/Loop = `.toggleStyle(.button)`;
+  Output/More = menus. Play = `.borderedProminent`.
+- Keyboard height: 88 pt (macOS) / 74 pt (iOS, via `#if os(iOS)`). Notation height is flexible.
+- No spacing/size token system yet; values are inline literals.
 
 ## Interaction & animation patterns
 
 - **Follow-cursor:** driven from the audio clock at ~50 Hz. "Smooth" interpolates the cursor's
   horizontal position between notes; "Step" jumps note-to-note. Both snap at line breaks.
 - **Follow-scroll:** when the active line changes, the notation content animates up via a CSS
-  transform (0.35 s ease) to keep the active + next line in view.
-- **Keyboard:** press/drag plays notes (mouse/touch) via a high-priority drag gesture; MIDI input
-  lights keys live.
+  transform (0.35 s ease) to keep the active + next line in view. It leaves **headroom above the
+  active system** (≥ 40 px, scaled with zoom) so notes / ledger lines / ornaments above the top staff
+  line stay fully visible — the cursor's `offsetTop` is the staff origin, not the content top.
+- **Keyboard:** press/drag plays notes (mouse/touch) via a high-priority drag gesture, **routed by
+  the Output setting** — the internal sampler for Speakers, the external piano (MIDI out) for Piano,
+  both for Both (so tapping the keyboard is audible on the piano when Piano output is selected). MIDI
+  input lights keys live.
 - **Section select on the score:** click/drag across bars to set the practice loop. A translucent
   blue highlight (rgba(21,101,192,0.13) fill, 0.45 border) marks the range without obscuring the
   notes; it spans multiple systems. "Whole piece" clears it. Stays in sync with the bar steppers.
@@ -97,11 +114,13 @@ headers, `.caption`/`.caption2` for statuses/legends. The diagnostic dump uses
 
 ## Open Questions
 
-- **No real design system.** This screen must be redesigned into proper flows (library → piece →
-  practice) with a defined type scale, spacing tokens, and component set for Phase 1.
-- **Colour accessibility:** replace or supplement RH-blue/LH-red with a colour-blind-safe scheme
-  (e.g. shape/label cues), and support Dark Mode intentionally (the notation is forced white).
-- **iPad layout / touch targets** are unconsidered (built/tested on Mac). The dense single-row
-  control strips won't fit or be tappable on iPad.
-- **The diagnostic dump** (reconciliation table, event list) is a developer surface — decide whether
-  any of it survives into the product or moves behind a debug flag.
+- **No real *visual* design system yet.** The structure is redesigned (split view, notation-hero,
+  adaptive control bar) but there's still no defined type scale, spacing tokens, or component set —
+  and no intentional Dark Mode (the notation is forced white). That visual pass is the remaining work.
+- **Colour accessibility:** RH-blue / LH-red is still not colour-blind-safe (red-green). Supplement
+  with shape/label cues or swap the hue pair in the visual pass. (Deliberately deferred for now.)
+- **iPad validated only by compile, not on device.** The layout now adapts (sidebar collapses, the
+  control bar wraps, keyboard shorter), and both the macOS and iOS SDKs build — but it hasn't run on
+  real iPad hardware, and the sound source differs there (no system `.dls`; see TECH_STACK).
+- **Resolved:** the diagnostic dump moved behind the More menu → "Show diagnostics…" (a sheet), off
+  the main practice flow but one tap away for checking an import.

@@ -144,6 +144,39 @@ a DB: introduce GRDB only when cross-song querying (library heatmaps, spaced rep
 work + dependency not yet justified at personal-library scale). **Note:** ADR-015 remains open only
 for the *future* analytics store.
 
+### ADR-019 — Extract a `PracticeSession` view-model from the practice-view monolith
+**2026-07-09.** The ~630-line practice view held all state + all playback/matching logic. Split it:
+`PracticeSession` (`ObservableObject`, imports only Foundation/Combine) owns the three services, the
+`FusedScore`, and every practice-mode state/logic method; `PracticeView` is a thin SwiftUI layer that
+creates the session as a `@StateObject` and binds controls to it. The session **owns** its services
+and re-broadcasts their `objectWillChange` so the view observes only the session. Control side-effects
+that were `.onChange` modifiers became `@Published … { didSet }` on the session.
+**Rationale:** done deliberately *before* the Mac/iPad redesign so the redesign only touches
+presentation, and to give the matching/playback logic a UI-decoupled home (PRD §9). Lightweight MVVM,
+not TCA/DI — proportionate to a single-user app.
+**Rejected:** keeping services as `@StateObject` in the view and injecting them into the session
+(awkward post-init wiring, implicitly-unwrapped refs); a full DI container (overkill). **Open:** lift
+the *pure* matcher (no engine refs) into a standalone unit-tested `struct`; adopt `@MainActor`/Swift 6
+concurrency later.
+
+### ADR-020 — Practice-screen redesign: split view, notation-hero, adaptive control bar
+**2026-07-09.** Reworked the app shell and practice screen for Mac **and** iPad from one layout:
+`NavigationStack` → **`NavigationSplitView`** (library sidebar + practice detail); the practice screen
+went from a scrolling stack of dense control strips to **notation at `maxHeight: .infinity`** (the
+hero) + a thin header (a single `Practice · Wait · Grade` **segmented** mode control replacing the two
+scattered mode toggles, plus transport) + a **`FlowLayout`** control bar that wraps instead of
+overflowing + an always-visible keyboard (shorter on iPad). The Phase-0 diagnostic dump moved behind
+the More menu → "Show diagnostics…" (a sheet).
+**Rationale:** the fixed 360 pt notation + four dense single-row strips didn't fit or tap well on
+iPad; a wrapping `FlowLayout` reflows the same controls across widths with no size-class branching
+(honours the "every action reachable without swipe or hover" rule). Structural pass only — hand
+colours (blue/red) unchanged and a full visual design system (tokens, colour-blind-safe scheme, Dark
+Mode) is still owed.
+**Rejected:** top-toolbar-plus-bottom-bar split (splits controls into two places); hiding the keyboard
+by default on iPad (loses always-on live MIDI feedback); a size-class-switched layout (two code paths
+vs one wrapping layout). **Verified:** builds for both the macOS and iOS SDKs; runtime tested on Mac
+(boots, no crash) — not yet on iPad hardware.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.

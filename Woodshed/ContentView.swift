@@ -2,9 +2,10 @@
 //  ContentView.swift
 //  Woodshed
 //
-//  App root: the song library. Selecting a song navigates to the practice screen.
-//  (A NavigationStack for now; the planned redesign moves to a NavigationSplitView
-//  sidebar + detail for Mac/iPad — see docs/DESIGN.md.)
+//  App root: a NavigationSplitView with the song library as the sidebar and the
+//  practice screen as the detail. This is the Mac/iPad shell — on iPad the sidebar
+//  collapses into a slide-over; on Mac it's a persistent left column. Selecting a
+//  song in the sidebar loads it into the detail pane. See docs/DESIGN.md.
 //
 
 import SwiftUI
@@ -12,16 +13,30 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var library = SongLibrary()
+    // Selection is by song *id* (stable across rename/favourite edits, which mint a
+    // new Song value with the same id) so editing metadata never drops the detail.
+    @State private var selection: Song.ID?
 
     var body: some View {
-        NavigationStack {
-            LibraryView(library: library)
+        NavigationSplitView {
+            LibraryView(library: library, selection: $selection)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
+        } detail: {
+            if let id = selection, let song = library.songs.first(where: { $0.id == id }) {
+                PracticeView(song: song)
+                    .id(song.id)   // new song ⇒ fresh PracticeSession; a rename keeps it
+            } else {
+                ContentUnavailableView("Select a song",
+                                       systemImage: "pianokeys",
+                                       description: Text("Pick a song from the library to practise, or tap + to import one."))
+            }
         }
     }
 }
 
 struct LibraryView: View {
     @ObservedObject var library: SongLibrary
+    @Binding var selection: Song.ID?
     @State private var showImporter = false
     @State private var importError: String?
     @State private var renameTarget: Song?
@@ -36,24 +51,20 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        List {
+        List(selection: $selection) {
             if library.songs.isEmpty {
                 Text("No songs yet. Tap + to import a MusicXML + MIDI pair.")
                     .foregroundStyle(.secondary)
             }
             ForEach(library.songs) { song in
-                HStack(spacing: 8) {
-                    NavigationLink(value: song) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(song.title).font(.headline)
-                                Text("Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if song.meta.favourite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
-                        }
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title).font(.headline)
+                        Text("Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    if song.meta.favourite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
                     // Explicit per-row menu — works by click on Mac and tap on iPad
                     // (swipe-to-delete is iPad-only, so we don't rely on it).
                     Menu {
@@ -63,7 +74,9 @@ struct LibraryView: View {
                     }
                     .menuIndicator(.hidden)
                     .fixedSize()
+                    .buttonStyle(.borderless)
                 }
+                .tag(song.id)
                 .contextMenu { songActions(song) }
                 .swipeActions {
                     Button("Delete", role: .destructive) { library.delete(song) }
@@ -71,7 +84,6 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .navigationDestination(for: Song.self) { PracticeView(song: $0) }
         .toolbar {
             Button { showImporter = true } label: { Label("Add song", systemImage: "plus") }
         }

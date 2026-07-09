@@ -6,7 +6,8 @@ How the app is put together, derived from the current source under `Woodshed/`.
 
 One SwiftUI multiplatform app. A **pure-Swift ingestion/data layer** turns a MusicXML+MIDI pair into
 an authoritative note model; three **ObservableObject services** own audio, MIDI, and the notation
-web view; and a single **SwiftUI view** wires them together and holds all UI/practice state.
+web view; a **`PracticeSession` view-model** (`ObservableObject`) owns the practice state and all
+playback/matching logic; and a thin SwiftUI view (`PracticeView`) binds to it for presentation.
 
 ```mermaid
 flowchart TD
@@ -26,12 +27,12 @@ flowchart TD
     MID --> MIP --> ING
     ING --> FS
 
-    subgraph View["ContentView (SwiftUI — the coordinator + all UI state)"]
-      CV["@State: modes, cursor sync,<br/>output routing, matching"]
+    subgraph View["PracticeSession (view-model) + PracticeView (thin SwiftUI)"]
+      CV["@Published: modes, cursor sync,<br/>output routing, matching"]
     end
     FS --> CV
 
-    subgraph Services["Services (ObservableObject)"]
+    subgraph Services["Services (ObservableObject, owned by PracticeSession)"]
       AUDIO["AudioEnginePlayer<br/>AVAudioEngine + 2 samplers +<br/>AVAudioSequencer + click node"]
       MIDI["MIDIInput<br/>CoreMIDI in/out"]
       BRIDGE["NotationBridge + NotationWebView<br/>WKWebView wrapper"]
@@ -71,7 +72,7 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   and per-hand track mapping, and produces per-hand `Reconciliation`. Returns `FusedScore`.
   The rules here are the app's hard core — see [INGESTION.md](INGESTION.md).
 
-### 3. Services (`ObservableObject`, injected as `@StateObject` into `ContentView`)
+### 3. Services (`ObservableObject`, owned by `PracticeSession`)
 - **`AudioEnginePlayer.swift`** — owns one `AVAudioEngine`. Graph: `samplerRH` + `samplerLH`
   (`AVAudioUnitSampler`, one per hand) → `mainMixerNode`; a separate `clickNode`
   (`AVAudioPlayerNode`) → `mainMixerNode` for the metronome. An `AVAudioSequencer` plays the actual
@@ -93,14 +94,21 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
 - **`Song` / `SongMeta`** — a library song and its Codable metadata (see DATA_MODEL.md).
 - **`SongLibrary`** (`ObservableObject`) — the file-based library under Application Support: scan,
   import (2 files → a per-song folder), delete, update; seeds the bundled fixtures on first launch.
-- **`ContentView`** — app root: a `NavigationStack` hosting **`LibraryView`** (the song list, with
-  add via `.fileImporter`, delete, rename, favourite). Selecting a song navigates to `PracticeView`.
+- **`ContentView`** — app root: a **`NavigationSplitView`** with **`LibraryView`** as the sidebar
+  (the song list — add via `.fileImporter`, delete, rename, favourite) and `PracticeView` as the
+  detail. Selection is by song **id** (`@State selection: Song.ID?`) so metadata edits don't drop the
+  detail; the detail is keyed `.id(song.id)` so switching songs makes a fresh `PracticeSession`.
 
-### 5. Practice UI (`PracticeView.swift`, `PianoKeyboardView.swift`)
-- **`PracticeView(song:)`** — the practice screen **and** the de-facto coordinator/view-model. Holds
-  ~30 `@State` values plus the three `@StateObject` services. It loads the song's XML+MIDI on appear
-  (`Ingest.fuse`), drives the follow-cursor from the audio clock (a `Timer.publish` at 0.02 s), routes
-  output, implements **Wait mode** and **Tempo/Grade mode** matching, section practice, and marks.
+### 5. Practice UI (`PracticeSession.swift`, `PracticeView.swift`, `PianoKeyboardView.swift`)
+- **`PracticeSession(song:)`** (`ObservableObject`) — the practice **view-model**. Owns the three
+  services (created here, their changes re-broadcast so the view observes only the session), the
+  `FusedScore`, and ~30 `@Published`/private state values. It loads the song's XML+MIDI on appear
+  (`Ingest.fuse`), advances the follow-cursor from the audio clock, routes output, and implements
+  **Wait mode**, **Tempo/Grade mode** matching, section practice, and review marks. UI-decoupled: it
+  imports only `Foundation`/`Combine`, no SwiftUI.
+- **`PracticeView(song:)`** — a thin SwiftUI view that creates the session as a `@StateObject` and
+  binds controls to it. Holds only the 0.02 s cursor `Timer.publish` and the `onChange` wiring
+  (feeding MIDI input / play-state changes to the session); the rest is layout.
 - **`PianoKeyboardView.swift`** — a stateless 88-key keyboard view. Colours: green = you playing,
   blue = right-hand score / red = left-hand score, red = "wrong" when `flagWrong` (Wait/Grade).
   Mouse/touch-playable for testing.
@@ -111,7 +119,7 @@ command. See the JS bridge contract below.
 
 ## Data flow (a practice session)
 
-1. `ContentView.ingest()` loads the bundled `.musicxml` + `.mid`, calls `Ingest.fuse()` → `FusedScore`,
+1. `PracticeSession.ingest()` loads the song's `.musicxml` + `.mid`, calls `Ingest.fuse()` → `FusedScore`,
    and hands the raw MusicXML (base64) to the web view for rendering.
 2. `FusedScore.events` (`[NoteEvent]`) drives everything: each event carries **MIDI timing**
    (`onsetSeconds`) + **notated identity** (`notatedBeat`, `spelledName`, `hand`, …).
@@ -120,19 +128,20 @@ command. See the JS bridge contract below.
    - moves the OSMD cursor via `bridge.seek(continuousBeat(at:t))` (interpolated notated beat),
    - lights the sounding notes on the keyboard,
    - optionally sends the notes to the piano (MIDI out).
-4. Live keys arrive as `MIDIInput.activeNotes`; `ContentView.onChange(activeNotes)` feeds the
-   **matcher** for the active practice mode.
+4. Live keys arrive as `MIDIInput.activeNotes`; the view's `onChange(activeNotes)` calls
+   `PracticeSession.midiNotesChanged`, feeding the **matcher** for the active practice mode.
 
-## Practice modes (state machine, all in `ContentView`)
+## Practice modes (state machine, all in `PracticeSession`)
 
 - **Playback** — audio + cursor, no grading.
 - **Wait mode** — `waitSteps` (one per notated beat with notes, per selected hands). The cursor parks
   on a step; `handleWaitInput` accumulates note-ons and advances when the required set is played
   (extras/wrong ignored, shown red). Fumbled steps are recorded and marked red for review on exit.
-- **Tempo/Grade mode** — plays at tempo; records `(pitch, time)` for each key you press against the
-  playback clock. On stop, `gradePass()` runs a **windowed greedy matcher** (each expected note ↔
-  nearest same-pitch played note within `gradeTolerance = 0.30 s` musical): tallies hit / missed /
-  wrong + mean timing error, and marks missed notes red. Live keyboard shows the tolerance window.
+- **Tempo/Grade mode** — plays at tempo; a **real-time windowed greedy matcher** (`handleGradeNoteOn`)
+  matches each key you press to the nearest same-pitch expected note within `gradeTolerance = 0.30 s`
+  (musical) → hit, else wrong/extra; `advanceGradeMisses` rings a note the moment its window closes
+  unmatched. `finalizeGradePass` tallies hit / missed / wrong + mean timing error per pass. Live
+  keyboard shows the tolerance window.
 
 Wait and Grade are mutually exclusive.
 
@@ -148,7 +157,7 @@ per-pass accuracy trend for mastery drilling.
 
 ## The WKWebView JS bridge
 
-`ContentView`/`NotationBridge` → JS (`webView.evaluateJavaScript`). This is the **contract**;
+`PracticeSession`/`NotationBridge` → JS (`webView.evaluateJavaScript`). This is the **contract**;
 changing either side requires changing both (`NotationWebView.swift` ↔ `Web/index.html`).
 
 | JS function | Called for |
@@ -169,15 +178,22 @@ bounding boxes (`AbsolutePosition × 10 × zoom`) after each render.
 JS → Swift: `window.webkit.messageHandlers.osmd.postMessage(status)` → `NotationBridge.post` →
 `@Published status`. The bridge builds anchor tables (beat→pixel) after each render so the cursor
 can interpolate horizontally and snap at line breaks; follow-scroll uses a **CSS transform** on the
-container (not `window.scrollTo`, which no-ops in the clipped WKWebView).
+container (not `window.scrollTo`, which no-ops in the clipped WKWebView), leaving headroom above the
+active system so above-staff content isn't clipped. **Resize is owned in JS, not OSMD** (`autoResize:
+false`): a debounced `ResizeObserver` relayouts on a real width change and **rebuilds the anchors +
+overlays**, so the cursor never drifts off the played note after the pane resizes (e.g. sidebar
+collapse). The anchor table is stale after any relayout unless rebuilt — that invariant is why.
 
 ## State management approach
 
-Pragmatic SwiftUI, **not** a formal pattern (no MVVM view-models per screen, no TCA, no DI
-container). `ContentView` is a single large view holding all state; services are `ObservableObject`s
-created as `@StateObject` and passed by reference. High-frequency cursor updates deliberately bypass
-`@Published` (via `NotationBridge`'s direct `evaluateJavaScript`) to avoid 50 Hz view invalidation.
-This is appropriate for a Phase-0 spike but is the main architectural debt (see Open Questions).
+Pragmatic SwiftUI, lightweight MVVM (no TCA, no DI container). The practice screen has a real
+view-model — **`PracticeSession`** — that owns its state and its three services and re-broadcasts
+their `objectWillChange`, so `PracticeView` observes only the session. Elsewhere (`LibraryView`) the
+`ObservableObject` service is passed by reference directly. High-frequency cursor updates deliberately
+bypass `@Published` (via `NotationBridge`'s direct `evaluateJavaScript`) to avoid 50 Hz view
+invalidation. The matching/playback logic in `PracticeSession` imports no SwiftUI, so it is
+UI-decoupled; extracting the matcher into its own unit-tested pure module is the remaining step
+(see Open Questions).
 
 ## Persistence & networking
 
@@ -194,16 +210,17 @@ This is appropriate for a Phase-0 spike but is the main architectural debt (see 
   headless `swiftc` harnesses during development).
 - Services each wrap exactly one system framework (AVFoundation / CoreMIDI / WebKit) and expose a
   small Swift surface.
-- `ContentView` is the only place that knows about all of them.
+- `PracticeSession` is the only place that knows about all three services together.
 
 ## Open Questions
 
-- **`ContentView` is a ~630-line monolith** holding all state and all practice-mode logic. Extract
-  view-models (e.g. a `PracticeSession`/matching engine, a `PlaybackController`) before Phase 1
-  feature growth. The PRD explicitly wants the matching engine "UI-decoupled, testable."
+- **Matching engine as a pure module:** Wait/Grade logic now lives in the `PracticeSession`
+  view-model (UI-decoupled — imports no SwiftUI), but still reaches the engines directly. Per PRD §9
+  the pure matching (expected events + note-ons + clock → hits/misses) could be lifted into a
+  standalone `struct` with no engine references, making it trivially unit-testable. Done: the
+  ~630-line view monolith was split into `PracticeSession` (logic) + `PracticeView` (presentation).
 - **No automated tests** wired into the project (`WoodshedTests`/`WoodshedUITests` are template
-  stubs). The pure ingestion layer is the obvious first target for real tests.
+  stubs). The pure ingestion layer and (once extracted) the matcher are the obvious first targets.
 - **Threading/concurrency:** CoreMIDI callbacks and the metronome `DispatchSourceTimer` hop to main;
-  Swift 6 strict concurrency is not adopted. Revisit when moving off Swift 5 language mode.
-- **Matching engine location:** Wait/Grade logic lives in the view. Per PRD §9 it should be a
-  standalone module consuming expected events + live MIDI.
+  `PracticeSession` is a plain `ObservableObject` (not `@MainActor`); Swift 6 strict concurrency is
+  not adopted. Revisit when moving off Swift 5 language mode.
