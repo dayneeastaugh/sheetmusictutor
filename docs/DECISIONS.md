@@ -132,8 +132,20 @@ on dense scores; an overlay updates in <1 ms and stays aligned through the follo
 **Rejected:** re-colouring noteheads each pass (too slow); one grade only at stop (defeats "see
 progress each pass").
 
+### ADR-018 — File-based song library (per-song folders + metadata.json), not a database yet
+**2026-07-09.** The library is stored as self-contained folders under
+`Application Support/Woodshed/Scores/<uuid>/` (score.musicxml + score.mid + metadata.json). No
+database. Supersedes ADR-015's "GRDB is the intended store" for the current stage.
+**Rationale:** songs are inherently file-centric (an XML+MIDI pair); a per-song folder is portable and
+self-contained (copy/delete = done), resilient (no central index to corrupt/drift), and the library
+is just a directory scan. Practice data/favourites extend `metadata.json`. Defers — doesn't preclude —
+a DB: introduce GRDB only when cross-song querying (library heatmaps, spaced repetition) demands it.
+**Rejected:** a master index file (central drift/corruption, less portable); GRDB/SQLite now (upfront
+work + dependency not yet justified at personal-library scale). **Note:** ADR-015 remains open only
+for the *future* analytics store.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
-- Resolve ADR-015 (GRDB vs SwiftData) before starting the persistence layer.
+- ADR-018 defers the DB; revisit when session history / cross-song analytics are built.
 - Section loop has no silent reset gap and repositioning may briefly clip a sounding note; evaluate if
   it needs smoothing (ADR-016).

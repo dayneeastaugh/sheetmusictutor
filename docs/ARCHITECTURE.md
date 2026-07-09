@@ -89,11 +89,18 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   drives it directly (bypassing SwiftUI churn) at the ~50 Hz cursor rate. Loads `Web/index.html`
   with the OSMD script inlined.
 
-### 4. UI (`ContentView.swift`, `PianoKeyboardView.swift`)
-- **`ContentView.swift`** — the single screen **and** the de-facto coordinator/view-model. Holds
-  ~30 `@State` values plus the three `@StateObject` services. It runs the ingestion on appear,
-  drives the follow-cursor from the audio clock (a `Timer.publish` at 0.02 s), routes output,
-  implements **Wait mode** and **Tempo/Grade mode** matching, and tracks/marks mistakes.
+### 4. Library (`Song.swift`, `SongLibrary.swift`, `ContentView.swift`)
+- **`Song` / `SongMeta`** — a library song and its Codable metadata (see DATA_MODEL.md).
+- **`SongLibrary`** (`ObservableObject`) — the file-based library under Application Support: scan,
+  import (2 files → a per-song folder), delete, update; seeds the bundled fixtures on first launch.
+- **`ContentView`** — app root: a `NavigationStack` hosting **`LibraryView`** (the song list, with
+  add via `.fileImporter`, delete, rename, favourite). Selecting a song navigates to `PracticeView`.
+
+### 5. Practice UI (`PracticeView.swift`, `PianoKeyboardView.swift`)
+- **`PracticeView(song:)`** — the practice screen **and** the de-facto coordinator/view-model. Holds
+  ~30 `@State` values plus the three `@StateObject` services. It loads the song's XML+MIDI on appear
+  (`Ingest.fuse`), drives the follow-cursor from the audio clock (a `Timer.publish` at 0.02 s), routes
+  output, implements **Wait mode** and **Tempo/Grade mode** matching, section practice, and marks.
 - **`PianoKeyboardView.swift`** — a stateless 88-key keyboard view. Colours: green = you playing,
   blue = right-hand score / red = left-hand score, red = "wrong" when `flagWrong` (Wait/Grade).
   Mouse/touch-playable for testing.

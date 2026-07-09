@@ -38,7 +38,11 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 ## 4. Functional requirements
 
 ### Implemented
-- **Ingestion** — import a MusicXML + MIDI pair into an authoritative note model (pitch, spelled name,
+- **Library & import** — a song library stored as per-song folders under Application Support. Import a
+  MusicXML + MIDI pair (file picker), rename, favourite, delete, and select a song to practise. First
+  launch seeds the two bundled fixtures. (Files/iCloud/AirDrop entry points and tags/target-tempo in
+  the list are not yet built — see Planned.)
+- **Ingestion** — of a MusicXML + MIDI pair into an authoritative note model (pitch, spelled name,
   hand, voice, notated duration, tempo, meter, ties, ornaments) with MIDI as the timing truth. Show a
   per-hand reconciliation so a bad parse surfaces. See [INGESTION.md](INGESTION.md).
 - **Notation display** — render in an embedded WKWebView via OpenSheetMusicDisplay, offline. A
@@ -61,7 +65,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   section. (Named/saved clips and drag-to-select are not yet built — see Planned.)
 
 ### Planned (from the roadmap, not yet built)
-- Score **import + library** (Files/iCloud/AirDrop/drag-drop; tags, last-practised, target tempo).
+- **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, last-practised /
+  target-tempo shown in the list, search/sort, `.mxl` (compressed) import.
 - **Section refinements** — named/saved clips per piece, drag-across-notes selection, silent reset gap
   between loops, A/B markers.
 - **Speed trainer** — manual, auto-by-reps, and **auto-by-accuracy** tempo ramps.

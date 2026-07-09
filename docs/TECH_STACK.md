@@ -37,7 +37,8 @@ assets.
 | WebKit | `NotationWebView` | `WKWebView` hosting the OSMD notation renderer |
 | AVFoundation | `AudioEnginePlayer` | `AVAudioEngine`, `AVAudioUnitSampler` (×2), `AVAudioSequencer`, `AVAudioPlayerNode` (metronome), `AVAudioPCMBuffer` |
 | CoreMIDI | `MIDIInput` | MIDI input (UMP / `MIDIEventList`) and output (`MIDIPacketList`) — device I/O |
-| Foundation | parsers | `XMLParser` (SAX) for MusicXML; hand-rolled binary reader for SMF |
+| Foundation | parsers, library | `XMLParser` (SAX) for MusicXML; hand-rolled SMF reader; `FileManager` + `Codable` JSON for the song library |
+| UniformTypeIdentifiers | `LibraryView` | `UTType`s for the MusicXML/MIDI `.fileImporter` |
 
 ## Third-party / vendored assets
 

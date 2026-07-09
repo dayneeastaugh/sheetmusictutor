@@ -81,15 +81,34 @@ Per-hand ingestion audit: `xmlSoundingCount`, `midiCount`, `matched`, `ornamentR
   `currentPositionInSeconds`, which is also musical time — so cursor/metronome/grading follow the
   tempo slider automatically.
 
-## Persistence
+## Persistence — file-based song library
 
-**None today.** Scores are compiled in as bundle resources (`Woodshed/Scores/`, folder-synced).
-There is no Core Data / SwiftData / SQLite store, no user library, no session history.
+The library is stored on disk as **self-contained per-song folders** (no database). See
+`Song.swift` / `SongLibrary.swift` and DECISIONS.md ADR-018.
 
-The PRD (§8, §9) specifies a future **SQLite via GRDB** layer for: the imported library, per-piece
-config (target tempo, tolerances, saved clips), session history, per-attempt results, and cached note
-events. When built, this doc must gain a schema section and migration notes. Candidate persisted
-entities implied by the PRD: `Piece`, `Section/Clip`, `PracticeSession`, `Attempt`, `NoteEventCache`.
+```
+~/Library/Application Support/Woodshed/Scores/
+    <uuid>/
+        score.musicxml     # the imported MusicXML
+        score.mid          # the imported MIDI
+        metadata.json      # SongMeta (Codable)
+```
+
+- **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,
+  `dateAdded`, `favourite`, `targetTempoPct?`, `lastPracticed?`. This is the single place
+  song-specific state lives and it travels with the folder. Extend it for practice data.
+- **`Song`** (`Identifiable`, `Hashable`): `meta` + `folder` URL; derives `musicXMLURL`, `midiURL`,
+  `metadataURL`.
+- **`SongLibrary`** (`ObservableObject`): scans `Scores/` into `songs: [Song]` (sorted by title);
+  `importSong(musicXML:midi:title:)` copies a pair into a new `<uuid>` folder; `delete`, `update`
+  (rewrite metadata). On first launch (empty library) it seeds the two bundled fixtures.
+
+Still **not** persisted: session history / per-attempt results (the Grade-mode `gradeHistory` is
+in-memory per session). Those, plus cross-song analytics, are the point at which a DB (GRDB) may be
+introduced — the metadata JSON can gain the fields first and migrate later.
+
+The `FusedScore`/`NoteEvent` model is **not** persisted — it's recomputed from the song's XML+MIDI by
+`Ingest.fuse` each time a song is opened.
 
 ## Migration considerations
 

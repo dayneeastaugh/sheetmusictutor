@@ -6,14 +6,24 @@ conventions that *do* exist and flags that a real design pass is still owed.
 
 ## Navigation structure
 
-**None.** One `WindowGroup` → one `ContentView`, a single vertical `ScrollView`. No tabs, no
-navigation stack, no sheets/modals. All controls are inline on the one screen.
+A `NavigationStack`: **Library** (root) → **Practice** (`PracticeView`, pushed when a song is
+selected). The redesign target is a `NavigationSplitView` (sidebar library + practice detail) for
+Mac/iPad. The practice screen itself is still one dense vertical `ScrollView` of inline controls.
 
-## Screen inventory (the one screen, top → bottom)
+## Screen inventory
 
-1. **Title** — "Woodshed — Phase 0 ingestion spike".
-2. **Piece picker** — segmented; switches between the two bundled fixtures.
-3. **Notation section**
+### Library (root)
+A `List` of songs (title + date-added, ⭐ for favourites) and a **+** toolbar button to import a
+MusicXML + MIDI pair (`.fileImporter`). Per-row actions (Rename / Favourite / Delete) are on a
+visible **⋯ menu button** so they work by click on Mac and tap on iPad — **not** relying on
+swipe-to-delete (iPad-only). The same actions are also on the right-click / long-press context menu,
+with swipe-to-delete as an iPad extra.
+
+> **Cross-platform rule:** every action must be reachable without swipe or hover. Prefer explicit
+> buttons/menus over gesture-only affordances so the same UI works on Mac and iPad.
+
+### Practice (`PracticeView`, top → bottom)
+1. **Notation section**
    - Header: "Notation (OSMD)" + a live status caption (from the web bridge).
    - The `WKWebView` notation (fixed **360 pt** tall, white background, rounded 8 pt, hairline border).
    - **Transport row:** `▶︎ Play / ◼ Stop` (Space), Count-in picker (No / 1-bar / 2-bar), `🎵 Metronome`,
