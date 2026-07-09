@@ -38,7 +38,7 @@
     } else {
       try {
         osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmdContainer", {
-          autoResize: true,
+          autoResize: false,   // we own resize (below) so anchors rebuild after every relayout
           backend: "svg",
           drawTitle: true,
           drawingParameters: "default"
@@ -56,6 +56,7 @@
     }
 
     var pendingRender = false;
+    var lastRenderWidth = 0;   // width the score was last laid out at (detect real resizes)
 
     // Render only when the container actually has width. In a WKWebView the view
     // can start at 0×0 and get its real size a beat later; rendering at width 0
@@ -70,6 +71,7 @@
         if (handColors) { recolorAndRerender(); }   // reapply hand colours after a fresh load
         refreshSelection();
         pendingRender = false;
+        lastRenderWidth = c.clientWidth;
         post("loaded svg=" + c.querySelectorAll("svg").length + " containerW=" + c.clientWidth);
       } else {
         pendingRender = true;
@@ -77,8 +79,24 @@
       }
     }
 
+    // When the pane is resized (e.g. collapsing the sidebar), OSMD must relayout to
+    // the new width AND we must rebuild the cursor anchor table — otherwise the cursor
+    // keeps using stale pixel positions and drifts off the played note. Debounced so a
+    // drag-resize only re-renders once it settles. Colours/marks are preserved (no
+    // applyNoteColors); the next cursor tick re-syncs position + follow-scroll.
+    function relayoutIfResized() {
+      var c = document.getElementById("osmdContainer");
+      var w = c ? c.clientWidth : 0;
+      if (w <= 0 || !osmd || !osmd.graphic) return;   // ignore collapse-to-zero / no score yet
+      if (Math.abs(w - lastRenderWidth) < 1) return;   // width unchanged
+      lastRenderWidth = w;
+      recolorAndRerenderKeepingColors();
+    }
+    var resizeTimer = null;
     var ro = new ResizeObserver(function () {
-      if (pendingRender) { renderWhenSized(); }
+      if (pendingRender) { renderWhenSized(); return; }
+      if (resizeTimer) { clearTimeout(resizeTimer); }
+      resizeTimer = setTimeout(relayoutIfResized, 120);
     });
     ro.observe(document.getElementById("osmdContainer"));
 
@@ -147,8 +165,12 @@
       if (top === lastScrollTop) return;
       lastScrollTop = top;
       var c = document.getElementById("osmdContainer");
+      // Leave headroom above the active system. `top` is the cursor's staff origin,
+      // but notes / ledger lines / ornaments sit ABOVE it, so anchoring the origin to
+      // the very top clips them. Scale the margin with zoom so it holds at any size.
+      var headroom = Math.max(40, 5 * 10 * (osmd.zoom || 1));
       c.style.transition = "transform 0.35s ease";
-      c.style.transform = "translateY(" + (-Math.max(0, top - 20)) + "px)";
+      c.style.transform = "translateY(" + (-Math.max(0, top - headroom)) + "px)";
     }
 
     window.cursorNext = function () {
