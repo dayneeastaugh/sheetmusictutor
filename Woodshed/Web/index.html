@@ -18,7 +18,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    html, body { margin: 0; padding: 0; background: #ffffff; }
+    html, body { margin: 0; padding: 0; background: #ffffff; height: 100%; }
+    /* A real scroll viewport: the follow-cursor scrolls this, and you can also scroll
+       it by hand (wheel/trackpad/touch) to review bars you've already played. */
+    #scrollHost { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     #osmdContainer { width: 100%; }
     #err { color: #b00; font-family: -apple-system, monospace; padding: 12px; white-space: pre-wrap; }
   </style>
@@ -26,7 +29,7 @@
 </head>
 <body>
   <div id="err"></div>
-  <div id="osmdContainer"></div>
+  <div id="scrollHost"><div id="osmdContainer"></div></div>
   <script>
     function post(msg) {
       try { window.webkit.messageHandlers.osmd.postMessage(msg); } catch (e) {}
@@ -155,22 +158,38 @@
     };
 
     // Follow-scroll: keep the active system near the top so the current line and the
-    // next line stay in view. We translate the notation up with a CSS transform
-    // (not window.scrollTo) because the WKWebView isn't internally scrollable — a
-    // transform works whether or not the host view scrolls. Only updates on a line
-    // change, so the horizontal glide within a line isn't disturbed; the shift is
-    // animated for smoothness.
+    // next line stay in view. We scroll the #scrollHost viewport (rather than a CSS
+    // transform) so the user can ALSO scroll it by hand to review already-played bars
+    // — the transform hid everything above the cursor with no way back. Only updates
+    // on a line change, so the horizontal glide within a line isn't disturbed.
+    // Animate #scrollHost.scrollTop to a target over ~0.35s. We ease by hand on a
+    // timer because scrollTo({behavior:"smooth"}) silently no-ops in this WebView (a
+    // plain scrollTop assignment jumps), and a timer runs even when rAF is throttled.
+    var scrollTimer = null;
+    function smoothScrollHostTo(target) {
+      var host = document.getElementById("scrollHost"); if (!host) return;
+      target = Math.max(0, Math.min(target, host.scrollHeight - host.clientHeight));
+      if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+      var start = host.scrollTop, dist = target - start;
+      if (Math.abs(dist) < 1) { host.scrollTop = target; return; }
+      var dur = 350, t0 = Date.now();
+      scrollTimer = setInterval(function () {
+        var p = Math.min(1, (Date.now() - t0) / dur);
+        var e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // easeInOutQuad
+        host.scrollTop = start + dist * e;
+        if (p >= 1) { clearInterval(scrollTimer); scrollTimer = null; }
+      }, 16);
+    }
+
     var lastScrollTop = -1;
     function followScroll(top) {
       if (top === lastScrollTop) return;
       lastScrollTop = top;
-      var c = document.getElementById("osmdContainer");
       // Leave headroom above the active system. `top` is the cursor's staff origin,
       // but notes / ledger lines / ornaments sit ABOVE it, so anchoring the origin to
       // the very top clips them. Scale the margin with zoom so it holds at any size.
       var headroom = Math.max(40, 5 * 10 * (osmd.zoom || 1));
-      c.style.transition = "transform 0.35s ease";
-      c.style.transform = "translateY(" + (-Math.max(0, top - headroom)) + "px)";
+      smoothScrollHostTo(top - headroom);
     }
 
     window.cursorNext = function () {
@@ -180,9 +199,7 @@
       try {
         osmd.cursor.reset(); osmd.cursor.show();
         lastScrollTop = -1;
-        var c = document.getElementById("osmdContainer");
-        c.style.transition = "transform 0.35s ease";
-        c.style.transform = "translateY(0px)";
+        smoothScrollHostTo(0);
       } catch (e) {}
     };
     // Advance the cursor by k steps in one call (used by timed playback so we don't
@@ -218,9 +235,7 @@
       osmd.render();
       buildAnchors();
       if (osmd.cursor) { osmd.cursor.show(); }
-      lastScrollTop = -1;
-      var c = document.getElementById("osmdContainer");
-      if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
+      lastScrollTop = -1;   // re-apply follow-scroll on the next cursor tick
       refreshSelection();
     }
     window.setHandColorMode = function (on, rh, lh) {
@@ -268,9 +283,7 @@
       osmd.render();
       buildAnchors();
       if (osmd.cursor) { osmd.cursor.show(); }
-      lastScrollTop = -1;
-      var c = document.getElementById("osmdContainer");
-      if (c) { c.style.transition = ""; c.style.transform = "translateY(0px)"; }
+      lastScrollTop = -1;   // re-apply follow-scroll on the next cursor tick
       refreshSelection();
     }
     window.clearMistakes = function () { recolorAndRerender(); };
@@ -321,6 +334,36 @@
     window.setSelection = function (startBar, endBar) { selStart = startBar; selEnd = endBar; drawSelection(); };
     window.clearSelection = function () { selStart = 0; selEnd = 0; drawSelection(); };
 
+    // --- Trouble spots: amber-tint whole bars you still keep missing. Sits BELOW the
+    // blue section selection (z 0 vs 1) and is translucent so the notes read through.
+    var troubleBars = [];
+    function troubleOverlay() {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return null;
+      if (getComputedStyle(cont).position === "static") cont.style.position = "relative";
+      var ov = document.getElementById("troubleOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "troubleOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:0;";
+        cont.insertBefore(ov, cont.firstChild);
+      }
+      return ov;
+    }
+    function drawTrouble() {
+      var ov = troubleOverlay(); if (!ov) return; ov.innerHTML = "";
+      troubleBars.forEach(function (bar) {
+        var r = null;
+        for (var i = 0; i < measRects.length; i++) { if (measRects[i].m === bar - 1) { r = measRects[i]; break; } }
+        if (!r) return;
+        var d = document.createElement("div");
+        d.style.cssText = "position:absolute;left:" + r.x + "px;top:" + r.y + "px;width:" +
+          r.w + "px;height:" + r.h + "px;background:rgba(245,158,11,0.16);" +
+          "border:1px solid rgba(245,158,11,0.55);border-radius:3px;";
+        ov.appendChild(d);
+      });
+    }
+    window.setTroubleBars = function (bars) { troubleBars = bars || []; drawTrouble(); };
+    window.clearTroubleBars = function () { troubleBars = []; drawTrouble(); };
+
     function measureAt(clientX, clientY) {
       var cont = document.getElementById("osmdContainer"); if (!cont) return -1;
       var rr = cont.getBoundingClientRect();
@@ -361,7 +404,7 @@
     })();
 
     // Rebuild rects + reattach + redraw overlays after any (re)render.
-    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); }
+    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); drawTrouble(); }
 
     // --- Missed-note markers (cheap overlay, updated every practice pass; no re-render) ---
     var missedPairs = [];   // [[beat, midi], …]

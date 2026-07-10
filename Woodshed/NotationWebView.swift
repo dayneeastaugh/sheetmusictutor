@@ -82,6 +82,15 @@ final class NotationBridge: ObservableObject {
     func clearMissed() {
         webView?.evaluateJavaScript("window.clearMissed()")
     }
+
+    /// Tint whole bars amber as "still needs work" trouble spots (1-based bar numbers).
+    func setTroubleBars(_ bars: [Int]) {
+        let js = bars.map(String.init).joined(separator: ",")
+        webView?.evaluateJavaScript("window.setTroubleBars([\(js)])")
+    }
+    func clearTroubleBars() {
+        webView?.evaluateJavaScript("window.clearTroubleBars()")
+    }
 }
 
 /// A cursor command with a nonce, so SwiftUI can tell us "run this again" by
