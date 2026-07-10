@@ -72,6 +72,42 @@ final class SongLibrary: ObservableObject {
         reload()
     }
 
+    /// Record a finished Grade pass: append it to the song's history and bump the
+    /// derived stats shown in the library (last-practiced, best full-piece accuracy).
+    /// Updates just this one song in place — no full rescan (this fires every loop).
+    func recordPass(_ pass: PracticePass, for song: Song) {
+        PracticeHistory.append(pass, to: song.folder)
+        guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        var meta = songs[idx].meta
+        meta.lastPracticed = pass.date
+        if pass.isFullPiece { meta.bestAccuracy = max(meta.bestAccuracy ?? 0, pass.accuracy) }
+        songs[idx].meta = meta
+        try? writeMeta(meta, in: songs[idx].folder)
+    }
+
+    /// Remember this song's measures-per-system layout choice (0 = auto). Updates the
+    /// one song in place; skips the write if unchanged.
+    func setBarsPerLine(_ n: Int, for song: Song) {
+        guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        let stored = n == 0 ? nil : n
+        guard songs[idx].meta.barsPerLine != stored else { return }
+        var meta = songs[idx].meta
+        meta.barsPerLine = stored
+        songs[idx].meta = meta
+        try? writeMeta(meta, in: songs[idx].folder)
+    }
+
+    /// Wipe a song's recorded practice history and the derived stats (for a fresh start).
+    func resetProgress(for song: Song) {
+        try? FileManager.default.removeItem(at: PracticeHistory.fileURL(in: song.folder))
+        guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        var meta = songs[idx].meta
+        meta.lastPracticed = nil
+        meta.bestAccuracy = nil
+        songs[idx].meta = meta
+        try? writeMeta(meta, in: songs[idx].folder)
+    }
+
     // MARK: - Helpers
 
     private func copyIn(_ src: URL, to dst: URL) throws {

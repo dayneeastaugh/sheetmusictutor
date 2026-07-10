@@ -19,7 +19,9 @@ struct SongMeta: Codable, Equatable {
     var dateAdded: Date
     var favourite: Bool = false
     var targetTempoPct: Double? = nil   // future: per-piece target tempo
-    var lastPracticed: Date? = nil      // future: practice history hook
+    var lastPracticed: Date? = nil      // updated when a pass is recorded
+    var bestAccuracy: Double? = nil     // best full-piece Grade accuracy (0…1), for the library row
+    var barsPerLine: Int? = nil         // remembered measures-per-system (nil / 0 = auto layout)
 }
 
 /// A library song = its metadata + the folder it lives in. File URLs are derived.
