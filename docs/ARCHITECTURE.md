@@ -90,10 +90,19 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   drives it directly (bypassing SwiftUI churn) at the ~50 Hz cursor rate. Loads `Web/index.html`
   with the OSMD script inlined.
 
-### 4. Library (`Song.swift`, `SongLibrary.swift`, `ContentView.swift`)
-- **`Song` / `SongMeta`** — a library song and its Codable metadata (see DATA_MODEL.md).
+### 4. Library & practice history (`Song.swift`, `SongLibrary.swift`, `PracticeHistory.swift`, `ContentView.swift`)
+- **`Song` / `SongMeta`** — a library song and its Codable metadata, incl. denormalised
+  `lastPracticed` / `bestAccuracy` (see DATA_MODEL.md).
 - **`SongLibrary`** (`ObservableObject`) — the file-based library under Application Support: scan,
   import (2 files → a per-song folder), delete, update; seeds the bundled fixtures on first launch.
+  `recordPass(_:for:)` appends a pass to the song's history and bumps its derived stats in place;
+  `resetProgress(for:)` wipes the history file + derived stats.
+- **`PracticeHistory` / `PracticePass`** — pure file IO: append/load a per-song append-only
+  `history.jsonl`, plus `troubleBars` (all-time) and `currentTroubleBars` (**"clear as you improve"**:
+  a bar counts only while the most recent pass covering it still missed notes). No UI, no engines —
+  trivially testable. The session mirrors history in memory, computes `currentTroubleBars`, and drives
+  the score's amber trouble overlay (toggle `showTroubleOnScore`), refreshing after each pass and once
+  the notation reports `loaded`.
 - **`ContentView`** — app root: a **`NavigationSplitView`** with **`LibraryView`** as the sidebar
   (the song list — add via `.fileImporter`, delete, rename, favourite) and `PracticeView` as the
   detail. Selection is by song **id** (`@State selection: Song.ID?`) so metadata edits don't drop the
@@ -106,9 +115,13 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   (`Ingest.fuse`), advances the follow-cursor from the audio clock, routes output, and implements
   **Wait mode**, **Tempo/Grade mode** matching, section practice, and review marks. UI-decoupled: it
   imports only `Foundation`/`Combine`, no SwiftUI.
-- **`PracticeView(song:)`** — a thin SwiftUI view that creates the session as a `@StateObject` and
-  binds controls to it. Holds only the 0.02 s cursor `Timer.publish` and the `onChange` wiring
-  (feeding MIDI input / play-state changes to the session); the rest is layout.
+- **`PracticeView(song:library:)`** — a thin SwiftUI view that creates the session as a `@StateObject`
+  and binds controls to it. Holds only the 0.02 s cursor `Timer.publish` and the `onChange` wiring
+  (feeding MIDI input / play-state changes to the session); the rest is layout. Wires
+  `session.onPassRecorded` to `library.recordPass` so finished Grade passes persist.
+- **`PracticeProgressView`** — the per-song Progress sheet (More menu). Loads `history.jsonl` on
+  demand and renders the accuracy trend, best/last, trouble-spot heatmap (tap to drill a bar via
+  `session.focusBar`), and recent-pass log.
 - **`PianoKeyboardView.swift`** — a stateless 88-key keyboard view. Colours: green = you playing,
   blue = right-hand score / red = left-hand score, red = "wrong" when `flagWrong` (Wait/Grade).
   Mouse/touch-playable for testing.
@@ -170,6 +183,7 @@ changing either side requires changing both (`NotationWebView.swift` ↔ `Web/in
 | `window.markMistakes(pairs)` / `clearMistakes()` | Mark/clear review noteheads red `[[beat,midi],…]` |
 | `window.setSelection(startBar, endBar)` / `clearSelection()` | Draw/clear the section highlight (bars, 1-based) |
 | `window.markMissed(pairs)` / `clearMissed()` | Ring missed notes via a cheap overlay (no re-render) — updated every practice pass |
+| `window.setTroubleBars(bars)` / `clearTroubleBars()` | Amber-tint whole bars you still keep missing (1-based); an overlay below the selection, redrawn on every render/resize |
 
 JS → Swift also posts `select:startBar:endBar` when the user drags a bar selection on the score
 (routed by `NotationBridge.post` to `onSelect`). Bar pixel rects are computed from OSMD measure
@@ -177,9 +191,11 @@ bounding boxes (`AbsolutePosition × 10 × zoom`) after each render.
 
 JS → Swift: `window.webkit.messageHandlers.osmd.postMessage(status)` → `NotationBridge.post` →
 `@Published status`. The bridge builds anchor tables (beat→pixel) after each render so the cursor
-can interpolate horizontally and snap at line breaks; follow-scroll uses a **CSS transform** on the
-container (not `window.scrollTo`, which no-ops in the clipped WKWebView), leaving headroom above the
-active system so above-staff content isn't clipped. **Resize is owned in JS, not OSMD** (`autoResize:
+can interpolate horizontally and snap at line breaks; follow-scroll animates the scroll position of a
+**`#scrollHost` overflow container** (so the user can also scroll it by hand to review already-played
+bars — a CSS transform hid everything above the cursor), leaving headroom above the active system so
+above-staff content isn't clipped. The glide is a hand-rolled timer tween because
+`scrollTo({behavior:"smooth"})` no-ops in this WebView. **Resize is owned in JS, not OSMD** (`autoResize:
 false`): a debounced `ResizeObserver` relayouts on a real width change and **rebuilds the anchors +
 overlays**, so the cursor never drifts off the played note after the pane resizes (e.g. sidebar
 collapse). The anchor table is stale after any relayout unless rebuilt — that invariant is why.

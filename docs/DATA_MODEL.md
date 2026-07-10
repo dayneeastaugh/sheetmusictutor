@@ -64,10 +64,18 @@ Per-hand ingestion audit: `xmlSoundingCount`, `midiCount`, `matched`, `ornamentR
   time range)
 - `reconciliations: [Reconciliation]`
 
-### Runtime-only structs (in `ContentView`, not persisted)
+### Runtime-only structs (in `PracticeSession`, not persisted)
 - `Mistake { beat, pitch }` — a fumbled/missed position for review marks.
-- `GradeResult { accuracy, hits, total, missed, extra, avgMs }` — a Tempo-mode pass score.
+- `GradeResult { accuracy, hits, total, missed, extra, avgMs }` — an in-session Tempo-mode pass score
+  (drives the live status line + trend; the persisted equivalent is `PracticePass`).
 - `waitSteps: [(beat, rh: Set<Int>, lh: Set<Int>)]` — Wait-mode step list.
+
+### `PracticePass` (persisted practice record) — `Codable, Identifiable` (`PracticeHistory.swift`)
+One tallied Grade pass, appended to the song's `history.jsonl`. Fields: `id`, `date`, `mode`
+(`"grade"`), `sectionStart`/`sectionEnd`/`measureCount` (the bar range + whole-piece size),
+`tempoPct`, `handMode`, `total`/`hits`/`missed`/`wrong`/`avgMs`, and `missedBars: [Int]` (one 1-based
+bar per missed note — weights the trouble-spot heatmap). Computed `accuracy`, `isFullPiece`.
+`TroubleBar { bar, misses }` is the aggregate of `missedBars` across passes.
 
 ## Relationships & invariants
 
@@ -92,20 +100,31 @@ The library is stored on disk as **self-contained per-song folders** (no databas
         score.musicxml     # the imported MusicXML
         score.mid          # the imported MIDI
         metadata.json      # SongMeta (Codable)
+        history.jsonl      # one PracticePass per line (append-only; created on first pass)
 ```
 
 - **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,
-  `dateAdded`, `favourite`, `targetTempoPct?`, `lastPracticed?`. This is the single place
-  song-specific state lives and it travels with the folder. Extend it for practice data.
+  `dateAdded`, `favourite`, `targetTempoPct?`, `lastPracticed?`, `bestAccuracy?` (best full-piece
+  Grade accuracy, for the library row), `barsPerLine?` (remembered measures-per-system; nil/0 = auto).
+  The single place song-specific state lives; travels with the folder. Derived stats (`lastPracticed`,
+  `bestAccuracy`) are denormalised here so the library list needn't read every `history.jsonl`.
+  **New fields are `Optional`** so older `metadata.json` (written before the field) still decodes
+  (synthesized `Decodable` ignores non-optional defaults for missing keys).
 - **`Song`** (`Identifiable`, `Hashable`): `meta` + `folder` URL; derives `musicXMLURL`, `midiURL`,
   `metadataURL`.
 - **`SongLibrary`** (`ObservableObject`): scans `Scores/` into `songs: [Song]` (sorted by title);
   `importSong(musicXML:midi:title:)` copies a pair into a new `<uuid>` folder; `delete`, `update`
-  (rewrite metadata). On first launch (empty library) it seeds the two bundled fixtures.
+  (rewrite metadata); `recordPass(_:for:)` appends a `PracticePass` to `history.jsonl` and updates the
+  song's denormalised stats in place. On first launch (empty library) it seeds the two bundled fixtures.
+- **`PracticeHistory`** (enum, pure file IO): `append` / `load` the JSON-lines history; `troubleBars`
+  (all-time miss counts) and `currentTroubleBars` (**still-outstanding** — a bar counts only while the
+  most recent covering pass still missed it, so it clears once played clean). `SongLibrary.recordPass`
+  / `resetProgress` are the write/erase paths; the session mirrors history in memory for the Progress
+  view + the on-score trouble overlay.
 
-Still **not** persisted: session history / per-attempt results (the Grade-mode `gradeHistory` is
-in-memory per session). Those, plus cross-song analytics, are the point at which a DB (GRDB) may be
-introduced — the metadata JSON can gain the fields first and migrate later.
+Now persisted: **per-pass Grade history** (`history.jsonl`) + the denormalised `lastPracticed` /
+`bestAccuracy`. Not yet: Wait-mode records, per-piece config beyond `targetTempoPct`, and **cross-song**
+analytics — that last one is the point at which a DB (GRDB) may replace the per-song scan.
 
 The `FusedScore`/`NoteEvent` model is **not** persisted — it's recomputed from the song's XML+MIDI by
 `Ingest.fuse` each time a song is opened.
@@ -119,9 +138,10 @@ The `FusedScore`/`NoteEvent` model is **not** persisted — it's recomputed from
 
 ## Open Questions
 
-- **Persistence not started.** Confirm GRDB/SQLite (PRD) vs SwiftData before building the store —
-  SwiftData would be more idiomatic for a new multiplatform app but the PRD deliberately chose GRDB
-  for "direct SQL, transparent." This is a live decision (see DECISIONS.md ADR-013).
+- **Persistence is file-based, not a DB.** Per-song `history.jsonl` + `metadata.json` now cover
+  per-piece progress. A store (GRDB vs SwiftData) is only needed once **cross-song** analytics (a
+  library-wide heatmap, spaced repetition across pieces) arrive — deferred until then (ADR-021, and
+  ADR-013 for the GRDB-vs-SwiftData call when it comes).
 - Should `FusedScore`/`NoteEvent` be cached to disk, or always recomputed on load? (Ingestion is
   fast; caching may be premature.)
 - Voice handling is captured (`voice`) but not yet used downstream — confirm it's needed for the

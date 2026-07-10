@@ -38,8 +38,14 @@ final class PracticeSession: ObservableObject {
         didSet { bridge.setHandColors(colorHands) }
     }
     @Published var barsPerLine = 0 {            // measures per line/system (0 = auto)
-        didSet { bridge.setMeasuresPerSystem(barsPerLine) }
+        didSet {
+            bridge.setMeasuresPerSystem(barsPerLine)
+            if !loadingLayout { onSaveBarsPerLine?(barsPerLine) }   // persist user changes, not the initial load
+        }
     }
+    /// Persist the measures-per-system choice for this song. Set by the view.
+    var onSaveBarsPerLine: ((Int) -> Void)?
+    private var loadingLayout = false           // true while applying the saved value on open
 
     // MARK: Section practice — play/loop a bar range instead of the whole piece.
     @Published var sectionStart = 1 {           // first bar (1-based)
@@ -52,7 +58,11 @@ final class PracticeSession: ObservableObject {
         didSet { onSectionChanged() }
     }
     @Published var loopSection = false          // repeat the section
+    @Published var loopCountInPulses = 0        // count-in beats before each loop pass (0 = off)
     private var lastDiscreteBeat: Double = -1
+
+    /// Beats (metronome pulses) in a bar, for the loop count-in choices (meter-aware).
+    var pulsesPerBar: Int { max(1, score?.metronomeBarPattern.count ?? 4) }
 
     // MARK: Transport / playback
     @Published var countInBars = 0             // 0 = off, else bars of count-in before Play
@@ -96,6 +106,7 @@ final class PracticeSession: ObservableObject {
     private var gradeHits = 0
     private var gradeWrong = 0
     private var gradeTiming: [Double] = []       // |timing error| of hits
+    private var gradePassRecorded = false        // this pass already tallied? (avoid double-recording)
     private let gradeTolerance = 0.30   // musical seconds; a note counts if within this of expected
 
     struct GradeResult {
@@ -107,6 +118,18 @@ final class PracticeSession: ObservableObject {
         var avgMs: Double      // mean absolute timing error of hits
     }
 
+    /// Called when a Grade pass is tallied, so the library can persist it (history +
+    /// derived stats). Set by the view; keeps this class free of the library type.
+    var onPassRecorded: ((PracticePass) -> Void)?
+
+    // MARK: Progress / trouble spots
+    @Published private(set) var history: [PracticePass] = []   // this song's recorded passes
+    @Published var showTroubleOnScore = true {                 // amber-tint trouble bars on the score
+        didSet { refreshTroubleOverlay() }
+    }
+    /// Bars that still need work ("clear as you improve"), derived from `history`.
+    var currentTroubleBars: [TroubleBar] { PracticeHistory.currentTroubleBars(history) }
+
     private var cancellables: Set<AnyCancellable> = []
 
     init(song: Song) {
@@ -116,6 +139,19 @@ final class PracticeSession: ObservableObject {
         for obj in [audio.objectWillChange, midi.objectWillChange, bridge.objectWillChange] {
             obj.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
+        // Apply per-song layout (saved bars-per-line) + the trouble overlay once the
+        // notation reports it has rendered (the JS isn't there to receive it before then).
+        bridge.$status
+            .filter { $0.hasPrefix("loaded") }
+            .sink { [weak self] _ in self?.applyPersistedLayoutToNotation() }
+            .store(in: &cancellables)
+    }
+
+    /// After the score first renders, apply the remembered measures-per-system and the
+    /// trouble overlay (both need the page's JS to exist and a score to be loaded).
+    private func applyPersistedLayoutToNotation() {
+        if barsPerLine != 0 { bridge.setMeasuresPerSystem(barsPerLine) }
+        refreshTroubleOverlay()
     }
 
     /// Wire up engine callbacks and fuse the score. Called from the view's `onAppear`.
@@ -124,6 +160,22 @@ final class PracticeSession: ObservableObject {
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
         applyOutput()
         ingest()
+        reloadHistory()
+        loadingLayout = true                      // apply the remembered layout without re-saving it
+        barsPerLine = song.meta.barsPerLine ?? 0
+        loadingLayout = false
+    }
+
+    /// (Re)load this song's recorded history from disk and refresh the trouble overlay.
+    func reloadHistory() {
+        history = PracticeHistory.load(from: song.folder)
+        refreshTroubleOverlay()
+    }
+
+    /// Push the current trouble bars to the score (or clear them if the toggle is off).
+    private func refreshTroubleOverlay() {
+        guard showTroubleOnScore else { bridge.clearTroubleBars(); return }
+        bridge.setTroubleBars(currentTroubleBars.map(\.bar))
     }
 
     // MARK: - Practice mode (unified selector)
@@ -182,6 +234,7 @@ final class PracticeSession: ObservableObject {
     private func startGradePass() {
         gradeExpected = buildGradeExpected()
         gradeMissed = []; gradeCheckIdx = 0; gradeHits = 0; gradeWrong = 0; gradeTiming = []
+        gradePassRecorded = false
         bridge.markMissed([])
     }
 
@@ -215,16 +268,34 @@ final class PracticeSession: ObservableObject {
         if changed { bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) }) }
     }
 
-    /// Tally the finished pass into the progress history.
+    /// Tally the finished pass into the progress history and persist it. Idempotent:
+    /// a pass is recorded at most once (completion), never again when playback stops.
     private func finalizeGradePass() {
         let total = gradeExpected.count
-        guard total > 0 else { return }
+        guard total > 0, !gradePassRecorded else { return }
+        gradePassRecorded = true
         let missed = gradeExpected.filter { !$0.matched }.count
         let avgMs = gradeTiming.isEmpty ? 0 : gradeTiming.reduce(0, +) / Double(gradeTiming.count) * 1000
         let r = GradeResult(accuracy: Double(gradeHits) / Double(total),
                             hits: gradeHits, total: total, missed: missed, extra: gradeWrong, avgMs: avgMs)
         gradeResult = r
         gradeHistory.append(r)
+
+        let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
+                                tempoPct: tempoPct, handMode: handMode,
+                                total: total, hits: gradeHits, missed: missed, wrong: gradeWrong, avgMs: avgMs,
+                                missedBars: gradeExpected.filter { !$0.matched }.map { barForBeat($0.beat) })
+        onPassRecorded?(pass)          // persist (disk + library stats)
+        history.append(pass)           // mirror in memory for progress + trouble overlay
+        refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up
+    }
+
+    /// The 1-based bar containing a notated beat (via the measure start-beat table).
+    private func barForBeat(_ beat: Double) -> Int {
+        guard let m = score?.measureStartBeats else { return sectionStart }
+        var bar = 1
+        for i in m.indices where m[i] <= beat + 0.0001 { bar = i + 1 }
+        return bar
     }
 
     // MARK: - Wait mode
@@ -356,6 +427,7 @@ final class PracticeSession: ObservableObject {
     /// React to a section change: update the on-score highlight, rebuild Wait steps,
     /// or preview the cursor there.
     private func onSectionChanged() {
+        if audio.isPlaying { audio.clickCeiling = sectionEndTime }   // keep the loop click boundary current
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count; waitIndex = 0
@@ -368,6 +440,13 @@ final class PracticeSession: ObservableObject {
     /// Reset the section to the whole piece.
     func selectWholePiece() {
         sectionStart = 1; sectionEnd = measureCount
+    }
+
+    /// Focus the section on a single bar (used to drill a trouble spot from Progress).
+    func focusBar(_ bar: Int) {
+        let b = min(max(1, bar), measureCount)
+        sectionStart = b
+        sectionEnd = b
     }
 
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
@@ -408,7 +487,11 @@ final class PracticeSession: ObservableObject {
 
     /// Playback started/stopped: in Grade mode a stop tallies the final (partial) pass.
     func playingChanged(_ was: Bool, _ now: Bool) {
-        if was && !now && gradeMode { finalizeGradePass() }
+        guard was && !now && gradeMode else { return }
+        // Only count a pass that actually reached the section end. Completion already
+        // records it (idempotently); this catches the case where the sequencer ends on
+        // its own before the tick sees it. Stopping early abandons the partial pass.
+        if audio.currentTime + 0.15 >= sectionEndTime { finalizeGradePass() }
     }
 
     // MARK: - Playback + cursor sync
@@ -426,7 +509,8 @@ final class PracticeSession: ObservableObject {
                 startGradePass()
             }
             resetCursor()
-            audio.startSeconds = sectionStartTime   // play from the section start
+            audio.startSeconds = sectionStartTime    // play from the section start
+            audio.clickCeiling = sectionEndTime      // don't click the bar past the section (loop point)
             audio.play(countInBars: countInBars)
         }
     }
@@ -452,16 +536,22 @@ final class PracticeSession: ObservableObject {
         guard audio.isRunning else { return }   // counting in — don't follow/emit notes yet
         let t = audio.currentTime
         // Reached the end of the section (or piece): loop it, or stop.
-        let endTime = sectionEndTime + 0.05
+        // For a count-in loop, trigger just BEFORE the barline so the next bar's notes
+        // never start (the count-in silence hides the tiny early cut). Otherwise allow a
+        // small buffer past the end so the section's last note isn't clipped.
+        let loopingWithCountIn = loopSection && loopCountInPulses > 0
+        let endTime = sectionEndTime + (loopingWithCountIn ? -0.03 : 0.05)
         if endTime > 0 && t >= endTime {
             if loopSection {
                 if gradeMode { finalizeGradePass() }   // tally the pass into the progress history
                 flushPianoOutput()
                 lastDiscreteBeat = -1
-                audio.loopBackToStart()   // jump to section start, clear hanging notes
+                audio.loopBackToStart(countInPulses: loopCountInPulses)   // section start (+ optional count-in)
+                bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
                 if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
             } else {
-                audio.stop()   // playingChanged() grades the final pass in Grade mode
+                if gradeMode { finalizeGradePass() }   // record the completed pass, then stop
+                audio.stop()
             }
             return
         }

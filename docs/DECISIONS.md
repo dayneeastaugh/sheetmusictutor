@@ -177,6 +177,87 @@ by default on iPad (loses always-on live MIDI feedback); a size-class-switched l
 vs one wrapping layout). **Verified:** builds for both the macOS and iOS SDKs; runtime tested on Mac
 (boots, no crash) — not yet on iPad hardware.
 
+### ADR-021 — Practice history as per-song append-only JSON-lines, not a database
+**2026-07-10.** Persist each finished Grade pass as one JSON object appended to `history.jsonl` in the
+song's own folder (`PracticePass` in `PracticeHistory.swift`). Denormalise two derived stats
+(`lastPracticed`, `bestAccuracy`) into `metadata.json` so the library list needn't read every history
+file. The Progress view reads `history.jsonl` on demand for trends + trouble spots. Extends ADR-018's
+file-based library to practice data.
+**Rationale:** practice records are per-song, append-only, and small — a JSON-lines file per song is
+the natural fit: a bad line is skipped (resilient), the record travels with the song folder
+(portable), and appends are O(1) with no schema/migration. Keeps the zero-dependency stance; a DB
+buys nothing until **cross-song** querying exists.
+**Rejected:** GRDB/SQLite now (ADR-015 — upfront work + dependency not justified at single-song
+granularity); one growing `sessions.json` array per song (rewrites the whole file every pass; a
+partial write corrupts all history); stuffing history into `metadata.json` (unbounded growth in the
+file the library scans). **Open:** revisit a DB when library-wide analytics / spaced repetition across
+pieces arrive; add Wait-mode records if useful.
+
+### ADR-022 — Trouble spots are "clear as you improve", shown on the score
+**2026-07-10.** A bar is a *current* trouble spot only while the **most recent pass that covered it**
+still missed notes there (`PracticeHistory.currentTroubleBars`, weighted by misses in a small recent
+window). Play it clean and it drops off. Current trouble bars are tinted **amber** directly on the
+notation (a JS overlay below the blue section selection, toggle `showTroubleOnScore`) and listed in
+the Progress sheet (tap to drill). A separate all-time `troubleBars` is kept for reference.
+**Rationale:** "what do I still need to look at" must reflect present weakness, not a cumulative
+tally that never clears; showing it on the score (not just a list) puts the guidance where you read.
+Recency-by-covering-pass handles both full runs and section drills correctly (a clean section drill
+clears its bars; bars it didn't cover stay).
+**Rejected:** all-time cumulative misses as the headline (never clears — misleading after you've
+fixed a spot); a time-decay weighting (fiddlier and less legible than "clean last time = cleared").
+**Open:** manual revisit flags/notes are a separate, complementary feature (next).
+
+### ADR-023 — Follow-scroll via a real scroll container (supersedes ADR-012's transform)
+**2026-07-10.** The notation now lives in a `#scrollHost` `overflow-y:auto` viewport; follow-scroll
+animates `scrollHost.scrollTop` (a hand-rolled timer tween — `scrollTo({behavior:"smooth"})` no-ops
+in this WebView). Supersedes ADR-012 (translateY transform on the container).
+**Rationale:** the transform pushed already-played bars off the top with **no way to scroll back** to
+review them. An element-level overflow scroller scrolls both programmatically (element `scrollTop`,
+unlike the document-level `window.scrollTo` that ADR-012 correctly found no-ops) **and** by hand
+(wheel/trackpad/touch). Verified in a browser: container scrolls, follow keeps the cursor visible with
+the right headroom, and manual scroll-back works.
+**Rejected:** keeping the transform (can't review past bars); `scrollTo({behavior:"smooth"})` (no-ops
+here); a rAF tween (requestAnimationFrame is throttled when the page/tab is backgrounded — a timer
+tween runs regardless). ADR-012's finding about `window.scrollTo` stands; the fix was an inner
+overflow element, not the document.
+
+### ADR-024 — Per-loop count-in: freeze the clock and click a meter-aware pickup
+**2026-07-10.** When looping a section, an optional count-in of N beats plays before each pass:
+`AudioEnginePlayer.loopBackToStart(countInPulses:)` repositions to the section start, sets
+`isRunning = false` (so the cursor/grader idle), `stop()`s the sequencer, clicks the **last N pulses
+of the bar** (a pickup into the downbeat) on the metronome timer, then restarts the sequencer.
+**Order matters:** stop the sequencer *before* repositioning it — jumping the position while it's
+still playing fires the first bar's note-ons, which then get cut off (an audible blip in the count-in
+silence). Stop → reposition → all-notes-off → count in. **And trigger the loop just *before* the
+barline** (`sectionEndTime − 0.03` vs the usual `+ 0.05`) for count-in loops, so the *next* bar's
+notes never start — the loop tick runs at 20 Hz, so the old "+50 ms past the end" overshoot let the
+bar past the section sound briefly before the jump; the count-in silence hides the ~30 ms early cut of
+the section's last note tail. (Non-count-in seamless loops keep the small `+` buffer.) N is
+chosen in beats (metronome pulses), capped at the section's `metronomeBarPattern.count` so the max is
+a full bar for that meter.
+**Rationale:** looping to drill a passage needs a moment to reposition your hands each pass; a pickup
+count (not a full-bar-from-the-downbeat) matches how players count in a partial lead. Reusing the
+metronome pulse/pattern keeps it tempo- and meter-correct for free; freezing `isRunning` cleanly
+suspends follow-cursor + grading during the count (grade input is already gated on `isRunning`).
+**Rejected:** a fixed silent gap (no audible count to reposition to); counting always from the
+downbeat (wrong for < 1 bar); scheduling the count on the sequencer itself (the sequencer plays the
+score, not click-only bars). **Open:** per-section meter is approximated by the global bar pattern —
+revisit if a mid-piece meter change lands inside a looped section.
+
+### ADR-025 — Metronome resync anchors to the intended start, and stops at the loop end
+**2026-07-10.** Two fixes so a looped section (esp. with a count-in) feels seamless: (1) `startSynced`
+takes a `referenceTime` and every section (re)start passes `startSeconds` instead of reading
+`currentTime` — `seq.start()` latency nudged `currentTime` past the section's downbeat, so the old
+`time >= currentTime - 0.02` skip dropped the downbeat and the metronome resumed on beat 2 (the
+"upbeat"). (2) A `clickCeiling` (= section end) suppresses the synced click for the downbeat of the
+bar *past* the section, which used to sound in the ~0.05 s before the loop reset.
+**Rationale:** the downbeat must land on the first beat of the loop; anchoring to the known restart
+position removes the latency race, and the ceiling stops an out-of-loop click. Both are general (they
+also tighten non-count-in section loops and the initial section Play), not count-in-specific.
+**Rejected:** widening the skip tolerance (guesses at latency; could drop legit near clicks); firing
+the downbeat from the count-in timer and skipping it in `startSynced` (tighter, but risks a double
+downbeat — revisit only if residual `seq.start()` latency is audible).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.

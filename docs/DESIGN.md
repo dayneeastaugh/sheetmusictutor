@@ -18,7 +18,8 @@ empty detail shows a `ContentUnavailableView` prompt.
 ## Screen inventory
 
 ### Library (root)
-A `List` of songs (title + date-added, ⭐ for favourites) and a **+** toolbar button to import a
+A `List` of songs (title + a subtitle: **last-practised + best %** once there's history, else
+date-added; ⭐ for favourites) and a **+** toolbar button to import a
 MusicXML + MIDI pair (`.fileImporter`). Per-row actions (Rename / Favourite / Delete) are on a
 visible **⋯ menu button** so they work by click on Mac and tap on iPad — **not** relying on
 swipe-to-delete (iPad-only). The same actions are also on the right-click / long-press context menu,
@@ -42,12 +43,19 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
    If the song fails to load, a `ContentUnavailableView` replaces it.
 4. **Control bar** — a **`FlowLayout`** (wraps on narrow widths) of labelled groups: **Hands**
    (segmented Both/R.H./L.H.), **Tempo** (% + slider 25–120), **Section** (from/to steppers, `🔁 Loop`,
-   `All`), plus a **Metronome** toggle and an **Output** menu (Speakers / Piano / Both).
+   `All`), a **Loop count-in** menu (Off / 1 beat … / Full bar — choices are meter-aware, capped at the
+   section's beats-per-bar), plus a **Metronome** toggle and an **Output** menu (Speakers / Piano / Both).
 5. **Keyboard** — the 88-key `PianoKeyboardView` (**always visible**; 88 pt on Mac, 74 pt on iPad),
    with a legend + MIDI connection status beneath.
 6. **More menu** (toolbar `⋯`) — the less-used controls: Count-in, Smooth cursor, Highlight score
-   notes, Colour hands, Bars per line, Step cursor forward, Reset cursor, and **Show diagnostics…**.
-7. **Diagnostics** (behind the More menu, in a sheet) — score summary, the per-hand reconciliation
+   notes, **Show trouble spots on score**, Colour hands, Bars per line (**remembered per song** in
+   `metadata.json`), Step cursor forward, Reset cursor, **Show progress…**, and **Show diagnostics…**.
+7. **Progress** (behind the More menu, in a sheet) — headline stats (passes, best full run, last
+   pass), an accuracy **trend sparkline** (with a 95% target guide), a **"still need work"** list
+   (bars you're currently missing, each a tap-to-drill button that focuses the section on that bar;
+   a bar clears once you play it cleanly), and a recent-pass log. A destructive **Reset** (toolbar,
+   with a confirm dialog) wipes the song's history. Empty state until the first Grade pass.
+8. **Diagnostics** (behind the More menu, in a sheet) — score summary, the per-hand reconciliation
    table (✅/⚠️), and the first 24 note events. Monospaced. Off the main flow but one tap away.
 
 ## Colour tokens (as used in code)
@@ -57,6 +65,7 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
 | Hand — right | `#1565C0` (blue) | RH noteheads (notation) & RH score notes (keyboard) |
 | Hand — left | `#C62828` (red) | LH noteheads (notation) & LH score notes (keyboard) |
 | Mistake / missed | `#D32F2F` (red) | Review marks on noteheads |
+| Trouble bar | `rgba(245,158,11,…)` (amber) | Bars you still keep missing, tinted on the score (below the blue section selection) |
 | You (input) | `Color.green` | Notes you're holding on the MIDI piano / mouse |
 | Wrong (Wait/Grade) | `Color.red` | A held note that isn't expected now |
 | Cursor | OSMD green highlight | The follow-cursor bar |
@@ -88,10 +97,12 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 
 - **Follow-cursor:** driven from the audio clock at ~50 Hz. "Smooth" interpolates the cursor's
   horizontal position between notes; "Step" jumps note-to-note. Both snap at line breaks.
-- **Follow-scroll:** when the active line changes, the notation content animates up via a CSS
-  transform (0.35 s ease) to keep the active + next line in view. It leaves **headroom above the
-  active system** (≥ 40 px, scaled with zoom) so notes / ledger lines / ornaments above the top staff
-  line stay fully visible — the cursor's `offsetTop` is the staff origin, not the content top.
+- **Follow-scroll:** the notation lives in a scrollable viewport (`#scrollHost`). When the active line
+  changes, it animates the scroll position (0.35 s ease) to keep the active + next line in view, with
+  **headroom above the active system** (≥ 40 px, scaled with zoom) so notes / ledger lines / ornaments
+  above the top staff line stay fully visible. Because it's a real scroller, you can also **scroll it
+  by hand** (wheel / trackpad / touch) to review bars you've already played; auto-follow resumes on the
+  next cursor move.
 - **Keyboard:** press/drag plays notes (mouse/touch) via a high-priority drag gesture, **routed by
   the Output setting** — the internal sampler for Speakers, the external piano (MIDI out) for Piano,
   both for Both (so tapping the keyboard is audible on the piano when Piano output is selected). MIDI
@@ -104,6 +115,16 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 - **Per-pass grading (Grade + Loop):** misses **ring red progressively** as the cursor passes each note
   you didn't play (open circle, doesn't fill the notehead); the rings **wipe at each loop restart**.
   Each loop shows "Pass N: X% · Missed · Wrong · ±ms" and a "Progress 72→80→87%" accuracy trend.
+- **A pass is recorded once, on completion** — reaching the section end (each loop, or the single
+  play-through). Stopping early **abandons** the partial pass (it isn't recorded), so the history and
+  trend only reflect passes you actually finished.
+- **Loop count-in:** with Loop on, an optional count-in of N beats plays before **each** pass (the
+  clock freezes at the section start, the metronome clicks the last N beats of the bar as a pickup,
+  then playback resumes) — time to reposition your hands. N is meter-aware (Off up to a full bar).
+- **Trouble spots on the score:** the bars you still keep missing are tinted **amber** on the notation
+  (toggle: More → "Show trouble spots on score"). The set is "clear as you improve" — a bar drops off
+  once the most recent pass covering it is clean, and updates live after each pass. The Progress
+  sheet lists the same bars (tap to drill).
 - **Keyboard shortcut:** Space = Play/Stop.
 
 ## Design conventions to preserve

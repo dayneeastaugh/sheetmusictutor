@@ -33,7 +33,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 6. **Play along & grade** — "I play along at tempo; afterwards it tells me my accuracy and timing and
    marks what I missed." *(Built, first cut — 'Grade' mode.)*
 7. **Master & progress** *(not built)* — "It only advances tempo/section when I've played accurately;
-   it shows my trouble spots and history over time."
+   it shows my trouble spots and history over time." *(Partly built: history, trend, and trouble
+   spots exist; mastery gating — auto-advancing only on accurate play — does not yet.)*
 
 ## 4. Functional requirements
 
@@ -62,18 +63,25 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   as you drill a section; the notes you're still missing are ringed on the score, updated every pass.
 - **Section focus & looping** — select a bar range (from/to bar) and play or **loop** just that
   section; a "Whole piece" reset. Playback, cursor, metronome, and Wait/Grade are all scoped to the
-  section. (Named/saved clips and drag-to-select are not yet built — see Planned.)
+  section. An optional **per-loop count-in** (meter-aware, Off up to a full bar) clicks a pickup
+  before each pass so you can reposition. (Named/saved clips and drag-to-select are not yet built.)
+- **Progress tracking** — every Grade pass is persisted per song (`history.jsonl`). A Progress view
+  shows the accuracy trend, best full run, last pass, a **trouble-spot heatmap** (bars ranked by
+  missed notes, tap to drill that bar), and a recent-pass log. The library row shows last-practised +
+  best. (Cross-song analytics and spaced repetition are still Planned.)
 
 ### Planned (from the roadmap, not yet built)
-- **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, last-practised /
-  target-tempo shown in the list, search/sort, `.mxl` (compressed) import.
-- **Section refinements** — named/saved clips per piece, drag-across-notes selection, silent reset gap
-  between loops, A/B markers.
+- **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, search/sort,
+  target-tempo shown in the list, `.mxl` (compressed) import. *(Last-practised + best now shown.)*
+- **Section refinements** — named/saved clips per piece, drag-across-notes selection, A/B markers.
+  *(Per-loop count-in now built; drag-to-select on the score already exists.)*
 - **Speed trainer** — manual, auto-by-reps, and **auto-by-accuracy** tempo ramps.
 - **Rhythm tools** — rhythm-only playback, subdivision grid, tap-along trainer, count display.
 - **Mastery gating** — advance only on N clean passes; hands-separate → hands-together gating.
-- **Progress & analytics** — per-piece tempo-over-time, trouble-spot heatmap, spaced repetition.
-- **Persistence** — local library, per-piece config, session history, attempts.
+- **Progress & analytics — cross-song** — per-piece tempo-over-time, library-wide heatmap, spaced
+  repetition. *(Per-piece history/trend/trouble-spots are built — see Implemented.)*
+- **Persistence — cross-song store** — a DB (GRDB) if/when library-wide querying needs it; per-song
+  history + metadata are already on disk.
 
 ## 5. Non-functional requirements
 
@@ -85,7 +93,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Latency/feel:** schedule audio on the render clock (the sequencer does this); keep MIDI-in →
   visual feedback perceptually immediate. Cursor updates at ~50 Hz; metronome on a high-resolution
   timer (target: move click to a sample-accurate look-ahead scheduler — see Open Questions).
-- **Storage (planned):** SQLite via GRDB (per PRD) — not yet built.
+- **Storage:** file-based — per-song `metadata.json` + append-only `history.jsonl` (no DB). A GRDB
+  store is deferred until cross-song analytics need it (DECISIONS ADR-021).
 - **Accessibility:** *not yet addressed* — see Open Questions.
 
 ## 6. Out of scope (explicit non-goals)
@@ -109,11 +118,11 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 
 ## Open Questions
 
-- **Import/library UX** is undefined in code (scores are bundled). Define the real import flow and the
-  library screen for Phase 1.
 - **Accessibility** (VoiceOver, Dynamic Type, colour-blind-safe hand colours — RH blue / LH red may be
   a problem for red-green deficiency) is unaddressed. Decide the bar for v1.
 - **Grading tolerance** is a single fixed ±300 ms (musical). PRD wants it tempo-aware (tighter at
   speed, wider when slow) and early/late labelling. Confirm target behaviour.
 - **iPad** is a stated first-class platform but untested; the sound source differs (no system `.dls`).
-- **Mastery gating / progress** — the features that make it a "tutor" vs a "player" are still on paper.
+- **Mastery gating** — auto-advancing tempo/section only on N clean passes (and the accuracy-tied
+  speed ramp) is the remaining "tutor" piece. The per-pass history it needs is now recorded; the
+  gating logic + UI are not built.

@@ -14,11 +14,14 @@ import Combine
 
 struct PracticeView: View {
     let song: Song
+    @ObservedObject var library: SongLibrary
     @StateObject private var session: PracticeSession
     @State private var showDiagnostics = false
+    @State private var showProgress = false
 
-    init(song: Song) {
+    init(song: Song, library: SongLibrary) {
         self.song = song
+        self.library = library
         _session = StateObject(wrappedValue: PracticeSession(song: song))
     }
 
@@ -48,11 +51,20 @@ struct PracticeView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) { moreMenu }
         }
-        .onAppear { session.onAppear() }
+        .onAppear {
+            session.onPassRecorded = { [library, song] pass in library.recordPass(pass, for: song) }
+            session.onSaveBarsPerLine = { [library, song] n in library.setBarsPerLine(n, for: song) }
+            session.onAppear()
+        }
         .onReceive(tick) { _ in session.advanceCursorWithPlayback() }
         .onChange(of: session.midi.activeNotes) { old, new in session.midiNotesChanged(old, new) }
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }
+        .sheet(isPresented: $showProgress) {
+            PracticeProgressView(song: song, passes: session.history,
+                                 onDrillBar: { session.focusBar($0) },
+                                 onReset: { library.resetProgress(for: song); session.reloadHistory() })
+        }
     }
 
     private var subtitle: String {
@@ -178,6 +190,17 @@ struct PracticeView: View {
                     Button("All") { session.selectWholePiece() }
                 }
             }
+            // Loop count-in (beats before each pass — meter-aware)
+            controlGroup {
+                Text("Loop count-in").font(.caption).foregroundStyle(.secondary)
+                Picker("Loop count-in", selection: $session.loopCountInPulses) {
+                    Text("Off").tag(0)
+                    ForEach(1...session.pulsesPerBar, id: \.self) { n in
+                        Text(n == session.pulsesPerBar ? "Full bar (\(n))" : (n == 1 ? "1 beat" : "\(n) beats")).tag(n)
+                    }
+                }
+                .pickerStyle(.menu).labelsHidden().fixedSize()
+            }
             // Metronome
             Toggle(isOn: Binding(get: { session.audio.metronomeOn }, set: { session.setMetronome($0) })) {
                 Label("Metronome", systemImage: "metronome")
@@ -203,6 +226,7 @@ struct PracticeView: View {
             }
             Toggle("Smooth cursor", isOn: $session.cursorSmooth)
             Toggle("Highlight score notes", isOn: $session.showScoreNotes)
+            Toggle("Show trouble spots on score", isOn: $session.showTroubleOnScore)
             Toggle("Colour hands (RH blue / LH red)", isOn: $session.colorHands)
             Picker("Bars per line", selection: $session.barsPerLine) {
                 Text("Auto").tag(0)
@@ -212,6 +236,8 @@ struct PracticeView: View {
             Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
                 .disabled(session.audio.isPlaying)
             Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
+            Divider()
+            Button { showProgress = true } label: { Label("Show progress…", systemImage: "chart.line.uptrend.xyaxis") }
             Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")

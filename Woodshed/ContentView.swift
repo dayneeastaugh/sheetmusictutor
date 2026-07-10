@@ -23,7 +23,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 240, ideal: 300)
         } detail: {
             if let id = selection, let song = library.songs.first(where: { $0.id == id }) {
-                PracticeView(song: song)
+                PracticeView(song: song, library: library)
                     .id(song.id)   // new song ⇒ fresh PracticeSession; a rename keeps it
             } else {
                 ContentUnavailableView("Select a song",
@@ -60,7 +60,7 @@ struct LibraryView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.headline)
-                        Text("Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))")
+                        Text(rowSubtitle(song))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -110,6 +110,16 @@ struct LibraryView: View {
         Button("Rename…") { renameTarget = song; renameText = song.title }
         Button(song.meta.favourite ? "Remove favourite" : "Favourite") { toggleFavourite(song) }
         Button("Delete", role: .destructive) { library.delete(song) }
+    }
+
+    /// Row subtitle: practice status once there's history, else the date added.
+    private func rowSubtitle(_ song: Song) -> String {
+        if let last = song.meta.lastPracticed {
+            var s = "Practiced \(last.formatted(date: .abbreviated, time: .omitted))"
+            if let best = song.meta.bestAccuracy { s += " · best \(Int(best * 100))%" }
+            return s
+        }
+        return "Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private func toggleFavourite(_ song: Song) {
