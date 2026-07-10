@@ -53,6 +53,9 @@ final class AudioEnginePlayer: ObservableObject {
     private var barPattern: [ClickLevel] = []    // one bar of pulses (count-in / free-run)
     private var pulseSeconds: Double = 0.5       // seconds between pulses at the initial tempo
     private var nextClick = 0
+    /// Synced metronome won't fire clicks at/after this time — set to the section end so
+    /// the downbeat of the bar *past* the loop doesn't sound right before we loop back.
+    var clickCeiling: Double = .infinity
     private let metroQueue = DispatchQueue(label: "woodshed.metronome", qos: .userInteractive)
 
     // Metronome click routing (mirrors the playback output selection).
@@ -118,11 +121,14 @@ final class AudioEnginePlayer: ObservableObject {
     }
 
     /// Playback-synced: fire grid clicks as the sequencer position reaches them.
-    private func startSynced() {
+    /// `referenceTime` is where playback is (re)starting from — pass the exact intended
+    /// position (e.g. the section start) rather than letting `currentTime` (already
+    /// nudged past it by `seq.start()` latency) drop the first downbeat.
+    private func startSynced(referenceTime: Double? = nil) {
         stopMetroTimer()
-        // Skip clicks before the current position (playback may start mid-piece for a
+        // Skip clicks before the start position (playback may start mid-piece for a
         // section, or loop back) so we don't fire a burst of past clicks.
-        let now = currentTime
+        let now = referenceTime ?? currentTime
         nextClick = clickGrid.firstIndex { $0.time >= now - 0.02 } ?? clickGrid.count
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
@@ -130,7 +136,9 @@ final class AudioEnginePlayer: ObservableObject {
             guard let self else { return }
             let t = self.currentTime
             while self.nextClick < self.clickGrid.count && self.clickGrid[self.nextClick].time <= t {
-                self.click(self.clickGrid[self.nextClick].level)
+                if self.clickGrid[self.nextClick].time < self.clickCeiling - 0.001 {
+                    self.click(self.clickGrid[self.nextClick].level)
+                }
                 self.nextClick += 1
             }
         }
@@ -172,6 +180,32 @@ final class AudioEnginePlayer: ObservableObject {
                 return
             }
             self.click(self.barPattern[idx % self.barPattern.count])
+            idx += 1
+        }
+        metroTimer = timer
+        timer.resume()
+    }
+
+    /// Click the last `pulses` beats of the bar (a pickup) at the current tempo, then
+    /// call `completion`. Used for the per-loop count-in. `pulses` is clamped to a bar.
+    private func startCountInPulses(pulses: Int, completion: @escaping () -> Void) {
+        stopMetroTimer()
+        let barLen = barPattern.count
+        guard pulses > 0, barLen > 0, pulseSeconds > 0 else { completion(); return }
+        let n = min(pulses, barLen)
+        let startIdx = barLen - n                              // last n pulses → lead into the downbeat
+        var idx = 0
+        let interval = pulseSeconds / Double(playbackRate)     // count in at the chosen tempo
+        let timer = DispatchSource.makeTimerSource(queue: metroQueue)
+        timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if idx >= n {
+                timer.cancel()
+                DispatchQueue.main.async { completion() }
+                return
+            }
+            self.click(self.barPattern[(startIdx + idx) % barLen])
             idx += 1
         }
         metroTimer = timer
@@ -298,19 +332,46 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
-            if metronomeOn { startSynced() }
+            if metronomeOn { startSynced(referenceTime: startSeconds) }
         } catch {
             status = "play error: \(error.localizedDescription)"
             isPlaying = false
         }
     }
 
-    /// Jump back to the section start for a loop: reposition, clear hanging sampler
-    /// notes, and re-sync the metronome to the new position.
-    func loopBackToStart() {
-        sequencer?.currentPositionInSeconds = startSeconds
-        allSamplerNotesOff()
-        if metronomeOn { startSynced() }
+    /// Jump back to the section start for a loop: reposition and clear hanging sampler
+    /// notes. With `countInPulses > 0`, freeze the clock at the start and click that
+    /// many pulses (a pickup into the downbeat) before resuming — time to reposition
+    /// your hands each pass. Otherwise resume immediately.
+    func loopBackToStart(countInPulses: Int = 0) {
+        if countInPulses > 0 {
+            // Stop BEFORE repositioning — jumping the position while the sequencer is
+            // still playing fires the first bar's note-ons, which then get cut off (an
+            // audible blip in the count-in silence). Freeze, move, clear, then count in.
+            isRunning = false
+            if let seq = sequencer, seq.isPlaying { seq.stop() }
+            sequencer?.currentPositionInSeconds = startSeconds
+            allSamplerNotesOff()
+            startCountInPulses(pulses: countInPulses) { [weak self] in self?.resumeAfterLoopCountIn() }
+        } else {
+            // No count-in: keep playing across the jump for a seamless loop.
+            sequencer?.currentPositionInSeconds = startSeconds
+            allSamplerNotesOff()
+            if metronomeOn { startSynced(referenceTime: startSeconds) }
+        }
+    }
+
+    /// Resume the sequencer at the section start after a per-loop count-in.
+    private func resumeAfterLoopCountIn() {
+        guard isPlaying, let seq = sequencer else { return }   // may have been stopped mid count-in
+        do {
+            seq.currentPositionInSeconds = startSeconds
+            try seq.start()
+            isRunning = true
+            if metronomeOn { startSynced(referenceTime: startSeconds) }
+        } catch {
+            status = "loop resume error: \(error.localizedDescription)"
+        }
     }
 
     /// All-notes-off on both piano samplers (used when looping to avoid stuck notes).
