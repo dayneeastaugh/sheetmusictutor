@@ -32,21 +32,22 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
    notes are shown but don't block me, and I can review what I fumbled afterwards." *(Built, first cut.)*
 6. **Play along & grade** — "I play along at tempo; afterwards it tells me my accuracy and timing and
    marks what I missed." *(Built, first cut — 'Grade' mode.)*
-7. **Master & progress** *(not built)* — "It only advances tempo/section when I've played accurately;
-   it shows my trouble spots and history over time." *(Built: history, trend, trouble spots, and
-   tempo mastery gating — the speed trainer only ramps the tempo when you play accurately. Not yet:
-   hands-separate → hands-together gating.)*
+7. **Master & progress** — "It only advances tempo/section when I've played accurately;
+   it shows my trouble spots and history over time." *(Built in full: history, trend, trouble spots,
+   tempo mastery gating, and hands-separate → hands-together progression.)*
 
 ## 4. Functional requirements
 
 ### Implemented
 - **Library & import** — a song library stored as per-song folders under Application Support. Import a
   MusicXML + MIDI pair (file picker), rename, favourite, delete, and select a song to practise. First
-  launch seeds the two bundled fixtures. (Files/iCloud/AirDrop entry points and tags/target-tempo in
-  the list are not yet built — see Planned.)
+  launch seeds the two bundled fixtures. **Search** (titles + tags), **sort** (title / last practised /
+  best), freeform **tags**, and a cross-song **practice overview** (totals + a stalest-first
+  "most due" list, computed by file scan — no database).
 - **Ingestion** — of a MusicXML + MIDI pair into an authoritative note model (pitch, spelled name,
-  hand, voice, notated duration, tempo, meter, ties, ornaments) with MIDI as the timing truth. Show a
-  per-hand reconciliation so a bad parse surfaces. See [INGESTION.md](INGESTION.md).
+  hand, voice, notated duration, tempo, meter, ties, ornaments, **repeats/voltas — unfolded**) with
+  MIDI as the timing truth. A per-hand reconciliation + structure banner surface any bad parse.
+  See [INGESTION.md](INGESTION.md).
 - **Notation display** — render in an embedded WKWebView via OpenSheetMusicDisplay, offline. A
   Swift-driven follow-cursor (smooth glide or note-to-note step); follow-scroll keeps the active +
   next line in view. Options: colour hands (RH blue / LH orange — colour-blind-safe), fixed bars-per-line (1–5 or auto).
@@ -70,8 +71,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Section focus & looping** — select a bar range (from/to bar) and play or **loop** just that
   section; a "Whole piece" reset. Playback, cursor, metronome, and Wait/Grade are all scoped to the
   section. An optional **per-loop count-in** clicks a pickup before each pass — meter- and
-  tempo-aware for the **section's own bar**, not just the piece's first. (Named/saved clips are not
-  yet built.)
+  tempo-aware for the **section's own bar**, not just the piece's first. **Saved sections**: name the
+  current bar range and recall it in one tap (persisted per song).
 - **Progress tracking** — every Grade pass is persisted per song (`history.jsonl`). A Progress view
   shows the accuracy trend, best full run, last pass, a **trouble-spot heatmap** (bars ranked by
   missed notes, tap to drill that bar), and a recent-pass log. The library row shows last-practised +
@@ -83,21 +84,23 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   each pass the tempo ramps toward a target by a step. Modes: **by reps** (advance every N passes) and
   **by accuracy** (advance only after N *clean* passes ≥ a threshold — the mastery gate; a
   below-threshold pass resets the streak). Reaching the target with its clean passes marks the section
-  **mastered** and stops. (Hands-separate → hands-together gating is still Planned.)
+  **mastered** and stops. Optional **hands progression**: R.H. → L.H. → both hands, each stage through
+  the full ramp with the mastery gate.
+- **Rhythm tools v1** — "Rhythm only" mode: the piano is silent and every note onset ticks (distinct
+  tone, per-hand mutes respected), and Grade becomes a **tap-along** — any key counts, only timing is
+  scored (chords collapse to one expected tap).
 
 ### Planned (from the roadmap, not yet built)
-- **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, search/sort,
-  target-tempo shown in the list. *(Last-practised + best now shown; `.mxl` import and a guided
-  two-step import flow are built.)*
-- **Section refinements** — named/saved clips per piece, drag-across-notes selection, A/B markers.
-  *(Per-loop count-in now built; drag-to-select on the score already exists.)*
-- **Rhythm tools** — rhythm-only playback, subdivision grid, tap-along trainer, count display.
-- **Mastery gating — hands** — hands-separate → hands-together gating. *(Tempo mastery gating and the
-  speed trainer are built — see Implemented.)*
-- **Progress & analytics — cross-song** — per-piece tempo-over-time, library-wide heatmap, spaced
-  repetition. *(Per-piece history/trend/trouble-spots are built — see Implemented.)*
-- **Persistence — cross-song store** — a DB (GRDB) if/when library-wide querying needs it; per-song
-  history + metadata are already on disk.
+- **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), target-tempo in the list.
+  *(Search, sort, tags, `.mxl` import, and the guided two-step import are built.)*
+- **Section refinements** — drag-across-NOTES selection. *(Saved/named sections, per-loop count-in,
+  and bar drag-to-select are built. A/B markers were dropped as redundant — ADR-034.)*
+- **Rhythm tools v2** — subdivision grid, count display. *(Rhythm-only playback + tap-along grading
+  are built — see Implemented.)*
+- **Progress & analytics — deeper** — per-piece tempo-over-time charts, spaced repetition. *(The
+  cross-song overview — totals + most-due list — is built; per-piece history/trend/trouble-spots
+  too.)*
+- **Persistence — cross-song store** — a DB (GRDB) only if the file-scan overview ever feels slow.
 
 ## 5. Non-functional requirements
 

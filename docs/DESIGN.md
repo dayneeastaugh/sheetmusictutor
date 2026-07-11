@@ -18,8 +18,10 @@ empty detail shows a `ContentUnavailableView` prompt.
 ## Screen inventory
 
 ### Library (root)
-A `List` of songs (title + a subtitle: **last-practised + best %** once there's history, else
-date-added; ⭐ for favourites) and a **+** toolbar button that runs a **guided two-step import**:
+A `List` of songs (title + a subtitle: **last-practised + best % + #tags** once set, else
+date-added; ⭐ for favourites), a **search field** (titles + tags), a **sort menu** (title / last
+practised / best), a **Practice overview** toolbar button (cross-song totals + stalest-first
+"most due" list, in a sheet), and a **+** toolbar button that runs a **guided two-step import**:
 pick the score (`.musicxml`/`.xml`/**`.mxl`**), then the MIDI — no multi-select needed. The pair is
 validated by fusing it (unparseable → rejected with a clear error; unclean → imported with a
 warning). Per-row actions (Rename / Favourite / Delete) are on a
@@ -63,8 +65,10 @@ in the overflow menu).
    MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
    one-line strip keeps the MIDI status + a restore button.
 6. **Inspector — Controls tab** — a grouped `Form`: **Playback** (Tempo slider, Hands, Output,
-   Metronome + start/stop-with-playback), **Focus** (Section from/to, Loop, Loop count-in
-   (meter-aware per section), Whole piece, Speed trainer + its settings), **Start** (Count-in,
+   Metronome + start/stop-with-playback, **Rhythm only** = note-onset ticks + tap-along grading),
+   **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
+   sections** (named ranges: save current, one-tap recall, delete), Speed trainer + its settings
+   incl. **hands progression**), **Start** (Count-in,
    "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **View**
    (Bars per line — remembered per song, Smooth cursor, Highlight score notes, Trouble spots,
    Colour hands, Show keyboard).

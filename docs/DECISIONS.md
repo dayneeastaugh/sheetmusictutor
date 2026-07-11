@@ -393,9 +393,32 @@ layout, hand colours, selection, and overlays are re-applied automatically.
 a scrollable/zoomable iPad keyboard (narrow keys are acceptable for feedback display — revisit if
 touch *playing* on iPad matters); shipping a dark score theme now (visual risk for unproven need).
 
+### ADR-034 — Wave 4 depth: hands progression, repeat unfolding, sections, rhythm, overview
+**2026-07-11.** The audit roadmap's final wave, in dependency order:
+(1) **Hands progression** (ADR-029 follow-on): the speed trainer optionally runs three stages —
+R.H. → L.H. → both hands — each through the full tempo ramp with the mastery gate; only the final
+stage's mastery stops the drill. Completes PRD user story 7.
+(2) **Repeats/voltas unfolded** (see the commit + INGESTION.md): per-measure `RepeatMarks`, a pure
+`unfoldOrder`, dual note positions (unfolded for alignment, written for display). D.C./D.S. remain
+guarded by the structure warning. Resolves audit MUSIC-01.
+(3) **Saved sections**: named bar ranges per song (`sections.json`, same pattern as flags), one-tap
+recall in the Focus group. **A/B markers were dropped as redundant** — drag-select + steppers +
+saved sections cover the same job with less UI.
+(4) **Library**: search (titles + tags), sort (title / last practised / best), freeform tags
+(`SongMeta.tags`, Optional for back-compat), edited via a comma-separated alert.
+(5) **Rhythm tools v1**: "Rhythm only" mode silences the piano and ticks every note onset (distinct
+tone, unfolded-timeline grid, per-hand mutes respected), and Grade becomes a **tap-along** — the
+matcher goes pitch-agnostic over onset-collapsed chords, so timing alone is scored. Subdivision
+grid + count display deferred until wanted in practice.
+(6) **Cross-song practice overview**: totals + a stalest-first "most due" list, computed by
+scanning every song's `history.jsonl` on open. **Deliberately no database** — tens of songs scan
+instantly; reaffirms ADR-018/021 (GRDB only if this ever feels slow).
+**Also deliberately skipped:** the sample-accurate metronome scheduler (ARCH-09 — no audible-jitter
+report to justify it) and a Swift 6 flag-day (still incremental-when-touched).
+
 ## Open Questions
-- Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution
-  (ADR-010's iPad half is resolved by the bundled SoundFont; the sandbox question remains).
+- Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
+  SoundFont).
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.
 - Section loop has no silent reset gap and repositioning may briefly clip a sounding note; evaluate if
   it needs smoothing (ADR-016).
