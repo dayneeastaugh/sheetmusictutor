@@ -93,7 +93,8 @@
       if (w <= 0 || !osmd || !osmd.graphic) return;   // ignore collapse-to-zero / no score yet
       if (Math.abs(w - lastRenderWidth) < 1) return;   // width unchanged
       lastRenderWidth = w;
-      recolorAndRerenderKeepingColors();
+      // Re-run the bars-per-line fit at the new width (colours/marks preserved).
+      fitToRequestedBars(true);
     }
     var resizeTimer = null;
     var ro = new ResizeObserver(function () {
@@ -242,43 +243,65 @@
       handColors = on ? { rh: rh, lh: lh } : null;
       recolorAndRerender();
     };
-    // The median bars-per-row of the current layout (via the measure rects).
-    function typicalBarsPerLine() {
+    // The median bars-per-row of the current layout, and the row count (via measRects).
+    function rowStats() {
       var byY = {};
       for (var i = 0; i < measRects.length; i++) {
         var k = Math.round(measRects[i].y);
         byY[k] = (byY[k] || 0) + 1;
       }
       var counts = Object.values(byY);
-      if (!counts.length) return 0;
+      if (!counts.length) return { typical: 0, rows: 0 };
       counts.sort(function (a, b) { return a - b; });
-      return counts[Math.floor(counts.length / 2)];
+      return { typical: counts[Math.floor(counts.length / 2)], rows: counts.length };
+    }
+    function typicalBarsPerLine() { return rowStats().typical; }
+
+    // ---- Layout fitting ----
+    // "Bars per line" is an OSMD MAXIMUM (break after N; width wrapping still
+    // applies), so dense music may fit fewer at full size. When N is requested,
+    // AUTO-SHRINK the engraving until N actually fit: start at the user's preferred
+    // Score size, estimate the needed shrink from the shortfall (got/n), re-render,
+    // repeat (converges in 1–2 extra renders), floored at 40% for readability.
+    var preferredZoom = 1.0;   // the user's Score size — treated as the preferred/max
+
+    function fitToRequestedBars(keepColors) {
+      if (!osmd || !osmd.graphic) return;
+      var er = osmd.EngravingRules || osmd.rules;
+      var n = er.RenderXMeasuresPerLineAkaSystem || 0;
+      var render = keepColors ? recolorAndRerenderKeepingColors : recolorAndRerender;
+      osmd.zoom = preferredZoom;
+      render();
+      if (n <= 0) {
+        post("layout: auto · score size " + Math.round(osmd.zoom * 100) + "%");
+        return;
+      }
+      var s = rowStats(), guard = 0;
+      while (s.typical < n && s.rows > 1 && osmd.zoom > 0.401 && guard < 4) {
+        var factor = Math.max(0.55, s.typical / n) * 0.97;   // shrink estimate + margin
+        osmd.zoom = Math.max(0.4, osmd.zoom * factor);
+        render();
+        s = rowStats();
+        guard++;
+      }
+      post(s.typical >= n || s.rows <= 1
+           ? "layout: " + n + " bars/line · score size " + Math.round(osmd.zoom * 100) + "%"
+           : "layout: asked " + n + "/line — fits " + s.typical + " even at minimum size");
     }
 
-    // Force a fixed number of measures per line (system). 0 = automatic.
-    // OSMD treats this as a MAXIMUM (break after N) — width wrapping still applies,
-    // so dense music may fit fewer. Post what was actually achieved: a silent
-    // "asked 4, still showing 2" is indistinguishable from a broken control.
+    // Force a fixed number of measures per line (0 = automatic), auto-shrinking the
+    // score so the request is actually honoured.
     window.setMeasuresPerSystem = function (n) {
       var er = osmd.EngravingRules || osmd.rules;
       er.RenderXMeasuresPerLineAkaSystem = n;
-      recolorAndRerender();
-      var got = typicalBarsPerLine();
-      if (n > 0 && got < n) {
-        post("layout: asked " + n + "/line — only " + got + " fit at this size. Reduce Score size (View) or widen the window.");
-      } else {
-        post("layout: " + (n === 0 ? "auto" : n + " bars/line"));
-      }
+      fitToRequestedBars(false);
     };
 
-    // Score size: scale the engraving so more (or larger) bars fit per line. All
+    // Score size: the preferred engraving scale (the fit never grows past it). All
     // overlays/anchors derive from post-render geometry × osmd.zoom, so they follow.
     window.setZoom = function (z) {
-      osmd.zoom = z;
-      if (osmd.graphic) {
-        recolorAndRerender();
-        post("score size: " + Math.round(z * 100) + "% · " + typicalBarsPerLine() + " bars/line");
-      }
+      preferredZoom = z;
+      fitToRequestedBars(false);
     };
 
     // Mistake review: colour specific noteheads red so the player can see what they
