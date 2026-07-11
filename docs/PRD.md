@@ -80,12 +80,13 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Revisit flags** — pin a short note to a bar ("LH jump") to mark a spot to work on; flagged bars
   show a tappable ⚑ on the score, and a Flags list adds/edits/deletes and drills to a bar. Stored per
   song (`flags.json`).
-- **Speed trainer / mastery gating** — an auto-tempo drill on a looped section (Grade mode): after
-  each pass the tempo ramps toward a target by a step. Modes: **by reps** (advance every N passes) and
-  **by accuracy** (advance only after N *clean* passes ≥ a threshold — the mastery gate; a
-  below-threshold pass resets the streak). Reaching the target with its clean passes marks the section
-  **mastered** and stops. Optional **hands progression**: R.H. → L.H. → both hands, each stage through
-  the full ramp with the mastery gate.
+- **Speed drill / mastery gating** — a guided auto-tempo drill on a looped section (Grade mode),
+  set up in one **Speed drill** panel with a plain-English summary and a **Start drill** button that
+  drops to the **start tempo** and begins. The tempo ramps from start → **goal** by a **step**.
+  Modes: **every few loops**, or **when I play it clean** (advance only after N passes ≥ a clean
+  threshold — the mastery gate; a below-threshold pass resets the streak). Reaching the goal with
+  its clean passes marks the section **mastered** and stops. Optional **one hand at a time, then
+  together**: R.H. → L.H. → both, each stage through the full ramp with the mastery gate.
 - **Rhythm tools v1** — "Rhythm only" mode: the piano is silent and every note onset ticks (distinct
   tone), and Grade becomes a **tap-along** — any key counts, only timing is scored (chords collapse
   to one expected tap). Respects the **Hands** setting: with R.H./L.H. selected, only that hand's

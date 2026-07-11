@@ -478,6 +478,24 @@ to this mark" navigation sign, apt for a loop-and-drill practice tutor). Chosen 
 **Rejected:** a full internal rename (target/module/bundle/folders) — high project-file risk for a
 Swift newbie's working app, and zero user-visible benefit over the above; changing the bundle id.
 
+### ADR-038 — Speed drill made a self-contained, guided flow
+**2026-07-11.** User feedback: the auto-tempo drill was hard to understand — how do you "drill a
+section and ramp up as you improve"? Root causes: it was buried at the bottom of **Focus** among
+unrelated section controls; the mode was a `Speed trainer` picker labelled *By reps / By accuracy*
+(not self-explanatory); and there was **no explicit start tempo** — enabling it just clamped the
+current tempo, so there was often no room to ramp and nothing to ramp *from*. Fixes:
+- A dedicated **Speed drill** inspector section, separate from Focus, with a one-line explanation.
+- Plain-language mode: **Speed up = Off / When I play it clean / Every few loops**.
+- An explicit **Start tempo** (`speedStartPct`, new global pref, default 60%) alongside **Goal
+  tempo** and **Speed up by** — the ramp is now concrete and visible; picking a mode previews the
+  start tempo on the slider.
+- Clearer labels ("Clean" means ≥ X%; Clean passes / Loops to speed up; "One hand at a time, then
+  together"), a **plain-English summary** of exactly what the drill will do, and a **Start drill**
+  button that drops to the start tempo and begins the looped graded ramp in one tap.
+- **"Drill me" → "Suggest a spot"** to stop it colliding with "Speed drill" — it picks *where*
+  (a section), the Speed drill controls *how* (the ramp). Status line now reads "Speed drill · …".
+Underlying ramp logic (`drillAdvance`, mastery gate, hands progression) is unchanged.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

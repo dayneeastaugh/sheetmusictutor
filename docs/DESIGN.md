@@ -75,9 +75,13 @@ in the overflow menu).
    metronome start/stop-with-playback behaviour — the on/off toggle itself is in the transport —
    **Rhythm only** = note-onset ticks + tap-along grading, isolated to the selected Hands),
    **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
-   sections** (named ranges: save current, one-tap recall, delete), **Drill me** (picks today's
-   spot — worst trouble bar, else oldest flag, else random — and loops a 2-bar window, saying why),
-   Speed trainer + its settings incl. **hands progression**), **Start** (Count-in,
+   sections** (named ranges: save current, one-tap recall, delete), **Suggest a spot** (picks a
+   section to work on — worst trouble bar, else oldest flag, else random — and loops a 2-bar
+   window, saying why)), **Speed drill** (a self-contained, guided auto-tempo ramp: "Speed up"
+   = Off / When I play it clean / Every few loops; **Start tempo** → **Goal tempo**, **Speed up
+   by**, the clean-threshold + passes-per-step, and **one hand at a time then together**; a
+   plain-English summary of exactly what it'll do, and a **Start drill** button that drops to the
+   start tempo and begins the looped graded ramp on the current section), **Start** (Count-in,
    "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **Takes**
    (every pass records what you play from MIDI; ▶ last take / ▶ best graded take for the current
    section, replayed at the current tempo through the chosen output), **View**

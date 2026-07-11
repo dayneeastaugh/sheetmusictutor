@@ -190,20 +190,28 @@ final class PracticeSession: ObservableObject {
             if speedMode != .off {                 // it's a graded, looped drill — set that up
                 if !gradeMode { setGradeMode(true) }
                 loopSection = true
-                clampTempoToDrillTarget()          // a target at/below the current tempo would "master" instantly
+                tempoPct = drillStartTempoClamped   // preview the start tempo (visible ramp room)
             }
             resetDrill()
         }
     }
-    // The speed-trainer's CONFIGURATION persists globally (target/step/threshold/
+    // The speed-trainer's CONFIGURATION persists globally (start/target/step/threshold/
     // passes/hands-progression are "my preferred drill setup"); whether a drill is
     // actually RUNNING (`speedMode`) is per-practice context and does not persist.
-    @Published var speedTargetPct: Double = AppSettings.speedTargetPct {  // ramp up to here
+    @Published var speedStartPct: Double = AppSettings.speedStartPct {  // ramp up FROM here
+        didSet {
+            if speedMode != .off && !audio.isPlaying { tempoPct = drillStartTempoClamped }
+            AppSettings.speedStartPct = speedStartPct
+        }
+    }
+    @Published var speedTargetPct: Double = AppSettings.speedTargetPct {  // ramp up TO here
         didSet {
             if speedMode != .off { clampTempoToDrillTarget(); resetDrill() }
             AppSettings.speedTargetPct = speedTargetPct
         }
     }
+    /// The start tempo, never above the goal (so there's always somewhere to ramp).
+    private var drillStartTempoClamped: Double { max(25, min(speedStartPct, speedTargetPct)) }
     @Published var speedStepPct: Double = AppSettings.speedStepPct {  // tempo increment per advance
         didSet { AppSettings.speedStepPct = speedStepPct }
     }
@@ -978,6 +986,28 @@ final class PracticeSession: ObservableObject {
         sectionStart = min(max(1, bar), measureCount)
         sectionEnd = min(bar + 1, measureCount)      // a 2-bar window gives context
         loopSection = true
+    }
+
+    /// One-tap start for a speed drill: default the ramp mode if off, drop to the
+    /// start tempo, and begin the looped, graded ramp on the current section.
+    func startDrill() {
+        guard !waitMode else { return }
+        if speedMode == .off { speedMode = .byAccuracy }   // the intuitive default: ramp when clean
+        if audio.isPlaying { audio.stop() }
+        armed = false
+        tempoPct = drillStartTempoClamped
+        startPlayback(countIn: countInBars)                // resets the drill + begins the ramp
+    }
+
+    /// A plain-English description of what the drill will do, for the setup panel.
+    var drillSummary: String {
+        let range = isFullPiece ? "the whole piece" : "bars \(sectionStart)–\(sectionEnd)"
+        let start = Int(drillStartTempoClamped), goal = Int(speedTargetPct), step = Int(speedStepPct)
+        let rule = speedMode == .byAccuracy
+            ? "each time you play it \u{2265}\(Int(speedThreshold * 100))% clean"
+            : "every \(speedPassesPerStep) loop\(speedPassesPerStep == 1 ? "" : "s")"
+        let hands = handsProgression ? ", one hand at a time then together" : ""
+        return "Loops \(range) from \(start)% to \(goal)%, +\(step)% \(rule)\(hands)."
     }
 
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).

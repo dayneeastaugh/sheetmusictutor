@@ -29,6 +29,7 @@ enum AppSettings {
             Key.showTroubleOnScore: true,
             Key.keyboardVisible: true,
             Key.gradeTolerance: 0.30,
+            Key.speedStartPct: 60.0,
             Key.speedTargetPct: 100.0,
             Key.speedStepPct: 5.0,
             Key.speedThreshold: 0.9,
@@ -48,6 +49,7 @@ enum AppSettings {
         static let countInBars = "pref.countInBars"
         static let startOnFirstNote = "pref.startOnFirstNote"
         static let gradeTolerance = "pref.gradeTolerance"
+        static let speedStartPct = "pref.speedStartPct"
         static let speedTargetPct = "pref.speedTargetPct"
         static let speedStepPct = "pref.speedStepPct"
         static let speedThreshold = "pref.speedThreshold"
@@ -76,6 +78,7 @@ enum AppSettings {
     static var gradeTolerance: Double { get { d.double(forKey: Key.gradeTolerance) } set { d.set(newValue, forKey: Key.gradeTolerance) } }
 
     // Speed-trainer configuration (its parameters, not whether a drill is running)
+    static var speedStartPct: Double { get { d.double(forKey: Key.speedStartPct) } set { d.set(newValue, forKey: Key.speedStartPct) } }
     static var speedTargetPct: Double { get { d.double(forKey: Key.speedTargetPct) } set { d.set(newValue, forKey: Key.speedTargetPct) } }
     static var speedStepPct: Double { get { d.double(forKey: Key.speedStepPct) } set { d.set(newValue, forKey: Key.speedStepPct) } }
     static var speedThreshold: Double { get { d.double(forKey: Key.speedThreshold) } set { d.set(newValue, forKey: Key.speedThreshold) } }
