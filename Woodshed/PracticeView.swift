@@ -3,10 +3,14 @@
 //  Woodshed
 //
 //  The practice screen — presentation only (logic lives in `PracticeSession`).
-//  Layout: the notation is the hero (fills the pane); a thin header carries the
-//  mode selector + transport; one wrapping control bar sits below it; the keyboard
-//  is always visible (shorter on iPad). The old diagnostic dump now lives behind a
-//  "Show diagnostics" item in the More menu. Reflows for Mac and iPad. See docs/DESIGN.md.
+//
+//  Layout (the audit's Wave-3 restructure): the notation CANVAS is the hero — a slim
+//  transport header (mode · status · Play), the ingest-quality banner when needed,
+//  the score, and a collapsible keyboard. Everything set-and-forget lives in a
+//  trailing INSPECTOR with three tabs: Controls (Playback / Focus / Start / Grading /
+//  View groups), Progress, and Flags — first-class, not buried in a menu. The ⋯ menu
+//  keeps only true utilities (cursor actions, diagnostics). `.inspector` adapts
+//  natively on iPad (collapsible column / sheet). See docs/DESIGN.md.
 //
 
 import SwiftUI
@@ -17,10 +21,16 @@ struct PracticeView: View {
     @ObservedObject var library: SongLibrary
     @StateObject private var session: PracticeSession
     @State private var showDiagnostics = false
-    @State private var showProgress = false
-    @State private var showFlags = false
+    @State private var showInspector = true
+    @State private var inspectorTab: InspectorTab = .controls
+    @State private var keyboardVisible = true
     @State private var flagEditorBar: Int?      // non-nil ⇒ inline flag editor open (from a score tap)
     @State private var flagEditorNote = ""
+
+    private enum InspectorTab: String, CaseIterable, Identifiable {
+        case controls = "Controls", progress = "Progress", flags = "Flags"
+        var id: String { rawValue }
+    }
 
     init(song: Song, library: SongLibrary) {
         self.song = song
@@ -39,20 +49,26 @@ struct PracticeView: View {
     private let tick = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             header
             if let warning = session.ingestWarning { ingestBanner(warning) }
             statusBar
             notation
-            controlBar
             keyboardArea
         }
-        .padding()
+        .padding(10)
         .navigationTitle(song.title)
         #if os(macOS)
         .navigationSubtitle(subtitle)
         #endif
+        .inspector(isPresented: $showInspector) { inspectorPanel }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showInspector.toggle() } label: {
+                    Label("Inspector", systemImage: "sidebar.trailing")
+                }
+                .help("Show or hide the controls panel")
+            }
             ToolbarItem(placement: .primaryAction) { moreMenu }
         }
         .onAppear {
@@ -64,12 +80,6 @@ struct PracticeView: View {
         .onReceive(tick) { _ in session.advanceCursorWithPlayback() }
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }
-        .sheet(isPresented: $showProgress) {
-            PracticeProgressView(song: song, passes: session.history,
-                                 onDrillBar: { session.focusBar($0) },
-                                 onReset: { library.resetProgress(for: song); session.reloadHistory() })
-        }
-        .sheet(isPresented: $showFlags) { BarFlagsView(session: session) }
         .alert("Flag bar \(flagEditorBar ?? 0)", isPresented: Binding(get: { flagEditorBar != nil },
                                                                       set: { if !$0 { flagEditorBar = nil } })) {
             TextField("Note (e.g. LH jump)", text: $flagEditorNote)
@@ -186,7 +196,7 @@ struct PracticeView: View {
         .frame(minHeight: 16)
     }
 
-    // MARK: - Notation (hero — fills the pane)
+    // MARK: - Notation (hero — fills the canvas)
 
     @ViewBuilder
     private var notation: some View {
@@ -199,58 +209,79 @@ struct PracticeView: View {
                             command: session.cursorCommand,
                             bridge: session.bridge)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white)
+                .background(Color.white)   // the score is deliberately "paper" in both colour schemes
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary.opacity(0.3)))
         }
     }
 
-    // MARK: - Control bar (wraps on narrow widths)
+    // MARK: - Inspector (Controls / Progress / Flags)
 
-    private var controlBar: some View {
-        FlowLayout(spacing: 8) {
-            // Hands
-            controlGroup {
-                Text("Hands").font(.caption).foregroundStyle(.secondary)
+    private var inspectorPanel: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $inspectorTab) {
+                ForEach(InspectorTab.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(10)
+            Divider()
+            switch inspectorTab {
+            case .controls:
+                controlsTab
+            case .progress:
+                ProgressPanel(song: song, passes: session.history,
+                              onDrillBar: { session.focusBar($0) },
+                              onReset: { library.resetProgress(for: song); session.reloadHistory() })
+            case .flags:
+                FlagsPanel(session: session)
+            }
+        }
+        .inspectorColumnWidth(min: 250, ideal: 300, max: 400)
+    }
+
+    private var controlsTab: some View {
+        Form {
+            Section("Playback") {
+                LabeledContent("Tempo") {
+                    HStack(spacing: 6) {
+                        Slider(value: $session.tempoPct, in: 25...120, step: 5)
+                        Text("\(Int(session.tempoPct))%")
+                            .font(.system(.caption, design: .monospaced)).frame(width: 38)
+                    }
+                }
                 Picker("Hands", selection: $session.handMode) {
                     Text("Both").tag(0); Text("R.H.").tag(1); Text("L.H.").tag(2)
                 }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
-            }
-            // Tempo
-            controlGroup {
-                Text("Tempo").font(.caption).foregroundStyle(.secondary)
-                Text("\(Int(session.tempoPct))%")
-                    .font(.system(.caption, design: .monospaced)).frame(width: 40, alignment: .leading)
-                Slider(value: $session.tempoPct, in: 25...120, step: 5).frame(width: 150)
-            }
-            // Section
-            controlGroup {
-                Text("Section").font(.caption).foregroundStyle(.secondary)
-                Stepper("\(session.sectionStart)", value: $session.sectionStart, in: 1...session.measureCount)
-                    .fixedSize()
-                Text("–").foregroundStyle(.secondary)
-                Stepper("\(session.sectionEnd)", value: $session.sectionEnd, in: session.sectionStart...session.measureCount)
-                    .fixedSize()
-                Toggle(isOn: $session.loopSection) { Label("Loop", systemImage: "repeat") }
-                    .toggleStyle(.button)
-                if !session.isFullPiece {
-                    Button("All") { session.selectWholePiece() }
+                .pickerStyle(.segmented)
+                Picker("Output", selection: $session.outputMode) {
+                    Text("Speakers").tag(0); Text("Piano").tag(1); Text("Both").tag(2)
                 }
+                Toggle("Metronome", isOn: Binding(get: { session.audio.metronomeOn },
+                                                  set: { session.setMetronome($0) }))
+                Toggle("Metronome starts with playback", isOn: $session.metronomeStartsWithPlayback)
+                Toggle("Metronome stops with playback", isOn: $session.metronomeStopsWithPlayback)
             }
-            // Loop count-in (beats before each pass — meter-aware)
-            controlGroup {
-                Text("Loop count-in").font(.caption).foregroundStyle(.secondary)
+            Section("Focus") {
+                LabeledContent("Section") {
+                    HStack(spacing: 4) {
+                        Stepper("\(session.sectionStart)", value: $session.sectionStart, in: 1...session.measureCount)
+                            .fixedSize()
+                        Text("–").foregroundStyle(.secondary)
+                        Stepper("\(session.sectionEnd)", value: $session.sectionEnd, in: session.sectionStart...session.measureCount)
+                            .fixedSize()
+                    }
+                }
+                Toggle("Loop section", isOn: $session.loopSection)
                 Picker("Loop count-in", selection: $session.loopCountInPulses) {
                     Text("Off").tag(0)
                     ForEach(1...session.pulsesPerBar, id: \.self) { n in
                         Text(n == session.pulsesPerBar ? "Full bar (\(n))" : (n == 1 ? "1 beat" : "\(n) beats")).tag(n)
                     }
                 }
-                .pickerStyle(.menu).labelsHidden().fixedSize()
-            }
-            // Speed trainer (auto-tempo drill on the looped section, in Grade mode)
-            Menu {
+                if !session.isFullPiece {
+                    Button("Whole piece") { session.selectWholePiece() }
+                }
                 Picker("Speed trainer", selection: $session.speedMode) {
                     ForEach(PracticeSession.SpeedTrainerMode.allCases) { Text($0.title).tag($0) }
                 }
@@ -270,40 +301,12 @@ struct PracticeView: View {
                         ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                     }
                 }
-            } label: {
-                Label(session.speedMode == .off ? "Speed trainer" : "Speed: \(session.speedMode.title)",
-                      systemImage: "speedometer")
             }
-            .fixedSize()
-            // Metronome
-            Toggle(isOn: Binding(get: { session.audio.metronomeOn }, set: { session.setMetronome($0) })) {
-                Label("Metronome", systemImage: "metronome")
-            }
-            .toggleStyle(.button)
-            // Output
-            Picker("Output", selection: $session.outputMode) {
-                Label("Speakers", systemImage: "speaker.wave.2").tag(0)
-                Label("Piano", systemImage: "pianokeys").tag(1)
-                Label("Both", systemImage: "square.stack.3d.up").tag(2)
-            }
-            .pickerStyle(.menu).fixedSize()
-        }
-    }
-
-    /// The overflow menu — count-in, cursor, colour, bars/line, and the diagnostics.
-    private var moreMenu: some View {
-        Menu {
             Section("Start") {
                 Picker("Count-in", selection: $session.countInBars) {
-                    Text("No count-in").tag(0)
-                    Text("1-bar count-in").tag(1)
-                    Text("2-bar count-in").tag(2)
+                    Text("Off").tag(0); Text("1 bar").tag(1); Text("2 bars").tag(2)
                 }
                 Toggle("Start on my first note", isOn: $session.startOnFirstNote)
-            }
-            Section("Metronome") {
-                Toggle("Start with playback", isOn: $session.metronomeStartsWithPlayback)
-                Toggle("Stop when playback stops", isOn: $session.metronomeStopsWithPlayback)
             }
             Section("Grading") {
                 Picker("Timing tolerance", selection: $session.gradeTolerance) {
@@ -312,42 +315,50 @@ struct PracticeView: View {
                     Text("Relaxed (±450 ms)").tag(0.45)
                 }
             }
-            Section("Notation") {
-                Toggle("Smooth cursor", isOn: $session.cursorSmooth)
-                Toggle("Highlight score notes", isOn: $session.showScoreNotes)
-                Toggle("Show trouble spots on score", isOn: $session.showTroubleOnScore)
-                Toggle("Colour hands (RH blue / LH red)", isOn: $session.colorHands)
+            Section("View") {
                 Picker("Bars per line", selection: $session.barsPerLine) {
                     Text("Auto").tag(0)
-                    ForEach(1...5, id: \.self) { Text("\($0) per line").tag($0) }
+                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                 }
+                Toggle("Smooth cursor", isOn: $session.cursorSmooth)
+                Toggle("Highlight score notes", isOn: $session.showScoreNotes)
+                Toggle("Trouble spots on score", isOn: $session.showTroubleOnScore)
+                Toggle("Colour hands", isOn: $session.colorHands)
+                Toggle("Show keyboard", isOn: $keyboardVisible)
             }
-            Section("Cursor") {
-                Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
-                    .disabled(session.audio.isPlaying)
-                Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
-            }
-            Section {
-                Button { showFlags = true } label: { Label("Flags…", systemImage: "flag") }
-                Button { showProgress = true } label: { Label("Show progress…", systemImage: "chart.line.uptrend.xyaxis") }
-                Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
-            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// The overflow menu — true utilities only (the controls live in the inspector).
+    private var moreMenu: some View {
+        Menu {
+            Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
+                .disabled(session.audio.isPlaying)
+            Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
+            Divider()
+            Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
     }
 
-    /// A labelled cluster of controls with a hairline border.
-    private func controlGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 6, content: content)
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 8).stroke(.secondary.opacity(0.25)))
-    }
-
     // MARK: - Keyboard
 
+    @ViewBuilder
     private var keyboardArea: some View {
-        KeyboardPanel(session: session, midi: session.midi, lights: session.lights, height: keyboardHeight)
+        if keyboardVisible {
+            KeyboardPanel(session: session, midi: session.midi, lights: session.lights, height: keyboardHeight)
+        } else {
+            HStack {
+                Text(session.midi.status).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button { keyboardVisible = true } label: {
+                    Label("Show keyboard", systemImage: "pianokeys").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
     }
 
     // MARK: - Diagnostics (behind the More menu — score facts + reconciliation + events)
@@ -440,9 +451,8 @@ struct PracticeView: View {
 }
 
 /// The on-screen keyboard, split into its own view so it can observe `MIDIInput`
-/// **directly** — it repaints on each key press without re-rendering the whole
-/// practice screen, so fast passages don't lag. It also observes the session for the
-/// score-note highlight + mode flags.
+/// and `KeyboardLights` **directly** — it repaints on each key press / highlight
+/// change without re-rendering the whole practice screen.
 private struct KeyboardPanel: View {
     @ObservedObject var session: PracticeSession
     @ObservedObject var midi: MIDIInput
@@ -460,43 +470,11 @@ private struct KeyboardPanel: View {
                               onRelease: { session.previewNoteOff($0) })
                 .frame(height: height)
             HStack {
-                Text("Green = you · RH blue / LH red")
+                Text("Green = you · RH blue / LH orange")
                     .font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Text(midi.status).font(.caption2).foregroundStyle(.secondary)
             }
-        }
-    }
-}
-
-/// A simple flow layout: lays children left-to-right, wrapping to the next row when
-/// the current one is full. Lets the practice control bar sit in one row on a wide
-/// Mac window and wrap to several rows on a narrow iPad one, with no size-class code.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
-        for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
-            if x > 0 && x + s.width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            x += s.width + spacing
-            rowHeight = max(rowHeight, s.height)
-            widest = max(widest, x - spacing)
-        }
-        return CGSize(width: min(maxWidth, widest), height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let maxWidth = bounds.width
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
-            if x > 0 && x + s.width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            v.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y), anchor: .topLeading, proposal: ProposedViewSize(s))
-            x += s.width + spacing
-            rowHeight = max(rowHeight, s.height)
         }
     }
 }
