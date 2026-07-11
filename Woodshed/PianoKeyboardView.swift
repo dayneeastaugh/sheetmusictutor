@@ -2,9 +2,14 @@
 //  PianoKeyboardView.swift
 //  Woodshed
 //
-//  Phase 0 spike — an on-screen piano that lights up the notes in `litNotes`
-//  (driven by live MIDI input) and can also be played with the mouse/touch for
-//  testing without hardware. Purely a view: it owns no MIDI or audio logic.
+//  An on-screen 88-key piano that lights up the notes in `litNotes` (live MIDI
+//  input) and the score's sounding notes, and can be played with the mouse/touch.
+//  Purely a view: it owns no MIDI or audio logic.
+//
+//  Drawn with `Canvas` — a single immediate-mode draw pass. The previous version
+//  built ~140 individual SwiftUI views (one per key) that were re-diffed on every
+//  highlight change; at trill speeds that re-diffing dropped frames (audit ARCH-02).
+//  A Canvas repaints the whole keyboard in one cheap pass with no per-key identity.
 //
 
 import SwiftUI
@@ -22,8 +27,14 @@ struct PianoKeyboardView: View {
     var onPress: (Int) -> Void = { _ in }
     var onRelease: (Int) -> Void = { _ in }
 
-    private let low = 21    // A0 — full 88-key piano
-    private let high = 108  // C8
+    // 88 keys, A0 (21) … C8 (108). The layout never changes, so compute it once.
+    private static let low = 21, high = 108
+    static let whiteNotes: [Int] = (low...high).filter { isWhite($0) }   // 52
+    static let blackNotes: [Int] = (low...high).filter { !isWhite($0) }  // 36
+    /// For each black key, the index of the white key it sits after.
+    private static let blackAfterWhiteIndex: [(note: Int, whiteIndex: Int)] =
+        blackNotes.compactMap { n in whiteNotes.firstIndex(of: n - 1).map { (n, $0) } }
+    private static func isWhite(_ n: Int) -> Bool { ![1, 3, 6, 8, 10].contains(((n % 12) + 12) % 12) }
 
     // Match the notation's hand colours (RH #1565C0, LH #C62828).
     private static let rhColor = Color(red: 21 / 255, green: 101 / 255, blue: 192 / 255)
@@ -31,16 +42,12 @@ struct PianoKeyboardView: View {
 
     @State private var mouseNote: Int? = nil
 
-    private var whiteNotes: [Int] { (low...high).filter { isWhite($0) } }
-    private var blackNotes: [Int] { (low...high).filter { !isWhite($0) } }
-    private func isWhite(_ n: Int) -> Bool { ![1, 3, 6, 8, 10].contains(((n % 12) + 12) % 12) }
-
     /// Everything to draw as "played by you": live MIDI notes plus the mouse-held note.
     private var lit: Set<Int> { mouseNote.map { litNotes.union([$0]) } ?? litNotes }
 
     /// Key colour: a held note is green if it's wanted (or any note outside Wait
-    /// mode), red if it's a wrong note in Wait mode; otherwise the score's notes by
-    /// hand (RH blue, LH red), else the natural key colour.
+    /// mode), red if it's a wrong note in Wait/Grade mode; otherwise the score's
+    /// notes by hand (RH blue, LH red), else the natural key colour.
     private func color(_ note: Int, white: Bool) -> Color {
         if lit.contains(note) {
             let wanted = scoreRH.contains(note) || scoreLH.contains(note)
@@ -54,38 +61,36 @@ struct PianoKeyboardView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let whiteW = geo.size.width / CGFloat(whiteNotes.count)
+            let whiteW = geo.size.width / CGFloat(Self.whiteNotes.count)
             let blackW = whiteW * 0.62
             let blackH = geo.size.height * 0.6
 
-            ZStack(alignment: .topLeading) {
-                // White keys
-                ForEach(Array(whiteNotes.enumerated()), id: \.element) { j, note in
-                    Rectangle()
-                        .fill(color(note, white: true))
-                        .overlay(Rectangle().stroke(Color.black.opacity(0.35), lineWidth: 0.5))
-                        .frame(width: whiteW, height: geo.size.height)
-                        .offset(x: CGFloat(j) * whiteW)
+            Canvas { ctx, size in
+                // White keys: fills first, then one shared grid of separators.
+                for (j, note) in Self.whiteNotes.enumerated() {
+                    let rect = CGRect(x: CGFloat(j) * whiteW, y: 0, width: whiteW, height: size.height)
+                    ctx.fill(Path(rect), with: .color(color(note, white: true)))
                 }
-                // Black keys (drawn on top)
-                ForEach(blackNotes, id: \.self) { note in
-                    if let wi = whiteNotes.firstIndex(of: note - 1) {
-                        let x = CGFloat(wi + 1) * whiteW - blackW / 2
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(color(note, white: false))
-                            .frame(width: blackW, height: blackH)
-                            .offset(x: x)
-                    }
+                var grid = Path()
+                for j in 1..<Self.whiteNotes.count {
+                    let x = CGFloat(j) * whiteW
+                    grid.move(to: CGPoint(x: x, y: 0))
+                    grid.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                ctx.stroke(grid, with: .color(.black.opacity(0.35)), lineWidth: 0.5)
+
+                // Black keys on top.
+                for (note, wi) in Self.blackAfterWhiteIndex {
+                    let x = CGFloat(wi + 1) * whiteW - blackW / 2
+                    let rect = CGRect(x: x, y: 0, width: blackW, height: blackH)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(color(note, white: false)))
                 }
             }
-            // Fill the whole area — `.offset` keys don't expand the ZStack, so without
-            // this the hit-test region would be just one key wide.
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .contentShape(Rectangle())
-            .highPriorityGesture(   // beat the enclosing ScrollView for clicks/drags
+            .highPriorityGesture(   // beat any enclosing scroll view for clicks/drags
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
-                        let n = note(at: g.location, size: geo.size, whiteW: whiteW, blackW: blackW, blackH: blackH)
+                        let n = note(at: g.location, whiteW: whiteW, blackW: blackW, blackH: blackH)
                         if n != mouseNote {
                             if let old = mouseNote { onRelease(old) }
                             mouseNote = n
@@ -98,21 +103,19 @@ struct PianoKeyboardView: View {
                     }
             )
         }
-        .frame(height: 90)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)))
     }
 
     /// Which note is at a point — black keys (upper area) take priority.
-    private func note(at p: CGPoint, size: CGSize, whiteW: CGFloat, blackW: CGFloat, blackH: CGFloat) -> Int? {
+    private func note(at p: CGPoint, whiteW: CGFloat, blackW: CGFloat, blackH: CGFloat) -> Int? {
         if p.y <= blackH {
-            for note in blackNotes {
-                guard let wi = whiteNotes.firstIndex(of: note - 1) else { continue }
+            for (note, wi) in Self.blackAfterWhiteIndex {
                 let x = CGFloat(wi + 1) * whiteW - blackW / 2
                 if p.x >= x && p.x <= x + blackW { return note }
             }
         }
         let wi = Int(p.x / whiteW)
-        return (0..<whiteNotes.count).contains(wi) ? whiteNotes[wi] : nil
+        return (0..<Self.whiteNotes.count).contains(wi) ? Self.whiteNotes[wi] : nil
     }
 }
