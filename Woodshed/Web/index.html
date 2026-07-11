@@ -364,6 +364,39 @@
     window.setTroubleBars = function (bars) { troubleBars = bars || []; drawTrouble(); };
     window.clearTroubleBars = function () { troubleBars = []; drawTrouble(); };
 
+    // --- Manual revisit flags: a small tappable ⚑ at the top-left of each flagged bar.
+    // The markers are clickable (pointer-events:auto) while the rest of the layer isn't,
+    // so they don't block drag-select. Tapping one posts flag:<bar> back to Swift.
+    var flaggedBars = [];
+    function flagOverlay() {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return null;
+      if (getComputedStyle(cont).position === "static") cont.style.position = "relative";
+      var ov = document.getElementById("flagOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "flagOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:3;";
+        cont.appendChild(ov);
+      }
+      return ov;
+    }
+    function drawFlags() {
+      var ov = flagOverlay(); if (!ov) return; ov.innerHTML = "";
+      flaggedBars.forEach(function (bar) {
+        var r = null;
+        for (var i = 0; i < measRects.length; i++) { if (measRects[i].m === bar - 1) { r = measRects[i]; break; } }
+        if (!r) return;
+        var d = document.createElement("div");
+        d.title = "Flag — bar " + bar + " (tap to edit)";
+        d.style.cssText = "position:absolute;pointer-events:auto;cursor:pointer;left:" + (r.x + 1) + "px;top:" +
+          (r.y + 1) + "px;width:16px;height:16px;font-size:15px;line-height:16px;text-align:center;color:#8e44ad;";
+        d.textContent = "⚑";   // ⚑
+        d.onmousedown = function (e) { e.stopPropagation(); };   // don't start a drag-select
+        d.onclick = function (e) { e.stopPropagation(); post("flag:" + bar); };
+        ov.appendChild(d);
+      });
+    }
+    window.setFlaggedBars = function (bars) { flaggedBars = bars || []; drawFlags(); };
+
     function measureAt(clientX, clientY) {
       var cont = document.getElementById("osmdContainer"); if (!cont) return -1;
       var rr = cont.getBoundingClientRect();
@@ -404,7 +437,7 @@
     })();
 
     // Rebuild rects + reattach + redraw overlays after any (re)render.
-    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); drawTrouble(); }
+    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); drawTrouble(); drawFlags(); }
 
     // --- Missed-note markers (cheap overlay, updated every practice pass; no re-render) ---
     var missedPairs = [];   // [[beat, midi], …]

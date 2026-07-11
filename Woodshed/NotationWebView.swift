@@ -29,6 +29,8 @@ final class NotationBridge: ObservableObject {
     weak var webView: WKWebView?
     /// Called when the user drags a bar selection on the score: (startBar, endBar), 1-based.
     var onSelect: ((Int, Int) -> Void)?
+    /// Called when the user taps a flag marker on the score: the bar (1-based).
+    var onFlagTap: ((Int) -> Void)?
 
     func post(_ s: String) {
         if s.hasPrefix("select:") {
@@ -36,6 +38,10 @@ final class NotationBridge: ObservableObject {
             if parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) {
                 DispatchQueue.main.async { self.onSelect?(a, b) }
             }
+            return
+        }
+        if s.hasPrefix("flag:") {
+            if let bar = Int(s.dropFirst(5)) { DispatchQueue.main.async { self.onFlagTap?(bar) } }
             return
         }
         DispatchQueue.main.async { self.status = s }
@@ -90,6 +96,12 @@ final class NotationBridge: ObservableObject {
     }
     func clearTroubleBars() {
         webView?.evaluateJavaScript("window.clearTroubleBars()")
+    }
+
+    /// Mark bars with a tappable flag marker (1-based). Tapping posts `flag:<bar>`.
+    func setFlaggedBars(_ bars: [Int]) {
+        let js = bars.map(String.init).joined(separator: ",")
+        webView?.evaluateJavaScript("window.setFlaggedBars([\(js)])")
     }
 }
 
