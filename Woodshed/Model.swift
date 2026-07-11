@@ -71,6 +71,17 @@ struct XMLNote {
     var hand: Hand { staff == 1 ? .right : (staff == 2 ? .left : .unknown) }
 }
 
+/// Repeat structure marks on one measure (from `<barline>` elements). Drives the
+/// unfold: `|:` = forward, `:|` = backward (with a pass count), voltas = the ending
+/// numbers this measure belongs to. See `Ingest.unfoldOrder`.
+struct RepeatMarks: Equatable {
+    var forward = false           // |: repeat starts at this measure
+    var backward = false          // :| repeat back at the end of this measure
+    var times = 2                 // total passes through a backward repeat
+    var endingNumbers: [Int] = [] // volta number(s) this measure is inside ([] = none)
+    var endingStop = false        // the volta region ends after this measure
+}
+
 /// The result of parsing one MusicXML file.
 struct MusicXMLScore {
     var divisions: Int
@@ -80,6 +91,8 @@ struct MusicXMLScore {
     var notes: [XMLNote]     // all notes incl. rests, in document/onset order
     // Per-measure metric structure, for the metronome (barlines + meter per bar).
     var measures: [(startBeat: Double, lengthBeats: Double, num: Int, den: Int)]
+    // Per-measure repeat marks (parallel to `measures`).
+    var measureRepeats: [RepeatMarks] = []
 }
 
 // MARK: - Fused model (the authoritative output of the spike)

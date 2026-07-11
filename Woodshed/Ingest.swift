@@ -17,17 +17,58 @@ import Foundation
 
 enum Ingest {
 
-    /// A MusicXML note after tie-merging: one entry per *sounding* note.
+    /// A MusicXML note after unfolding + tie-merging: one entry per *sounding* note
+    /// per pass. `onsetBeats` is the UNFOLDED position (matches MIDI ticks, used for
+    /// alignment); `writtenBeat` is the notated position (drives the OSMD cursor —
+    /// on a repeat's second pass the cursor jumps back, like a reader's eyes).
     private struct Sounding {
         var pitch: Int
         var spelledName: String
         var voice: Int
         var notatedType: String
-        var onsetBeats: Double
+        var onsetBeats: Double        // unfolded (alignment timeline)
+        var writtenBeat: Double       // notated (display timeline)
         var durationBeats: Double
         var hasOrnament: Bool
         var isGrace: Bool
         var matched = false
+    }
+
+    /// The playback order of measure indices implied by repeat barlines and voltas.
+    /// `|:` sets the jump-back point, `:|` repeats (honouring `times`), and a volta
+    /// whose numbers don't include the current pass is skipped. Identity when there
+    /// are no repeats. Pure — unit-tested. (D.C./D.S./Coda jumps are NOT handled;
+    /// they surface via the structure warning instead.)
+    static func unfoldOrder(marks: [RepeatMarks]) -> [Int] {
+        var order: [Int] = []
+        var i = 0, start = 0, pass = 1
+        var guardCount = 0
+        while i < marks.count && guardCount < 100_000 {
+            guardCount += 1
+            let m = marks[i]
+            if m.forward { start = i }
+            if !m.endingNumbers.isEmpty && !m.endingNumbers.contains(pass) {
+                // Skip this volta: advance past its stop measure.
+                while i < marks.count {
+                    let stop = marks[i].endingStop
+                    i += 1
+                    if stop { break }
+                }
+                continue
+            }
+            order.append(i)
+            if m.backward && pass < max(2, m.times) {
+                pass += 1
+                i = start
+                continue
+            }
+            if m.backward || (m.endingStop && !m.backward) {
+                pass = 1                 // region finished — the next one counts afresh
+                start = i + 1
+            }
+            i += 1
+        }
+        return order
     }
 
     /// A MIDI note plus a mutable matched flag, for the alignment pass.
@@ -43,12 +84,54 @@ enum Ingest {
 
         let tempo = midi.tempoBPM
 
+        // ---- Unfold the written timeline (repeats / voltas) ----
+        // The MIDI export is unfolded; the XML is written/folded. Compute the playback
+        // order of measures, then give every note TWO positions: an unfolded onset
+        // (aligns with MIDI ticks) and its written beat (drives the cursor/marks).
+        let marks = xml.measureRepeats.count == xml.measures.count
+            ? xml.measureRepeats
+            : Array(repeating: RepeatMarks(), count: xml.measures.count)
+        let order = unfoldOrder(marks: marks)
+        let writtenStarts = xml.measures.map(\.startBeat)
+        let writtenTotal = xml.measures.last.map { $0.startBeat + $0.lengthBeats } ?? 0
+        var unfoldedStartAtPos: [Double] = []
+        var firstOccStart = [Double?](repeating: nil, count: xml.measures.count)
+        var accBeats = 0.0
+        for m in order {
+            unfoldedStartAtPos.append(accBeats)
+            if firstOccStart[m] == nil { firstOccStart[m] = accBeats }
+            accBeats += xml.measures[m].lengthBeats
+        }
+        let unfoldedTotal = accBeats
+
+        // Every playable note, once per pass through its measure, with its unfolded onset.
+        var notesByMeasure = [[XMLNote]](repeating: [], count: max(1, xml.measures.count))
+        for n in xml.notes where !n.isRest && n.pitch != nil {
+            let idx = n.measure - 1
+            if idx >= 0 && idx < notesByMeasure.count { notesByMeasure[idx].append(n) }
+        }
+        var expanded: [(note: XMLNote, align: Double)] = []
+        for (pos, m) in order.enumerated() {
+            for n in notesByMeasure[m] {
+                expanded.append((n, unfoldedStartAtPos[pos] + (n.onsetBeats - writtenStarts[m])))
+            }
+        }
+
+        /// The written beat for an unfolded position (for unmatched-MIDI fallbacks).
+        func writtenBeat(forUnfolded b: Double) -> Double {
+            guard !unfoldedStartAtPos.isEmpty else { return b }
+            var pos = 0
+            for i in unfoldedStartAtPos.indices where unfoldedStartAtPos[i] <= b + 1e-6 { pos = i }
+            let m = order[pos]
+            return writtenStarts[m] + (b - unfoldedStartAtPos[pos])
+        }
+
         var events: [NoteEvent] = []
         var reconciliations: [Reconciliation] = []
 
         for hand in [Hand.right, Hand.left] {
-            // XML sounding notes for this hand (ties merged).
-            let sounding = mergeTies(xml.notes.filter { $0.hand == hand })
+            // XML sounding notes for this hand (unfolded, ties merged).
+            let sounding = mergeTies(expanded.filter { $0.note.hand == hand })
 
             // MIDI notes for this hand, with a beat position for alignment.
             var slots = midi.notes
@@ -94,10 +177,10 @@ enum Ingest {
                                             notatedType: s.notatedType,
                                             onsetSeconds: m.onsetSeconds,
                                             durationSeconds: m.durationSeconds,
-                                            notatedBeat: s.onsetBeats,
+                                            notatedBeat: s.writtenBeat,   // display timeline
                                             matchedXML: true, ornamentNotes: 0))
                 } else {
-                    unmatchedXML.append("\(s.spelledName) @ beat \(fmt(s.onsetBeats)) (voice \(s.voice))")
+                    unmatchedXML.append("\(s.spelledName) @ beat \(fmt(s.writtenBeat)) (voice \(s.voice))")
                 }
             }
 
@@ -128,7 +211,7 @@ enum Ingest {
                                         hand: hand, voice: 0, notatedType: "?",
                                         onsetSeconds: m.onsetSeconds,
                                         durationSeconds: m.durationSeconds,
-                                        notatedBeat: m.onsetBeats,   // fallback: MIDI beat (rare)
+                                        notatedBeat: writtenBeat(forUnfolded: m.onsetBeats),   // rare fallback
                                         matchedXML: false, ornamentNotes: 0))
             }
 
@@ -149,33 +232,51 @@ enum Ingest {
         let barPattern = (0..<max(1, fm.num)).map { clickLevel(pulseIndex: $0, num: fm.num, den: fm.den) }
         let pulseSeconds = (4.0 / Double(fm.den)) * (60.0 / tempo)
 
-        // Structural sanity: the MIDI is exported *unfolded* (repeats expanded) while
-        // the MusicXML beat timeline is *written/folded*. If the MIDI runs on well past
-        // the written score, the alignment above is meaningless past that point — warn
-        // loudly rather than grade against a wrong model.
-        let xmlTotalBeats = xml.measures.last.map { $0.startBeat + $0.lengthBeats } ?? 0
+        // Structural sanity, AFTER unfolding: simple repeats/voltas are now expanded,
+        // so a remaining length mismatch means jumps we don't handle (D.C./D.S./Coda)
+        // or a mismatched file pair — warn loudly rather than grade a wrong model.
         let lastMidiBeat = midi.notes.map(\.onsetBeats).max() ?? 0
         let barBeats = Double(fm.num) * 4.0 / Double(fm.den)
-        let structureWarning: String? = timelinesMismatch(xmlTotalBeats: xmlTotalBeats,
+        let structureWarning: String? = timelinesMismatch(xmlTotalBeats: unfoldedTotal,
                                                           lastMidiBeat: lastMidiBeat,
                                                           barBeats: barBeats)
-            ? "The MIDI is much longer than the written score (repeats?). Woodshed can't align repeated sections yet — the cursor and grading will be wrong after the first repeat."
+            ? "The MIDI doesn't line up with the written score even after unfolding repeats (D.C./D.S.? mismatched files?) — the cursor and grading will be wrong where they diverge."
             : nil
+
+        // The metronome clicks every PLAYED bar — i.e. over the unfolded order, so
+        // repeats keep clicking on the second pass.
+        var unfoldedMeasures: [(startBeat: Double, lengthBeats: Double, num: Int, den: Int)] = []
+        for (pos, m) in order.enumerated() {
+            let src = xml.measures[m]
+            unfoldedMeasures.append((startBeat: unfoldedStartAtPos[pos], lengthBeats: src.lengthBeats,
+                                     num: src.num, den: src.den))
+        }
+
+        // The app addresses time in WRITTEN beats (bars, cursor, sections); convert
+        // via the first occurrence of that written position in the unfolded timeline.
+        // The end-of-piece maps to the unfolded end, so a piece that finishes inside
+        // a repeat region still plays out both passes.
+        let secondsAtWritten: (Double) -> Double = { wb in
+            if wb >= writtenTotal - 1e-6 { return midi.secondsAtBeat(unfoldedTotal + (wb - writtenTotal)) }
+            var idx = 0
+            for i in writtenStarts.indices where writtenStarts[i] <= wb + 1e-6 { idx = i }
+            let u = (firstOccStart[idx] ?? writtenStarts[idx]) + (wb - writtenStarts[idx])
+            return midi.secondsAtBeat(u)
+        }
 
         return FusedScore(tempoBPM: tempo,
                           timeSignature: xml.timeSignature ?? midi.timeSignature,
                           keyFifths: xml.keyFifths,
                           events: events,
-                          clickGrid: buildClickGrid(measures: xml.measures,
+                          clickGrid: buildClickGrid(measures: unfoldedMeasures,
                                                     secondsAtBeat: midi.secondsAtBeat),
                           metronomeBarPattern: barPattern,
                           metronomePulseSeconds: pulseSeconds,
                           trackHands: midi.trackHands,
-                          measureStartBeats: xml.measures.map { $0.startBeat },
+                          measureStartBeats: writtenStarts,
                           measureMeters: xml.measures.map { (num: $0.num, den: $0.den) },
-                          totalBeats: xml.measures.last.map { $0.startBeat + $0.lengthBeats }
-                                      ?? (events.map { $0.notatedBeat }.max() ?? 0),
-                          secondsAtBeat: midi.secondsAtBeat,
+                          totalBeats: writtenTotal,
+                          secondsAtBeat: secondsAtWritten,
                           reconciliations: reconciliations,
                           structureWarning: structureWarning)
     }
@@ -189,22 +290,21 @@ enum Ingest {
 
     // MARK: - Tie merging
 
-    /// Collapse tied MusicXML notes into one sounding note each, so the count
-    /// lines up with MIDI note-ons. Rests are dropped.
-    private static func mergeTies(_ handNotes: [XMLNote]) -> [Sounding] {
+    /// Collapse tied MusicXML notes into one sounding note each, so the count lines
+    /// up with MIDI note-ons. Input is the unfolded expansion: (note, unfolded onset).
+    private static func mergeTies(_ handNotes: [(note: XMLNote, align: Double)]) -> [Sounding] {
         let ordered = handNotes
-            .filter { !$0.isRest && $0.pitch != nil }
-            .sorted { ($0.onsetBeats, $0.pitch ?? 0) < ($1.onsetBeats, $1.pitch ?? 0) }
+            .sorted { ($0.align, $0.note.pitch ?? 0) < ($1.align, $1.note.pitch ?? 0) }
 
         var sounding: [Sounding] = []
         var openTie: [Int: Int] = [:]   // pitch -> index of the open sounding note
 
-        for n in ordered {
+        for (n, align) in ordered {
             let pitch = n.pitch!
             if n.tieStop, let idx = openTie[pitch] {
                 // This note continues a tie: extend the existing sounding note's
                 // notated span (used for ornament absorption); timing is from MIDI.
-                sounding[idx].durationBeats = (n.onsetBeats + n.durationBeats) - sounding[idx].onsetBeats
+                sounding[idx].durationBeats = (align + n.durationBeats) - sounding[idx].onsetBeats
                 if n.hasOrnament { sounding[idx].hasOrnament = true }
                 if n.tieStart {
                     // middle of a tie chain — keep it open
@@ -216,7 +316,8 @@ enum Ingest {
                                          spelledName: n.spelledName ?? defaultPitchName(pitch),
                                          voice: n.voice,
                                          notatedType: n.notatedType ?? "?",
-                                         onsetBeats: n.onsetBeats,
+                                         onsetBeats: align,
+                                         writtenBeat: n.onsetBeats,
                                          durationBeats: n.durationBeats,
                                          hasOrnament: n.hasOrnament,
                                          isGrace: n.isGrace))

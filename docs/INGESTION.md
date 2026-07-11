@@ -62,14 +62,18 @@ written note or an absorbed ornament, and every written note matched). If anythi
 table — an unclean import is never silent, because grading against a wrong model is the worst
 failure mode this app has.
 
-## Known limitation: repeats / voltas / D.C. are NOT aligned
-The MIDI export is **unfolded** (repeats expanded into real time) while the MusicXML beat timeline
-is **written/folded** — and the aligner matches on beats. A piece with repeats therefore cannot be
-aligned past the first repeat: every second-pass MIDI note misses its 1-beat window and the model is
-wrong from there on. `Ingest` detects the signature (the MIDI running more than a bar past the
-written score — `timelinesMismatch`) and sets `FusedScore.structureWarning`, which the UI surfaces
-prominently. Until unfolding is implemented (parse `<repeat>`/`<ending>` barlines and expand the XML
-timeline), the workaround is to export from MuseScore with repeats written out.
+## Repeats / voltas: unfolded. D.C./D.S.: warned
+The MIDI export is **unfolded** (repeats expanded into real time) while the MusicXML timeline is
+**written/folded**. `Ingest` bridges them: repeat barlines (`|:` `:|` incl. `times`) and voltas
+(1st/2nd endings) are parsed into per-measure `RepeatMarks`, a pure `unfoldOrder` computes the
+playback order of measures, and every note gets **two positions** — an unfolded onset (aligns with
+MIDI ticks) and its written beat (drives the cursor, so on a repeat's second pass the cursor jumps
+back like a reader's eyes). `secondsAtBeat` maps written beats via their *first occurrence* (the
+piece end maps to the unfolded end so closing repeats play out); the metronome grid runs over the
+unfolded order so it clicks every played bar. **D.C./D.S./Coda jumps are still not handled** —
+`timelinesMismatch` (now checked against the *unfolded* total) sets `FusedScore.structureWarning`
+and the UI banner says so. One known coarseness: a *section* whose bars sit inside a repeat region
+plays their first pass only.
 
 ## Parser specifics worth knowing
 - **`MusicXMLParser` uses `XMLParser` (SAX), not `XMLDocument`** — because `XMLDocument` is macOS-only
@@ -88,8 +92,10 @@ subdivisions). It clicks the denominator's unit (eighths for `x/8`, quarters for
 downbeat on the barline through pickups and meter changes.
 
 ## Open Questions
-- **Repeats/voltas** are detected and warned about but not aligned (see Known limitation above) —
-  implementing XML timeline unfolding is the biggest ingestion feature left.
+- **D.C. / D.S. / Coda** jumps are detected (structure warning) but not unfolded — the remaining
+  structural gap after repeats/voltas landed.
+- Sections inside a repeat region practice the first pass only — revisit if drilling a specific
+  pass matters.
 - Grace notes are now parsed (`isGrace`, zero duration, don't advance the cursor) and match after
   principals so they can't steal a principal's MIDI partner. Their *realized timing* is still not
   modelled specially — fine for matching, revisit only if grading of graces themselves is wanted.

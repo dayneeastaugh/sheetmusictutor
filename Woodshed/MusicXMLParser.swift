@@ -38,7 +38,8 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
                              timeSignature: p.timeSignature,
                              keyFifths: p.keyFifths,
                              notes: p.notes,
-                             measures: p.measures)
+                             measures: p.measures,
+                             measureRepeats: p.measureRepeats)
     }
 
     // MARK: - Accumulated score-level state
@@ -60,6 +61,14 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
     // (quarter beats from the piece start), its actual length in beats, and meter.
     private(set) var measures: [(startBeat: Double, lengthBeats: Double, num: Int, den: Int)] = []
     private var pendingMeasureStart = 0.0
+
+    // Repeat structure (for the unfold): marks accumulated for the current measure,
+    // plus the volta (ending) region we're currently inside — endings span measures
+    // but MusicXML only marks their start/stop barlines.
+    private(set) var measureRepeats: [RepeatMarks] = []
+    private var currentMarks = RepeatMarks()
+    private var currentEnding: [Int]? = nil
+    private var endingJustStopped = false
 
     // MARK: - Per-element text + context flags
     private var text = ""
@@ -126,6 +135,25 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         case "tie":
             if attr["type"] == "start" { tieStart = true }
             if attr["type"] == "stop" { tieStop = true }
+        case "repeat":
+            if attr["direction"] == "forward" { currentMarks.forward = true }
+            if attr["direction"] == "backward" {
+                currentMarks.backward = true
+                if let t = attr["times"].flatMap(Int.init), t >= 2 { currentMarks.times = t }
+            }
+        case "ending":
+            // number can be "1", "2" or "1, 2"; the region spans until its stop.
+            let numbers = (attr["number"] ?? "")
+                .split(separator: ",")
+                .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            switch attr["type"] {
+            case "start":
+                currentEnding = numbers.isEmpty ? [1] : numbers
+            case "stop", "discontinue":
+                currentMarks.endingStop = true
+                endingJustStopped = true
+            default: break
+            }
         case "dot":
             noteDots += 1
         case "trill-mark", "turn", "inverted-turn", "delayed-turn", "mordent",
@@ -180,14 +208,18 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         timeSignature = (num, den)
     }
 
-    /// Record the measure currently being parsed (its actual filled length + meter).
-    /// Called when the next measure starts and once at the end of the document.
+    /// Record the measure currently being parsed (its actual filled length + meter +
+    /// repeat marks). Called when the next measure starts and once at document end.
     func finishMeasure() {
         guard seenFirstMeasure else { return }
         let ts = timeSignature ?? (num: 4, den: 4)
         measures.append((startBeat: pendingMeasureStart,
                          lengthBeats: Double(measureMaxDivs) / Double(divisions),
                          num: ts.num, den: ts.den))
+        currentMarks.endingNumbers = currentEnding ?? []
+        measureRepeats.append(currentMarks)
+        currentMarks = RepeatMarks()
+        if endingJustStopped { currentEnding = nil; endingJustStopped = false }
     }
 
     private func resetNote() {

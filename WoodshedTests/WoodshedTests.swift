@@ -381,6 +381,110 @@ struct ParserFixTests {
     }
 }
 
+// MARK: - Repeats / voltas unfolding
+
+@Suite("Repeat unfolding")
+struct RepeatUnfoldTests {
+
+    private func mark(f: Bool = false, b: Bool = false, times: Int = 2,
+                      ending: [Int] = [], stop: Bool = false) -> RepeatMarks {
+        RepeatMarks(forward: f, backward: b, times: times, endingNumbers: ending, endingStop: stop)
+    }
+
+    @Test("no repeats → identity order")
+    func identity() {
+        let marks = [mark(), mark(), mark()]
+        #expect(Ingest.unfoldOrder(marks: marks) == [0, 1, 2])
+    }
+
+    @Test("simple repeat: bars 1–2 played twice, then 3")
+    func simpleRepeat() {
+        let marks = [mark(f: true), mark(b: true), mark()]
+        #expect(Ingest.unfoldOrder(marks: marks) == [0, 1, 0, 1, 2])
+    }
+
+    @Test("repeat from the piece start (no forward barline)")
+    func implicitStart() {
+        let marks = [mark(), mark(b: true), mark()]
+        #expect(Ingest.unfoldOrder(marks: marks) == [0, 1, 0, 1, 2])
+    }
+
+    @Test("first/second endings (voltas)")
+    func voltas() {
+        // 0 1 [volta1: 2 :||] [volta2: 3] 4
+        let marks = [mark(), mark(),
+                     mark(ending: [1], stop: true) /* has backward */,
+                     mark(ending: [2], stop: true),
+                     mark()]
+        var m2 = marks; m2[2].backward = true
+        #expect(Ingest.unfoldOrder(marks: m2) == [0, 1, 2, 0, 1, 3, 4])
+    }
+
+    @Test("three-times repeat honours times attribute")
+    func threeTimes() {
+        let marks = [mark(f: true), mark(b: true, times: 3), mark()]
+        #expect(Ingest.unfoldOrder(marks: marks) == [0, 1, 0, 1, 0, 1, 2])
+    }
+
+    @Test("end-to-end: a repeated piece fuses cleanly with written beats preserved")
+    func endToEnd() throws {
+        // 2 written bars in 4/4, bars 1–2 repeated: written C4 (bar 1) + E4 (bar 2),
+        // MIDI plays C E C E (each a whole note, tpq 96 → 384 ticks/bar).
+        let xml = Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <score-partwise version="4.0"><part id="P1">
+              <measure number="1">
+                <attributes><divisions>4</divisions>
+                  <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+                <barline location="left"><repeat direction="forward"/></barline>
+                <note><pitch><step>C</step><octave>4</octave></pitch>
+                      <duration>16</duration><voice>1</voice><type>whole</type></note>
+              </measure>
+              <measure number="2">
+                <note><pitch><step>E</step><octave>4</octave></pitch>
+                      <duration>16</duration><voice>1</voice><type>whole</type></note>
+                <barline location="right"><repeat direction="backward"/></barline>
+              </measure>
+            </part></score-partwise>
+            """.utf8)
+        // MIDI: two tracks (RH melody + LH pedal tone so hands assign); RH = C E C E.
+        func on(_ d: UInt8, _ p: UInt8) -> [UInt8] { [d, 0x90, p, 90] }
+        func off(_ d: UInt8, _ p: UInt8) -> [UInt8] { [d, 0x80, p, 0] }
+        var rh: [[UInt8]] = []
+        for p: UInt8 in [60, 64, 60, 64] {                     // C4 E4 C4 E4, whole notes
+            rh.append(on(0, p))
+            rh.append([0x83, 0x00, 0x80, p, 0])                // delta 384 (varlen 0x83 0x00)
+        }
+        _ = off  // (helper kept for clarity)
+        let lh: [[UInt8]] = [[0x00, 0x90, 30, 80], [0x83, 0x00, 0x80, 30, 0]]
+        var d: [UInt8] = [0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 2, 0, 96]
+        for events in [rh, lh] {
+            var track: [UInt8] = []
+            for e in events { track += e }
+            track += [0x00, 0xFF, 0x2F, 0x00]
+            d += [0x4D, 0x54, 0x72, 0x6B, 0, 0, 0, UInt8(track.count)]
+            d += track
+        }
+
+        let fused = try Ingest.fuse(midiData: Data(d), musicXMLData: xml)
+        #expect(fused.structureWarning == nil)                 // unfold explains the length
+        let rec = fused.reconciliations.first { $0.hand == .right }!
+        #expect(rec.isClean, "\(rec.unmatchedMIDI) \(rec.unmatchedXML)")
+        #expect(rec.matched == 4)                              // both passes matched
+
+        // Written beats: the second pass maps BACK to bars 1–2 (beats 0 and 4).
+        let rhEvents = fused.events.filter { $0.hand == .right }.sorted { $0.onsetSeconds < $1.onsetSeconds }
+        #expect(rhEvents.map(\.notatedBeat) == [0, 4, 0, 4])
+        #expect(fused.totalBeats == 8)                         // written length (2 bars)
+        // The metronome clicks all 4 played bars (16 quarter clicks).
+        #expect(fused.clickGrid.count == 16)
+        // Written beat 4 (bar 2) maps to its FIRST occurrence in time.
+        #expect(abs(fused.secondsAtBeat(4) - 2.0) < 0.01)      // 4 beats @ 120 BPM = 2 s
+        // The written end maps to the UNFOLDED end (both passes play out).
+        #expect(abs(fused.secondsAtBeat(8) - 8.0) < 0.01)      // 16 beats @ 120 BPM
+    }
+}
+
 // MARK: - MXL (compressed MusicXML) archive reader
 
 @Suite("MXL archive")
