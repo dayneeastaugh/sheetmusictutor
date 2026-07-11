@@ -276,6 +276,17 @@ struct GradeMatcherTests {
         #expect(m.tally().hits == 3)
     }
 
+    @Test("tap-along (pitch-agnostic): any key matches the nearest onset")
+    func tapAlong() {
+        var m = GradeMatcher(expected: [(60, 1.0, 2.0), (64, 2.0, 4.0)],
+                             tolerance: 0.3, pitchAgnostic: true)
+        m.noteOn(35, at: 1.05)          // wrong pitch, right time → hit
+        m.noteOn(99, at: 2.10)          // any key → hit (+100ms)
+        m.noteOn(35, at: 3.0)           // nothing near → wrong
+        let t = m.tally()
+        #expect(t.hits == 2 && t.wrong == 1 && t.missed == 0)
+    }
+
     @Test("tolerance boundary: inside counts, outside doesn't")
     func boundary() {
         // 0.25 is exactly representable in binary floating point (1.3 − 1.0 is not),
