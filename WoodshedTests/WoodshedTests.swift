@@ -10,6 +10,7 @@
 
 import Testing
 import Foundation
+import Compression
 @testable import Woodshed
 
 // MARK: - Fixture loading
@@ -207,6 +208,244 @@ struct PracticeHistoryTests {
         let loaded = PracticeHistory.load(from: dir)
         #expect(loaded.count == 2)
         #expect(loaded[0].missedBars == [2])
+    }
+}
+
+// MARK: - Grade matcher (the pure Grade-mode engine)
+
+@Suite("Grade matcher")
+struct GradeMatcherTests {
+
+    private func matcher(_ notes: [(Int, Double)], tol: Double = 0.3) -> GradeMatcher {
+        GradeMatcher(expected: notes.map { (pitch: $0.0, onset: $0.1, beat: $0.1 * 2) }, tolerance: tol)
+    }
+
+    @Test("hits, misses, and wrongs are classified correctly")
+    func classification() {
+        var m = matcher([(60, 1.0), (62, 2.0), (64, 3.0)])
+        m.noteOn(60, at: 1.1)          // hit, +100ms late
+        m.noteOn(70, at: 1.5)          // wrong (no 70 expected)
+        m.noteOn(62, at: 2.5)          // outside ±0.3 → wrong, and 62 becomes a miss
+        _ = m.closeWindows(upTo: 10)
+        let t = m.tally()
+        #expect(t.hits == 1 && t.wrong == 2 && t.missed == 2 && t.total == 3)
+    }
+
+    @Test("signed timing: early = rushing (negative), late = dragging (positive)")
+    func signedTiming() {
+        var m = matcher([(60, 1.0), (62, 2.0)])
+        m.noteOn(60, at: 0.90)         // 100ms early
+        m.noteOn(62, at: 2.20)         // 200ms late
+        let t = m.tally()
+        #expect(abs(t.meanSignedMs - 50) < 0.001)     // (−100 + 200)/2
+        #expect(abs(t.avgAbsMs - 150) < 0.001)        // (100 + 200)/2
+    }
+
+    @Test("windows close progressively and report newly-missed notes once")
+    func progressiveMisses() {
+        var m = matcher([(60, 1.0), (62, 2.0), (64, 3.0)])
+        m.noteOn(62, at: 2.0)                          // only the middle note is played
+        #expect(m.closeWindows(upTo: 1.5).map(\.pitch) == [60])
+        #expect(m.closeWindows(upTo: 2.5).isEmpty)     // 62 was hit
+        #expect(m.closeWindows(upTo: 9.9).map(\.pitch) == [64])
+        #expect(m.closeWindows(upTo: 99).isEmpty)      // nothing reported twice
+    }
+
+    @Test("repeated same-pitch notes match nearest, not first")
+    func repeatedNotes() {
+        var m = matcher([(60, 1.0), (60, 1.4)])
+        m.noteOn(60, at: 1.38)                         // nearest is the second one
+        m.noteOn(60, at: 1.02)
+        let t = m.tally()
+        #expect(t.hits == 2 && t.missed == 0 && t.wrong == 0)
+    }
+
+    @Test("chord notes match in any order within the window")
+    func chordAnyOrder() {
+        var m = matcher([(60, 1.0), (64, 1.0), (67, 1.0)])
+        for p in [67, 60, 64] { m.noteOn(p, at: 1.05) }
+        #expect(m.tally().hits == 3)
+    }
+
+    @Test("tolerance boundary: inside counts, outside doesn't")
+    func boundary() {
+        // 0.25 is exactly representable in binary floating point (1.3 − 1.0 is not),
+        // so the boundary test isn't at the mercy of float rounding.
+        var m = matcher([(60, 1.0)], tol: 0.25)
+        m.noteOn(60, at: 1.25)                         // exactly on the edge → hit
+        #expect(m.tally().hits == 1)
+        var m2 = matcher([(60, 1.0)], tol: 0.25)
+        m2.noteOn(60, at: 1.375)                       // clearly outside → wrong
+        #expect(m2.tally().hits == 0 && m2.tally().wrong == 1)
+    }
+}
+
+// MARK: - Parser fixes (Wave 2)
+
+@Suite("Parser fixes")
+struct ParserFixTests {
+
+    /// Build a minimal SMF from per-track lists of (delta, status, data…) events.
+    private func smf(tracks: [[[UInt8]]], ticksPerQuarter: UInt8 = 96) -> Data {
+        var d: [UInt8] = [0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6,           // MThd
+                          0, 1, 0, UInt8(tracks.count), 0, ticksPerQuarter]
+        for events in tracks {
+            var track: [UInt8] = []
+            for e in events { track += e }
+            track += [0x00, 0xFF, 0x2F, 0x00]                           // end of track
+            d += [0x4D, 0x54, 0x72, 0x6B, 0, 0, 0, UInt8(track.count)]  // MTrk
+            d += track
+        }
+        return Data(d)
+    }
+    private func smf(_ events: [[UInt8]], ticksPerQuarter: UInt8 = 96) -> Data {
+        smf(tracks: [events], ticksPerQuarter: ticksPerQuarter)
+    }
+
+    @Test("overlapping same-pitch notes both survive (stack, not overwrite)")
+    func overlappingNotes() throws {
+        // noteOn 60, then a second noteOn 60 before the first's noteOff.
+        let data = smf([[0x00, 0x90, 60, 90],    // on @0
+                        [0x30, 0x90, 60, 90],    // on @48 (overlap)
+                        [0x30, 0x80, 60, 0],     // off @96 (closes the SECOND — LIFO)
+                        [0x30, 0x80, 60, 0]])    // off @144 (closes the first)
+        let score = try MIDIParser.parse(data: data)
+        #expect(score.notes.count == 2)
+        let sorted = score.notes.sorted { $0.onsetBeats < $1.onsetBeats }
+        #expect(sorted[0].onsetBeats == 0.0 && sorted[1].onsetBeats == 0.5)
+    }
+
+    private func musicXML(parts: Int, graceBeforePrincipal: Bool = false) -> Data {
+        let grace = graceBeforePrincipal ? """
+            <note><grace/><pitch><step>C</step><octave>5</octave></pitch>
+                  <voice>1</voice><type>eighth</type></note>
+            """ : ""
+        let onePart = """
+            <part id="P1"><measure number="1">
+              <attributes><divisions>4</divisions>
+                <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+              \(grace)
+              <note><pitch><step>C</step><octave>5</octave></pitch>
+                    <duration>4</duration><voice>1</voice><type>quarter</type></note>
+            </measure></part>
+            """
+        let extra = parts > 1 ? onePart.replacingOccurrences(of: "P1", with: "P2") : ""
+        return Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <score-partwise version="4.0">\(onePart)\(extra)</score-partwise>
+            """.utf8)
+    }
+
+    @Test("multi-part scores are refused with a clear error")
+    func multiPart() {
+        #expect(throws: Error.self) { _ = try MusicXMLParser.parse(data: musicXML(parts: 2)) }
+        #expect(throws: Never.self) { _ = try MusicXMLParser.parse(data: musicXML(parts: 1)) }
+    }
+
+    @Test("grace notes are parsed as grace and don't advance the measure cursor")
+    func graceParsing() throws {
+        let score = try MusicXMLParser.parse(data: musicXML(parts: 1, graceBeforePrincipal: true))
+        let notes = score.notes.filter { !$0.isRest }
+        #expect(notes.count == 2)
+        #expect(notes[0].isGrace && !notes[1].isGrace)
+        #expect(notes[0].onsetBeats == notes[1].onsetBeats)   // grace sits AT the principal's beat
+        #expect(notes[0].durationBeats == 0)
+    }
+
+    @Test("grace note never steals the principal's MIDI partner")
+    func gracePriority() throws {
+        // Two tracks so the average-pitch heuristic assigns hands (track 0 = RH):
+        // RH has the grace realization + the principal (same pitch); LH one low note.
+        let rh: [[UInt8]] = [[0x00, 0x90, 72, 80],    // grace on @0
+                             [0x14, 0x80, 72, 0],     // grace off @20
+                             [0x04, 0x90, 72, 90],    // principal on @24 (= beat 0.25 at tpq 96)
+                             [0x60, 0x80, 72, 0]]     // principal off
+        let lh: [[UInt8]] = [[0x00, 0x90, 30, 80],
+                             [0x60, 0x80, 30, 0]]
+        let fused = try Ingest.fuse(midiData: smf(tracks: [rh, lh]),
+                                    musicXMLData: musicXML(parts: 1, graceBeforePrincipal: true))
+        // Both RH XML notes matched — the zero-duration grace didn't leave the
+        // principal partnerless (principals match first, graces second).
+        let rec = fused.reconciliations.first { $0.hand == .right }!
+        #expect(rec.unmatchedXML.isEmpty && rec.unmatchedMIDI.isEmpty)
+        #expect(rec.matched == 2)
+    }
+}
+
+// MARK: - MXL (compressed MusicXML) archive reader
+
+@Suite("MXL archive")
+struct MXLArchiveTests {
+
+    /// Hand-build a ZIP with one stored entry (container.xml) and one deflate entry
+    /// (the score), so the reader is tested hermetically — no external zip tool.
+    private func makeMXL(scoreName: String = "score.xml", score: Data) throws -> Data {
+        let container = Data("""
+            <?xml version="1.0"?><container><rootfiles>
+            <rootfile full-path="\(scoreName)"/></rootfiles></container>
+            """.utf8)
+        // Raw-deflate the score with the Compression framework (what ZIP stores).
+        var deflated = Data(count: score.count + 1024)
+        let written = deflated.withUnsafeMutableBytes { dst in
+            score.withUnsafeBytes { src in
+                compression_encode_buffer(dst.bindMemory(to: UInt8.self).baseAddress!, score.count + 1024,
+                                          src.bindMemory(to: UInt8.self).baseAddress!, score.count,
+                                          nil, COMPRESSION_ZLIB)
+            }
+        }
+        deflated = deflated.prefix(written)
+
+        func u16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF)] }
+        func u32(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF), UInt8((v >> 16) & 0xFF), UInt8((v >> 24) & 0xFF)] }
+
+        var zip: [UInt8] = []
+        var central: [UInt8] = []
+        func addEntry(name: String, payload: Data, method: Int, uncompressed: Int) {
+            let nameBytes = [UInt8](name.utf8)
+            let offset = zip.count
+            // Local header (time/date/crc left zero — the reader doesn't check them).
+            zip += [0x50, 0x4B, 0x03, 0x04]
+            zip += u16(20); zip += u16(0); zip += u16(method)
+            zip += u16(0); zip += u16(0); zip += u32(0)
+            zip += u32(payload.count); zip += u32(uncompressed)
+            zip += u16(nameBytes.count); zip += u16(0)
+            zip += nameBytes; zip += [UInt8](payload)
+            // Central directory entry.
+            central += [0x50, 0x4B, 0x01, 0x02]
+            central += u16(20); central += u16(20); central += u16(0); central += u16(method)
+            central += u16(0); central += u16(0); central += u32(0)
+            central += u32(payload.count); central += u32(uncompressed)
+            central += u16(nameBytes.count); central += u16(0); central += u16(0)
+            central += u16(0); central += u16(0); central += u32(0)
+            central += u32(offset); central += nameBytes
+        }
+        addEntry(name: "META-INF/container.xml", payload: container, method: 0, uncompressed: container.count)
+        addEntry(name: scoreName, payload: deflated, method: 8, uncompressed: score.count)
+        let cdOffset = zip.count
+        zip += central
+        // End of central directory.
+        zip += [0x50, 0x4B, 0x05, 0x06]
+        zip += u16(0); zip += u16(0); zip += u16(2); zip += u16(2)
+        zip += u32(central.count); zip += u32(cdOffset); zip += u16(0)
+        return Data(zip)
+    }
+
+    @Test("extracts the score named by container.xml (deflate entry)")
+    func extract() throws {
+        let score = Data(String(repeating: "<note>C</note>", count: 200).utf8)   // compressible
+        let mxl = try makeMXL(score: score)
+        let extracted = try MXLArchive.extractScore(from: mxl)
+        #expect(extracted == score)
+    }
+
+    @Test("junk and truncated archives throw, never crash")
+    func robustness() throws {
+        #expect(throws: Error.self) { _ = try MXLArchive.extractScore(from: Data("not a zip".utf8)) }
+        #expect(throws: Error.self) { _ = try MXLArchive.extractScore(from: Data()) }
+        let good = try makeMXL(score: Data(String(repeating: "x", count: 500).utf8))
+        for n in stride(from: 0, to: good.count, by: 37) {
+            _ = try? MXLArchive.extractScore(from: good.prefix(n))   // may throw; must not crash
+        }
     }
 }
 
