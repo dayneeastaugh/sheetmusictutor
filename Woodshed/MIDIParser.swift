@@ -22,11 +22,11 @@ enum MIDIParser {
         var reader = ByteReader(data)
 
         // ---- Header chunk: "MThd" <len:4> <format:2> <ntracks:2> <division:2> ----
-        guard reader.readString(4) == "MThd" else { throw MIDIError.notAMIDIFile }
-        let headerLen = reader.readUInt32()
-        let _format = reader.readUInt16()
-        let trackCount = Int(reader.readUInt16())
-        let division = Int(reader.readUInt16())
+        guard try reader.readString(4) == "MThd" else { throw MIDIError.notAMIDIFile }
+        let headerLen = try reader.readUInt32()
+        let _format = try reader.readUInt16()
+        let trackCount = Int(try reader.readUInt16())
+        let division = Int(try reader.readUInt16())
         _ = _format
         // If the top bit of `division` is set the file uses SMPTE timing; MuseScore
         // exports musical (ticks-per-quarter) timing, which is what we support here.
@@ -46,8 +46,9 @@ enum MIDIParser {
         var notesPerTrack: [[RawNote]] = []
 
         for _ in 0..<trackCount {
-            guard reader.readString(4) == "MTrk" else { throw MIDIError.malformed }
-            let trackLen = Int(reader.readUInt32())
+            guard try reader.readString(4) == "MTrk" else { throw MIDIError.malformed }
+            let trackLen = Int(try reader.readUInt32())
+            guard trackLen >= 0, trackLen <= reader.remaining else { throw MIDIError.malformed }
             let trackEnd = reader.offset + trackLen
 
             var absoluteTick = 0
@@ -58,10 +59,10 @@ enum MIDIParser {
             var trackNotes: [RawNote] = []
 
             while reader.offset < trackEnd {
-                let delta = reader.readVarLen()
+                let delta = try reader.readVarLen()
                 absoluteTick += delta
 
-                var status = reader.peekUInt8()
+                var status = try reader.peekUInt8()
                 if status & 0x80 != 0 {
                     reader.skip(1)               // consume the status byte
                     runningStatus = status
@@ -71,9 +72,9 @@ enum MIDIParser {
 
                 switch status {
                 case 0xFF:                        // Meta event
-                    let metaType = reader.readUInt8()
-                    let len = reader.readVarLen()
-                    let payload = reader.readBytes(len)
+                    let metaType = try reader.readUInt8()
+                    let len = try reader.readVarLen()
+                    let payload = try reader.readBytes(len)
                     switch metaType {
                     case 0x51 where payload.count == 3:  // Set Tempo (us per quarter)
                         let us = (Int(payload[0]) << 16) | (Int(payload[1]) << 8) | Int(payload[2])
@@ -87,7 +88,7 @@ enum MIDIParser {
                     }
 
                 case 0xF0, 0xF7:                   // SysEx — skip
-                    let len = reader.readVarLen()
+                    let len = try reader.readVarLen()
                     reader.skip(len)
 
                 default:                           // Channel voice message
@@ -95,8 +96,8 @@ enum MIDIParser {
                     let channel = Int(status & 0x0F)
                     switch high {
                     case 0x80, 0x90:               // note-off / note-on
-                        let pitch = Int(reader.readUInt8())
-                        let velocity = Int(reader.readUInt8())
+                        let pitch = Int(try reader.readUInt8())
+                        let velocity = Int(try reader.readUInt8())
                         let key = channel * 128 + pitch
                         if high == 0x90 && velocity > 0 {
                             openNotes[key] = absoluteTick               // note starts
@@ -215,45 +216,65 @@ enum MIDIError: Error, CustomStringConvertible {
 // MARK: - ByteReader
 
 /// A tiny cursor over `Data` for big-endian reads and MIDI variable-length ints.
+/// Every read is **bounds-checked and throwing**: a truncated or corrupt file must
+/// surface as `MIDIError.malformed` (a catchable import error), never as an
+/// out-of-range trap that crashes the app. (Swift arrays trap on bad subscripts by
+/// design — safe, but a crash is still the wrong failure mode for user file input.)
 private struct ByteReader {
     let bytes: [UInt8]
     var offset: Int = 0
     init(_ data: Data) { bytes = [UInt8](data) }
 
-    mutating func skip(_ n: Int) { offset += max(0, n) }
-    func peekUInt8() -> UInt8 { bytes[offset] }
+    /// Bytes still available to read.
+    var remaining: Int { bytes.count - offset }
 
-    mutating func readUInt8() -> UInt8 {
+    private func require(_ n: Int) throws {
+        guard n >= 0, offset + n <= bytes.count else { throw MIDIError.malformed }
+    }
+
+    mutating func skip(_ n: Int) { offset += max(0, n) }   // reads re-validate, so overshoot is safe
+    func peekUInt8() throws -> UInt8 {
+        try require(1)
+        return bytes[offset]
+    }
+
+    mutating func readUInt8() throws -> UInt8 {
+        try require(1)
         defer { offset += 1 }
         return bytes[offset]
     }
-    mutating func readUInt16() -> UInt16 {
+    mutating func readUInt16() throws -> UInt16 {
+        try require(2)
         let v = (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
         offset += 2
         return v
     }
-    mutating func readUInt32() -> UInt32 {
+    mutating func readUInt32() throws -> UInt32 {
+        try require(4)
         var v: UInt32 = 0
         for i in 0..<4 { v = (v << 8) | UInt32(bytes[offset + i]) }
         offset += 4
         return v
     }
-    mutating func readBytes(_ n: Int) -> [UInt8] {
+    mutating func readBytes(_ n: Int) throws -> [UInt8] {
+        try require(n)
         let slice = Array(bytes[offset..<offset + n])
         offset += n
         return slice
     }
-    mutating func readString(_ n: Int) -> String {
-        String(bytes: readBytes(n), encoding: .ascii) ?? ""
+    mutating func readString(_ n: Int) throws -> String {
+        String(bytes: try readBytes(n), encoding: .ascii) ?? ""
     }
     /// MIDI variable-length quantity: 7 bits per byte, high bit = "more follows".
-    mutating func readVarLen() -> Int {
+    /// Capped at 5 bytes (the spec's maximum for a 32-bit value) so corrupt data
+    /// can't spin the loop.
+    mutating func readVarLen() throws -> Int {
         var value = 0
-        while true {
-            let b = readUInt8()
+        for _ in 0..<5 {
+            let b = try readUInt8()
             value = (value << 7) | Int(b & 0x7F)
-            if b & 0x80 == 0 { break }
+            if b & 0x80 == 0 { return value }
         }
-        return value
+        throw MIDIError.malformed
     }
 }
