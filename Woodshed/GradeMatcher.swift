@@ -34,26 +34,32 @@ struct GradeMatcher {
     }
 
     let tolerance: Double                       // musical seconds; a note counts within ± this
+    /// Tap-along / rhythm mode: ANY key matches the nearest expected onset — grading
+    /// timing only, not pitch (the expected list should be onset-collapsed).
+    let pitchAgnostic: Bool
     private(set) var expected: [ExpectedNote]
     private(set) var hits = 0
     private(set) var wrong = 0
     private(set) var signedErrors: [Double] = []  // seconds; one per hit
     private var checkIdx = 0                      // expected notes before this have closed windows
 
-    init(expected: [(pitch: Int, onset: Double, beat: Double)], tolerance: Double) {
+    init(expected: [(pitch: Int, onset: Double, beat: Double)], tolerance: Double,
+         pitchAgnostic: Bool = false) {
         self.expected = expected
             .sorted { $0.onset < $1.onset }
             .map { ExpectedNote(pitch: $0.pitch, onset: $0.onset, beat: $0.beat) }
         self.tolerance = tolerance
+        self.pitchAgnostic = pitchAgnostic
     }
 
     /// A live note-on at playback time `t`: match it to the nearest unmatched
-    /// expected note of the same pitch within tolerance → hit (recording the signed
-    /// error); otherwise it counts as a wrong/extra note.
+    /// expected note of the same pitch (any pitch when `pitchAgnostic`) within
+    /// tolerance → hit (recording the signed error); otherwise it's a wrong/extra.
     mutating func noteOn(_ pitch: Int, at t: Double) {
         var best = -1
         var bestAbs = tolerance + 1
-        for i in expected.indices where !expected[i].matched && expected[i].pitch == pitch {
+        for i in expected.indices where !expected[i].matched
+            && (pitchAgnostic || expected[i].pitch == pitch) {
             let d = abs(expected[i].onset - t)
             if d <= tolerance && d < bestAbs { bestAbs = d; best = i }
         }

@@ -53,6 +53,12 @@ final class AudioEnginePlayer: ObservableObject {
     private var barPattern: [ClickLevel] = []    // one bar of pulses (count-in / free-run)
     private var pulseSeconds: Double = 0.5       // seconds between pulses at the initial tempo
     private var nextClick = 0
+    // Rhythm-only mode: the piano is silent and every NOTE onset ticks instead —
+    // isolate the rhythm of the passage without its pitches (PRD rhythm tools).
+    private var rhythmOnly = false
+    private var noteGrid: [Double] = []          // note-onset times (chords deduped)
+    private var nextNoteClick = 0
+    private var noteBuf: AVAudioPCMBuffer?       // the note tick (distinct from the metronome)
     /// Synced metronome won't fire clicks at/after this time — set to the section end so
     /// the downbeat of the bar *past* the loop doesn't sound right before we loop back.
     var clickCeiling: Double = .infinity
@@ -85,6 +91,7 @@ final class AudioEnginePlayer: ObservableObject {
         downbeatBuf = makeClick(frequency: 1600, amplitude: 0.72)  // strong
         beatBuf     = makeClick(frequency: 1200, amplitude: 0.55)  // medium
         subBuf      = makeClick(frequency: 900,  amplitude: 0.38)  // light
+        noteBuf     = makeClick(frequency: 1450, amplitude: 0.60)  // rhythm-only note tick
         do {
             try engine.start()
             clickNode.play()
@@ -162,20 +169,54 @@ final class AudioEnginePlayer: ObservableObject {
         // section, or loop back) so we don't fire a burst of past clicks.
         let now = referenceTime ?? currentTime
         nextClick = clickGrid.firstIndex { $0.time >= now - 0.02 } ?? clickGrid.count
+        nextNoteClick = noteGrid.firstIndex { $0 >= now - 0.02 } ?? noteGrid.count
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             let t = self.currentTime
-            while self.nextClick < self.clickGrid.count && self.clickGrid[self.nextClick].time <= t {
-                if self.clickGrid[self.nextClick].time < self.clickCeiling - 0.001 {
-                    self.click(self.clickGrid[self.nextClick].level)
+            if self.metronomeOn {
+                while self.nextClick < self.clickGrid.count && self.clickGrid[self.nextClick].time <= t {
+                    if self.clickGrid[self.nextClick].time < self.clickCeiling - 0.001 {
+                        self.click(self.clickGrid[self.nextClick].level)
+                    }
+                    self.nextClick += 1
                 }
-                self.nextClick += 1
+            }
+            if self.rhythmOnly {
+                while self.nextNoteClick < self.noteGrid.count && self.noteGrid[self.nextNoteClick] <= t {
+                    if self.noteGrid[self.nextNoteClick] < self.clickCeiling - 0.001 {
+                        self.noteTick()
+                    }
+                    self.nextNoteClick += 1
+                }
             }
         }
         metroTimer = timer
         timer.resume()
+    }
+
+    /// The rhythm-only tick for a note onset (and to the piano when routed there).
+    private func noteTick() {
+        if metronomeSpeakers, let b = noteBuf {
+            clickNode.scheduleBuffer(b, at: nil, options: .interrupts, completionHandler: nil)
+        }
+        if metronomePiano { pianoClick?(.beat) }
+    }
+
+    /// Rhythm-only playback: silence the piano and tick every note onset instead.
+    func setRhythmOnly(_ on: Bool) {
+        rhythmOnly = on
+        applySamplerVolumes()
+        if isPlaying && isRunning {
+            if metronomeOn || rhythmOnly { startSynced(referenceTime: currentTime) }
+            else { stopMetroTimer() }
+        }
+    }
+
+    /// The note-onset grid for rhythm-only mode (sorted; chords deduped by the caller).
+    func configureRhythm(noteOnsets: [Double]) {
+        noteGrid = noteOnsets
     }
 
     /// Free-running: click the bar pattern on a steady timer, no playback needed.
@@ -332,8 +373,8 @@ final class AudioEnginePlayer: ObservableObject {
     }
 
     private func applySamplerVolumes() {
-        let rh = rhAudible && speakersOn
-        let lh = lhAudible && speakersOn
+        let rh = rhAudible && speakersOn && !rhythmOnly   // rhythm-only: the piano is silent
+        let lh = lhAudible && speakersOn && !rhythmOnly
         samplerRH.volume = rh ? 1 : 0
         samplerLH.volume = lh ? 1 : 0
         // Belt-and-suspenders: also drive the sampler's own gain to silence.
@@ -377,7 +418,7 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
-            if metronomeOn { startSynced(referenceTime: startSeconds) }
+            if metronomeOn || rhythmOnly { startSynced(referenceTime: startSeconds) }
         } catch {
             status = "play error: \(error.localizedDescription)"
             isPlaying = false
@@ -402,7 +443,7 @@ final class AudioEnginePlayer: ObservableObject {
             // No count-in: keep playing across the jump for a seamless loop.
             sequencer?.currentPositionInSeconds = startSeconds
             allSamplerNotesOff()
-            if metronomeOn { startSynced(referenceTime: startSeconds) }
+            if metronomeOn || rhythmOnly { startSynced(referenceTime: startSeconds) }
         }
     }
 
@@ -412,7 +453,7 @@ final class AudioEnginePlayer: ObservableObject {
         guard isPlaying, isRunning, let seq = sequencer else { return }
         seq.currentPositionInSeconds = max(0, t)
         allSamplerNotesOff()
-        if metronomeOn { startSynced(referenceTime: t) }
+        if metronomeOn || rhythmOnly { startSynced(referenceTime: t) }
     }
 
     /// Resume the sequencer at the section start after a per-loop count-in.
@@ -422,7 +463,7 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
-            if metronomeOn { startSynced(referenceTime: startSeconds) }
+            if metronomeOn || rhythmOnly { startSynced(referenceTime: startSeconds) }
         } catch {
             status = "loop resume error: \(error.localizedDescription)"
         }
