@@ -124,9 +124,10 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
 - **`PracticeProgressView`** — the per-song Progress sheet (More menu). Loads `history.jsonl` on
   demand and renders the accuracy trend, best/last, trouble-spot heatmap (tap to drill a bar via
   `session.focusBar`), and recent-pass log.
-- **`PianoKeyboardView.swift`** — a stateless 88-key keyboard view. Colours: green = you playing,
-  blue = right-hand score / red = left-hand score, red = "wrong" when `flagWrong` (Wait/Grade).
-  Mouse/touch-playable for testing.
+- **`PianoKeyboardView.swift`** — a stateless 88-key keyboard drawn with **`Canvas`** (one
+  immediate-mode pass; the previous ~140-diffed-views version dropped frames at trill speeds).
+  Key geometry is precomputed statically. Colours: green = you playing, blue = right-hand score /
+  red = left-hand score, red = "wrong" when `flagWrong` (Wait/Grade). Mouse/touch-playable.
 
 ### 5. Notation web surface (`Web/index.html` + vendored OSMD)
 Display only — "no logic, no clock in the web layer." Renders the MusicXML and moves a cursor on
@@ -143,8 +144,14 @@ command. See the JS bridge contract below.
    - moves the OSMD cursor via `bridge.seek(continuousBeat(at:t))` (interpolated notated beat),
    - lights the sounding notes on the keyboard,
    - optionally sends the notes to the piano (MIDI out).
-4. Live keys arrive as `MIDIInput.activeNotes`; the view's `onChange(activeNotes)` calls
+4. Live keys arrive as `MIDIInput.activeNotes`; a Combine subscription in the session calls
    `PracticeSession.midiNotesChanged`, feeding the **matcher** for the active practice mode.
+
+The tick's lookups (cursor beat, sounding notes, grade window) go through a **`TickTracker`** —
+sorted-schedule indices that only ever advance with time (amortized O(1) per tick; a backwards jump
+resets them). The old per-tick full-array scans were the main main-thread cost during playback and
+the cause of trill-speed keyboard lag. Cursor seeks are also skipped when the beat hasn't moved.
+The tracker is pure and unit-tested against a brute-force scan.
 
 ## Practice modes (state machine, all in `PracticeSession`)
 

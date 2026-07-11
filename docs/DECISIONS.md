@@ -330,6 +330,23 @@ fixtures, the repeats guard, drill transitions, trouble-bar decay, metadata back
 tool with real repertoire. **Rejected:** implementing repeat *unfolding* now (Wave 4 — needs the
 test bed first); a full import wizard (Wave 2).
 
+### ADR-031 — Wave 1: indexed tick loop + Canvas keyboard (the trill-lag fix), lifecycle hygiene
+**2026-07-11.** Second remediation wave (docs/audit/04-roadmap.md):
+(1) **`TickTracker`** replaces the 50 Hz tick's four O(n) full-array scans (discrete/continuous
+beat, sounding-note sets, grade window) with sorted-schedule indices that advance monotonically —
+amortized O(1) per tick, auto-reset on a backwards jump (loop/seek). Cursor seeks skip when the
+beat hasn't moved. Pure struct, unit-tested for **equivalence against a brute-force scan** at every
+timestep plus loop-restart and interpolation cases.
+(2) **`PianoKeyboardView` is a `Canvas`** — one immediate-mode draw pass with statically
+precomputed key geometry, replacing ~140 per-key SwiftUI views re-diffed on every highlight change.
+(1)+(2) target the "keyboard can't keep up with trills" complaint (audit ARCH-01/-02).
+(3) Lifecycle: `MIDIInput` disposes its CoreMIDI client in `deinit` (a client leaked per song
+switch); `AudioEnginePlayer` stops its engine/sequencer/timer in `deinit`; `PracticeSession.onAppear`
+is idempotent (re-appearance no longer re-parses the score and resets practice state).
+**Rejected:** promoting MIDI/audio engines to app-level singletons (a bigger lifecycle redesign —
+deferred; the deinit fixes remove the leak); moving the tick off the main thread (the work is now
+trivial; the complexity isn't warranted).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.
