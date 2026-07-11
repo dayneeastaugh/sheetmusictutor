@@ -41,7 +41,9 @@ holds only the always-live surfaces; every set-and-forget control lives in the i
 in the overflow menu).
 
 1. **Header row** — the **mode segmented control** `Practice · Wait · Grade` on the left; on the
-   right a **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
+   right an icon-only **metronome toggle** (`.toggleStyle(.button)`; tooltip carries the words —
+   it's a live performance control, so it sits with the transport, not buried in settings) and a
+   **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
    jumps there, in Grade mode restarting the pass; while stopped it resets the playhead + cursor),
    `◀` / `▶` **one bar** (stopped: moves the *playhead* — where Play begins, cursor previews it;
    playing: jumps the live position; disabled in Grade — it would corrupt the pass — and in Wait),
@@ -66,7 +68,8 @@ in the overflow menu).
    MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
    one-line strip keeps the MIDI status + a restore button.
 6. **Inspector — Controls tab** — a grouped `Form`: **Playback** (Tempo slider, Hands, Output,
-   Metronome + start/stop-with-playback, **Rhythm only** = note-onset ticks + tap-along grading),
+   metronome start/stop-with-playback behaviour — the on/off toggle itself is in the transport —
+   **Rhythm only** = note-onset ticks + tap-along grading),
    **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
    sections** (named ranges: save current, one-tap recall, delete), **Drill me** (picks today's
    spot — worst trouble bar, else oldest flag, else random — and loops a 2-bar window, saying why),

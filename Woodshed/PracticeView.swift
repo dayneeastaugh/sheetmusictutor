@@ -127,6 +127,16 @@ struct PracticeView: View {
             if !session.audio.status.isEmpty {
                 Text(session.audio.status).font(.caption).foregroundStyle(.orange)
             }
+            // Metronome lives with the transport — it's a live performance control,
+            // not a set-and-forget setting. Icon-only; the tooltip carries the words.
+            Toggle(isOn: Binding(get: { session.audio.metronomeOn },
+                                 set: { session.setMetronome($0) })) {
+                Label("Metronome", systemImage: "metronome")
+                    .labelStyle(.iconOnly)
+            }
+            .toggleStyle(.button)
+            .help(session.audio.metronomeOn ? "Metronome on — click to turn off"
+                                            : "Metronome — clicks the beat in time with the music")
             transport
         }
     }
@@ -308,8 +318,8 @@ struct PracticeView: View {
                 Picker("Output", selection: $session.outputMode) {
                     Text("Speakers").tag(0); Text("Piano").tag(1); Text("Both").tag(2)
                 }
-                Toggle("Metronome", isOn: Binding(get: { session.audio.metronomeOn },
-                                                  set: { session.setMetronome($0) }))
+                // The metronome on/off toggle now lives in the transport (above the
+                // score); these are its behaviour settings.
                 Toggle("Metronome starts with playback", isOn: $session.metronomeStartsWithPlayback)
                 Toggle("Metronome stops with playback", isOn: $session.metronomeStopsWithPlayback)
                 Toggle("Rhythm only (ticks + tap along)", isOn: $session.rhythmMode)
