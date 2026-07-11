@@ -28,19 +28,47 @@ final class SongLibrary: ObservableObject {
     }
 
     /// Rescan the scores directory and rebuild `songs` (sorted by title).
+    /// A folder whose `metadata.json` is missing or unreadable is NOT silently
+    /// skipped (that made a song vanish from the list while its files sat on disk —
+    /// e.g. after a kill mid-write): if the score files are present we **recover** it
+    /// with rebuilt metadata; otherwise it's surfaced via `unreadableFolderCount`.
     func reload() {
         let fm = FileManager.default
         let dirs = (try? fm.contentsOfDirectory(at: scoresDir, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         var loaded: [Song] = []
+        var unreadable = 0
         for dir in dirs {
             let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             guard isDir else { continue }
             let metaURL = dir.appendingPathComponent("metadata.json")
-            guard let data = try? Data(contentsOf: metaURL),
-                  let meta = try? Self.decoder.decode(SongMeta.self, from: data) else { continue }
-            loaded.append(Song(meta: meta, folder: dir))
+            if let data = try? Data(contentsOf: metaURL),
+               let meta = try? Self.decoder.decode(SongMeta.self, from: data) {
+                loaded.append(Song(meta: meta, folder: dir))
+            } else if let meta = recoverMeta(in: dir) {
+                loaded.append(Song(meta: meta, folder: dir))
+            } else {
+                unreadable += 1     // no score files either — surface, don't hide
+            }
         }
+        unreadableFolderCount = unreadable
         songs = loaded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Folders in Scores/ that couldn't be read *or* recovered (shown in the library).
+    @Published private(set) var unreadableFolderCount = 0
+
+    /// Rebuild metadata for a folder whose metadata.json is missing/corrupt but whose
+    /// score files survive. Reuses the folder's UUID name if it has one (keeps the
+    /// song's identity stable) and writes the recovered file back.
+    private func recoverMeta(in dir: URL) -> SongMeta? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir.appendingPathComponent("score.musicxml").path),
+              fm.fileExists(atPath: dir.appendingPathComponent("score.mid").path) else { return nil }
+        let id = UUID(uuidString: dir.lastPathComponent) ?? UUID()
+        let added = ((try? fm.attributesOfItem(atPath: dir.path))?[.creationDate] as? Date) ?? Date()
+        let meta = SongMeta(id: id, title: "Recovered song", composer: nil, dateAdded: added)
+        try? writeMeta(meta, in: dir)
+        return meta
     }
 
     /// Import a MusicXML + MIDI pair into a new song folder. `title` defaults to the
@@ -118,7 +146,10 @@ final class SongLibrary: ObservableObject {
     }
 
     private func writeMeta(_ meta: SongMeta, in folder: URL) throws {
-        try Self.encoder.encode(meta).write(to: folder.appendingPathComponent("metadata.json"))
+        // .atomic = write to a temp file, then rename — a kill mid-write can never
+        // leave a truncated metadata.json behind.
+        try Self.encoder.encode(meta).write(to: folder.appendingPathComponent("metadata.json"),
+                                            options: .atomic)
     }
 
     /// On first launch (empty library), seed the two bundled fixtures so the app

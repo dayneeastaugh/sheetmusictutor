@@ -31,11 +31,12 @@ enum BarFlagStore {
         return flags.sorted { $0.bar < $1.bar }
     }
 
-    /// Persist the whole set (empty writes an empty array).
+    /// Persist the whole set (empty writes an empty array). Atomic, so a kill
+    /// mid-write can't leave a truncated flags.json.
     static func save(_ flags: [BarFlag], to folder: URL) {
         let sorted = flags.sorted { $0.bar < $1.bar }
         if let data = try? encoder.encode(sorted) {
-            try? data.write(to: fileURL(in: folder))
+            try? data.write(to: fileURL(in: folder), options: .atomic)
         }
     }
 
