@@ -6,6 +6,9 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0D5BFDD82FFE2BC9003CBC67 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,7 +27,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0D5BFDCA2FFE2BC8003CBC67 /* Woodshed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Segno.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0D5BFDCA2FFE2BC8003CBC67 /* Segno.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Segno.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D5BFDD72FFE2BC9003CBC67 /* WoodshedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WoodshedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D5BFDE12FFE2BC9003CBC67 /* WoodshedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WoodshedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -85,7 +88,7 @@
 		0D5BFDCB2FFE2BC8003CBC67 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0D5BFDCA2FFE2BC8003CBC67 /* Woodshed.app */,
+				0D5BFDCA2FFE2BC8003CBC67 /* Segno.app */,
 				0D5BFDD72FFE2BC9003CBC67 /* WoodshedTests.xctest */,
 				0D5BFDE12FFE2BC9003CBC67 /* WoodshedUITests.xctest */,
 			);
@@ -114,7 +117,7 @@
 			packageProductDependencies = (
 			);
 			productName = Woodshed;
-			productReference = 0D5BFDCA2FFE2BC8003CBC67 /* Woodshed.app */;
+			productReference = 0D5BFDCA2FFE2BC8003CBC67 /* Segno.app */;
 			productType = "com.apple.product-type.application";
 		};
 		0D5BFDD62FFE2BC9003CBC67 /* WoodshedTests */ = {
@@ -394,6 +397,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Segno;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -409,7 +413,6 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				INFOPLIST_KEY_CFBundleDisplayName = Segno;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dayne.woodshed.Woodshed;
 				PRODUCT_MODULE_NAME = Woodshed;
 				PRODUCT_NAME = Segno;
@@ -438,6 +441,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Segno;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -453,7 +457,6 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				INFOPLIST_KEY_CFBundleDisplayName = Segno;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dayne.woodshed.Woodshed;
 				PRODUCT_MODULE_NAME = Woodshed;
 				PRODUCT_NAME = Segno;
