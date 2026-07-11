@@ -3,7 +3,7 @@
 //  Woodshed
 //
 //  Manages the song library on disk. Each song is a self-contained folder under
-//  Application Support/Woodshed/Scores/<uuid>/ with its MusicXML, MIDI, and a
+//  Application Support/Segno/Scores/<uuid>/ with its MusicXML, MIDI, and a
 //  metadata.json. The library is just a scan of those folders — no database.
 //  (See docs/DECISIONS.md ADR-018.)
 //
@@ -14,15 +14,33 @@ import Combine
 final class SongLibrary: ObservableObject {
     @Published private(set) var songs: [Song] = []
 
-    /// Application Support/Woodshed/Scores
+    /// Application Support/Segno/Scores
     let scoresDir: URL
 
     init() {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask, appropriateFor: nil, create: true))
+        let fm = FileManager.default
+        let base = (try? fm.url(for: .applicationSupportDirectory,
+                                in: .userDomainMask, appropriateFor: nil, create: true))
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        scoresDir = base.appendingPathComponent("Woodshed/Scores", isDirectory: true)
-        try? FileManager.default.createDirectory(at: scoresDir, withIntermediateDirectories: true)
+        let newDir = base.appendingPathComponent("Segno/Scores", isDirectory: true)
+        let oldDir = base.appendingPathComponent("Woodshed/Scores", isDirectory: true)
+
+        // One-time migration from the app's former name (Woodshed → Segno): move the
+        // library folder across if only the old one exists. A same-volume directory
+        // rename is atomic; if it fails, fall back to reading in place so a rename can
+        // never lose the user's imported songs.
+        if !fm.fileExists(atPath: newDir.path), fm.fileExists(atPath: oldDir.path) {
+            try? fm.createDirectory(at: newDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.moveItem(at: oldDir, to: newDir)
+        }
+        if fm.fileExists(atPath: newDir.path) {
+            scoresDir = newDir
+        } else if fm.fileExists(atPath: oldDir.path) {
+            scoresDir = oldDir                     // migration didn't take — keep the data in place
+        } else {
+            scoresDir = newDir                     // fresh install
+        }
+        try? fm.createDirectory(at: scoresDir, withIntermediateDirectories: true)
         seedBundledFixturesIfEmpty()
         reload()
     }

@@ -95,7 +95,7 @@ The library is stored on disk as **self-contained per-song folders** (no databas
 `Song.swift` / `SongLibrary.swift` and DECISIONS.md ADR-018.
 
 ```
-~/Library/Application Support/Woodshed/Scores/
+~/Library/Application Support/Segno/Scores/
     <uuid>/
         score.musicxml     # the imported MusicXML
         score.mid          # the imported MIDI

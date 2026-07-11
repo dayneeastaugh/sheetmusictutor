@@ -43,7 +43,7 @@ final class MIDIInput: ObservableObject {
     // MARK: - Setup
 
     private func setup() {
-        var st = MIDIClientCreateWithBlock("Woodshed" as CFString, &client) { [weak self] _ in
+        var st = MIDIClientCreateWithBlock("Segno" as CFString, &client) { [weak self] _ in
             // The MIDI setup changed (device plugged/unplugged) — rescan.
             DispatchQueue.main.async { self?.connectSources() }
         }

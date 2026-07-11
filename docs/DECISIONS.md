@@ -457,6 +457,27 @@ awaits an explicit decision (folder export/import vs iCloud Drive).
 fresh song); a settings *screen* (the inspector already exposes these where they're used — the only
 change is that they now stick).
 
+### ADR-037 — Renamed the product to "Segno" (internal name stays "Woodshed")
+**2026-07-11.** The app is renamed **Segno** (a fitting musical name — the segno 𝄋 is the "return
+to this mark" navigation sign, apt for a loop-and-drill practice tutor). Chosen scope:
+- **Changed (user-visible):** `PRODUCT_NAME = Segno` (builds `Segno.app`, executable `Segno`,
+  `CFBundleName = Segno`) + `INFOPLIST_KEY_CFBundleDisplayName = Segno`, so Dock, Finder, Launchpad,
+  **and** the macOS menu-bar app menu all read "Segno". A new **app icon** (a hand-drawn segno mark
+  — rotationally-symmetric S + diagonal + two dots, cream on an indigo→violet gradient — generated
+  at every iOS/macOS size, incl. dark/tinted iOS variants). User-visible strings updated (the
+  multi-part error, the CoreMIDI client name).
+- **Kept (internal):** the Xcode **target/scheme** (`Woodshed`), the Swift **module**
+  (`PRODUCT_MODULE_NAME = Woodshed`, so `@testable import Woodshed` and all imports are unchanged),
+  the **bundle identifier** (`com.dayne.woodshed.Woodshed` — changing it would orphan the persisted
+  preferences and create a duplicate app in LaunchServices for no benefit on a non-distributed
+  personal app), the **repo folder** and `Woodshed.xcodeproj`.
+- **Data migration:** the library moved from `Application Support/Woodshed/Scores` →
+  `.../Segno/Scores` with a one-time atomic directory rename in `SongLibrary.init` (falls back to
+  reading in place if the move fails, so a rename can never lose imported songs). Verified: all
+  existing songs carried over.
+**Rejected:** a full internal rename (target/module/bundle/folders) — high project-file risk for a
+Swift newbie's working app, and zero user-visible benefit over the above; changing the bundle id.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

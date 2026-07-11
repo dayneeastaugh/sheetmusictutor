@@ -1,8 +1,14 @@
-# Woodshed — Project Guide & Source of Truth
+# Segno — Project Guide & Source of Truth
 
-**Woodshed** is a native macOS + iPadOS piano-practice tutor: import a score you transcribed in
+**Segno** is a native macOS + iPadOS piano-practice tutor: import a score you transcribed in
 MuseScore (MusicXML + MIDI), render the notation with a follow-cursor, play it back with per-hand
 isolation and tempo control, and practise against a connected MIDI piano with feedback.
+
+> **Naming:** the product/app is **Segno** (what users see — Dock, menu bar, icon). The Xcode
+> project, scheme, target, Swift module, and repository folder remain **Woodshed** — an internal
+> name only, kept to avoid churn and preserve identity/history (see DECISIONS ADR-037). So in code
+> and build commands you'll still see "Woodshed" (e.g. `@testable import Woodshed`, scheme
+> `Woodshed`), while the built product is `Segno.app`.
 
 ## The rule
 
@@ -37,6 +43,7 @@ The app currently has **no persistence** and runs **sandbox-off**. See each doc'
 
 ## Build & run
 
-Open `Woodshed.xcodeproj` in Xcode, scheme **Woodshed**, destination **My Mac**, ⌘R. Files live in a
-folder-synced group (`Woodshed/`) — dropping a file into that folder adds it to the target
-automatically. There is no package resolution step (no SPM dependencies).
+Open `Woodshed.xcodeproj` in Xcode, scheme **Woodshed**, destination **My Mac**, ⌘R — this builds
+and runs **Segno.app**. Files live in a folder-synced group (`Woodshed/`) — dropping a file into
+that folder adds it to the target automatically. There is no package resolution step (no SPM
+dependencies).

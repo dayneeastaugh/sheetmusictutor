@@ -3,7 +3,7 @@
 //  Woodshed
 //
 //  A song in the library: its metadata plus the on-disk files. Each song lives in
-//  its own folder under Application Support/Woodshed/Scores/<id>/ containing
+//  its own folder under Application Support/Segno/Scores/<id>/ containing
 //  score.musicxml, score.mid, and metadata.json (this struct, Codable).
 //
 

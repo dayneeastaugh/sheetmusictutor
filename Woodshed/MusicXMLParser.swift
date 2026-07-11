@@ -290,7 +290,7 @@ enum MusicXMLError: Error, CustomStringConvertible {
         switch self {
         case .parseFailed: return "Failed to parse MusicXML."
         case .multiPart(let n):
-            return "This score has \(n) parts — Woodshed supports solo piano only. Export just the piano part from MuseScore."
+            return "This score has \(n) parts — Segno supports solo piano only. Export just the piano part from MuseScore."
         }
     }
 }
