@@ -39,10 +39,13 @@ struct LibraryView: View {
     @Binding var selection: Song.ID?
     // Guided two-step import: pick the score (MusicXML/.mxl), then the MIDI. The old
     // single picker required multi-selecting both files at once — undiscoverable.
-    // ONE .fileImporter drives both steps: SwiftUI gives a view a single file-importer
-    // presentation slot, so attaching two modifiers means the first never presents.
+    // Each file dialog is preceded by a short prompt saying what to pick (a bare
+    // NSOpenPanel gives no context), and each dialog is opened by an explicit button
+    // press — no timing-dependent auto-re-presenting. ONE .fileImporter drives both
+    // steps: SwiftUI gives a view a single file-importer presentation slot.
     private enum ImportStep { case score, midi }
     @State private var importStep: ImportStep = .score
+    @State private var importPrompt: ImportStep?   // non-nil → the step's guidance alert is up
     @State private var showImporter = false
     @State private var pendingScoreURL: URL?
     @State private var importError: String?
@@ -103,12 +106,26 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            Button {
-                importStep = .score
-                showImporter = true
-            } label: { Label("Add song", systemImage: "plus") }
+            Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
         }
-        // One importer, two steps: score first, then (re-presented) the MIDI.
+        // The per-step guidance: says what to pick before the (context-free) file dialog.
+        .alert(importPrompt == .score ? "Import a song — step 1 of 2" : "Step 2 of 2 — the MIDI",
+               isPresented: Binding(get: { importPrompt != nil },
+                                    set: { if !$0 { importPrompt = nil } })) {
+            if importPrompt == .score {
+                Button("Choose score…") { importStep = .score; importPrompt = nil; showImporter = true }
+                Button("Cancel", role: .cancel) { importPrompt = nil }
+            } else {
+                Button("Choose MIDI…") { importStep = .midi; importPrompt = nil; showImporter = true }
+                Button("Cancel", role: .cancel) { pendingScoreURL = nil; importPrompt = nil }
+            }
+        } message: {
+            Text(importPrompt == .score
+                 ? "Choose the score exported from MuseScore (.musicxml, .xml or .mxl). You'll choose the matching MIDI (.mid) next."
+                 : "Now choose the MIDI (.mid) exported from the same piece"
+                   + (pendingScoreURL.map { " as “\($0.lastPathComponent)”." } ?? "."))
+        }
+        // One importer, two steps; each opened from the guidance alert above.
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: importStep == .score ? scoreTypes : midiTypes,
                       allowsMultipleSelection: false) { result in
@@ -116,9 +133,7 @@ struct LibraryView: View {
             case .score:
                 if case .success(let urls) = result, let url = urls.first {
                     pendingScoreURL = url
-                    importStep = .midi
-                    // Re-present after the panel has fully dismissed.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showImporter = true }
+                    importPrompt = .midi       // guide into step 2
                 }
             case .midi:
                 let midiURL: URL? = { if case .success(let urls) = result { return urls.first }; return nil }()
