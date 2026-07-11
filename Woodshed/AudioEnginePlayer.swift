@@ -215,8 +215,18 @@ final class AudioEnginePlayer: ObservableObject {
     }
 
     /// The note-onset grid for rhythm-only mode (sorted; chords deduped by the caller).
+    /// The grid is read by the click timer on `metroQueue`, so mutate it there — and
+    /// re-align the tick pointer if the grid changes mid-playback (e.g. the hands
+    /// setting switches while rhythm-only is running).
     func configureRhythm(noteOnsets: [Double]) {
-        noteGrid = noteOnsets
+        metroQueue.async { [weak self] in
+            guard let self else { return }
+            self.noteGrid = noteOnsets
+            if self.isPlaying && self.isRunning {
+                let t = self.currentTime
+                self.nextNoteClick = self.noteGrid.firstIndex { $0 >= t - 0.02 } ?? self.noteGrid.count
+            }
+        }
     }
 
     /// Free-running: click the bar pattern on a steady timer, no playback needed.

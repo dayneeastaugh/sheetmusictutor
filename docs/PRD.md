@@ -87,8 +87,9 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   **mastered** and stops. Optional **hands progression**: R.H. → L.H. → both hands, each stage through
   the full ramp with the mastery gate.
 - **Rhythm tools v1** — "Rhythm only" mode: the piano is silent and every note onset ticks (distinct
-  tone, per-hand mutes respected), and Grade becomes a **tap-along** — any key counts, only timing is
-  scored (chords collapse to one expected tap).
+  tone), and Grade becomes a **tap-along** — any key counts, only timing is scored (chords collapse
+  to one expected tap). Respects the **Hands** setting: with R.H./L.H. selected, only that hand's
+  onsets tick (and are graded), so you can isolate one hand's rhythm.
 - **Takes (record & replay)** — every pass records what you play from MIDI; play back your last take
   or your **best graded take per section** at the current tempo through the chosen output.
 - **Practice time** — active practice seconds are tracked per day per song; Progress shows today +

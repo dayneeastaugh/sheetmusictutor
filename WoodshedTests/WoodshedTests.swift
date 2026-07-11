@@ -300,6 +300,40 @@ struct GradeMatcherTests {
     }
 }
 
+// MARK: - Rhythm-only tick grid (hand isolation)
+
+@Suite("Rhythm grid")
+struct RhythmGridTests {
+    private func ev(_ pitch: Int, _ hand: Hand, _ onset: Double) -> NoteEvent {
+        NoteEvent(pitch: pitch, spelledName: "x", hand: hand, voice: 1, notatedType: "quarter",
+                  onsetSeconds: onset, durationSeconds: 0.4, notatedBeat: onset * 2,
+                  matchedXML: true, ornamentNotes: 0)
+    }
+
+    @Test("hand filter + chord dedupe produce the right tick times")
+    func handIsolation() {
+        let events = [
+            ev(60, .right, 0.0),
+            ev(55, .left,  0.5),
+            ev(62, .right, 1.0),
+            ev(57, .left,  1.0),   // chord across hands at t=1.0
+            ev(64, .right, 2.0),
+            ev(67, .right, 2.0),   // chord within RH at t=2.0
+        ]
+        #expect(PracticeSession.rhythmOnsets(events, handMode: 0) == [0.0, 0.5, 1.0, 2.0])   // both
+        #expect(PracticeSession.rhythmOnsets(events, handMode: 1) == [0.0, 1.0, 2.0])         // RH
+        #expect(PracticeSession.rhythmOnsets(events, handMode: 2) == [0.5, 1.0])              // LH
+    }
+
+    @Test("unknown-hand notes tick as right hand; empty input is empty")
+    func unknownAndEmpty() {
+        let events = [ev(60, .unknown, 0.0), ev(55, .left, 1.0)]
+        #expect(PracticeSession.rhythmOnsets(events, handMode: 1) == [0.0])   // RH sees the unknown
+        #expect(PracticeSession.rhythmOnsets(events, handMode: 2) == [1.0])   // LH doesn't
+        #expect(PracticeSession.rhythmOnsets([], handMode: 0) == [])
+    }
+}
+
 // MARK: - Parser fixes (Wave 2)
 
 @Suite("Parser fixes")

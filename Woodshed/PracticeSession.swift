@@ -310,7 +310,10 @@ final class PracticeSession: ObservableObject {
         didSet { audio.metronomeFreeRuns = !metronomeStopsWithPlayback; AppSettings.metronomeStopsWithPlayback = metronomeStopsWithPlayback }
     }
     @Published var handMode = 0 {              // 0 = both, 1 = RH only, 2 = LH only
-        didSet { applyHands() }
+        didSet {
+            applyHands()
+            rebuildRhythmGrid()   // rhythm-only ticks follow the selected hand(s)
+        }
     }
     @Published var tempoPct: Double = 100 {     // playback tempo percentage
         didSet { audio.setRate(Float(tempoPct) / 100) }
@@ -987,6 +990,26 @@ final class PracticeSession: ObservableObject {
         }
     }
 
+    /// The rhythm-only tick grid: one tick per note onset (chords deduped), filtered
+    /// to the selected hand(s) so Rhythm-only + R.H./L.H. ticks just that hand — the
+    /// same hand set the tap-along grader expects.
+    private func rebuildRhythmGrid() {
+        audio.configureRhythm(noteOnsets: Self.rhythmOnsets(score?.events ?? [], handMode: handMode))
+    }
+
+    /// One tick time per note onset for the selected hand(s), chords collapsed. Pure —
+    /// unit-tested. `handMode`: 0 both / 1 RH / 2 LH; unknown-hand notes count as right.
+    static func rhythmOnsets(_ events: [NoteEvent], handMode: Int) -> [Double] {
+        let rhOn = handMode != 2, lhOn = handMode != 1
+        var onsets: [Double] = []
+        for e in events.sorted(by: { $0.onsetSeconds < $1.onsetSeconds }) {
+            guard (e.hand == .left) ? lhOn : rhOn else { continue }
+            if let last = onsets.last, abs(last - e.onsetSeconds) < 0.01 { continue }   // dedupe chord
+            onsets.append(e.onsetSeconds)
+        }
+        return onsets
+    }
+
     // MARK: - On-screen keyboard preview
 
     /// Play a note pressed on the on-screen keyboard, honouring the output routing:
@@ -1276,13 +1299,7 @@ final class PracticeSession: ObservableObject {
             audio.configureMetronome(clickGrid: fused.clickGrid,
                                      barPattern: fused.metronomeBarPattern,
                                      pulseSeconds: fused.metronomePulseSeconds)
-            // Rhythm-only note grid: one tick per onset, chords deduped.
-            var onsets: [Double] = []
-            for e in fused.events.sorted(by: { $0.onsetSeconds < $1.onsetSeconds }) {
-                if let last = onsets.last, abs(last - e.onsetSeconds) < 0.01 { continue }
-                onsets.append(e.onsetSeconds)
-            }
-            audio.configureRhythm(noteOnsets: onsets)
+            rebuildRhythmGrid()   // rhythm-only tick grid (respects the current hands setting)
             applySectionCountIn()
         } catch {
             errorText = "\(error)"

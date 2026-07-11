@@ -73,7 +73,7 @@ in the overflow menu).
    the tempo, hand, section/loop, and whether a drill is running are per-practice context and start
    fresh. Groups: **Playback** (Tempo slider, Hands, Output,
    metronome start/stop-with-playback behaviour — the on/off toggle itself is in the transport —
-   **Rhythm only** = note-onset ticks + tap-along grading),
+   **Rhythm only** = note-onset ticks + tap-along grading, isolated to the selected Hands),
    **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
    sections** (named ranges: save current, one-tap recall, delete), **Drill me** (picks today's
    spot — worst trouble bar, else oldest flag, else random — and loops a 2-bar window, saying why),
