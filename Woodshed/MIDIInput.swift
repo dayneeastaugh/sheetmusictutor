@@ -19,6 +19,8 @@ import Combine
 final class MIDIInput: ObservableObject {
     /// MIDI note numbers currently held down.
     @Published var activeNotes: Set<Int> = []
+    /// Called on the main queue for every note-on with its velocity (take capture).
+    var onNoteOn: ((_ pitch: Int, _ velocity: Int) -> Void)?
     /// Human-readable connection status for the UI.
     @Published var status: String = "Starting MIDI…"
     /// Names of connected input sources.
@@ -140,14 +142,17 @@ final class MIDIInput: ObservableObject {
         let note = Int((word >> 8) & 0x7F)
         let velocity = Int(word & 0x7F)
         switch status & 0xF0 {
-        case 0x90 where velocity > 0: noteOn(note)
+        case 0x90 where velocity > 0: noteOn(note, velocity: velocity)
         case 0x80, 0x90:              noteOff(note)   // 0x80, or note-on with velocity 0
         default: break
         }
     }
 
-    private func noteOn(_ note: Int) {
-        DispatchQueue.main.async { self.activeNotes.insert(note) }
+    private func noteOn(_ note: Int, velocity: Int) {
+        DispatchQueue.main.async {
+            self.activeNotes.insert(note)
+            self.onNoteOn?(note, velocity)
+        }
     }
     private func noteOff(_ note: Int) {
         DispatchQueue.main.async { self.activeNotes.remove(note) }
