@@ -27,6 +27,7 @@ struct PracticePass: Codable, Identifiable, Hashable {
     var wrong: Int                      // extra/wrong notes played
     var avgMs: Double                   // mean |timing error| of hits
     var missedBars: [Int] = []          // 1-based bar per missed note (weights the heatmap)
+    var signedMs: Double? = nil         // mean signed error (< 0 rushing, > 0 dragging); Optional for back-compat
 
     var accuracy: Double { total > 0 ? Double(hits) / Double(total) : 0 }
     var isFullPiece: Bool { sectionStart <= 1 && sectionEnd >= measureCount }

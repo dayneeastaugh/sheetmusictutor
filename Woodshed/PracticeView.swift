@@ -156,8 +156,11 @@ struct PracticeView: View {
                       : "✓ Complete") + " · Fumbles: \(session.mistakeCount)")
                     .foregroundStyle(.green)
             } else if session.gradeMode {
-                if let r = session.gradeResult {
-                    Text("Pass \(session.gradeHistory.count): \(Int(r.accuracy * 100))% · Missed \(r.missed) · Wrong \(r.extra) · ±\(Int(r.avgMs))ms")
+                if session.passAbandoned {
+                    Text("Pass abandoned — stopped before the end (not recorded)")
+                        .foregroundStyle(.secondary)
+                } else if let r = session.gradeResult {
+                    Text("Pass \(session.gradeHistory.count): \(Int(r.accuracy * 100))% · Missed \(r.missed) · Wrong \(r.extra) · ±\(Int(r.avgMs))ms · \(timingFeel(r.signedMs))")
                         .foregroundStyle(r.accuracy >= 0.95 ? .green : .primary)
                     if session.gradeHistory.count > 1 {
                         Text("Progress " + session.gradeHistory.suffix(10).map { "\(Int($0.accuracy * 100))" }.joined(separator: "→") + "%")
@@ -302,6 +305,13 @@ struct PracticeView: View {
                 Toggle("Start with playback", isOn: $session.metronomeStartsWithPlayback)
                 Toggle("Stop when playback stops", isOn: $session.metronomeStopsWithPlayback)
             }
+            Section("Grading") {
+                Picker("Timing tolerance", selection: $session.gradeTolerance) {
+                    Text("Strict (±150 ms)").tag(0.15)
+                    Text("Normal (±300 ms)").tag(0.30)
+                    Text("Relaxed (±450 ms)").tag(0.45)
+                }
+            }
             Section("Notation") {
                 Toggle("Smooth cursor", isOn: $session.cursorSmooth)
                 Toggle("Highlight score notes", isOn: $session.showScoreNotes)
@@ -420,6 +430,12 @@ struct PracticeView: View {
         let majors = ["Cb","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E","B","F#","C#"]
         let idx = fifths + 7
         return (0..<majors.count).contains(idx) ? "\(majors[idx]) major" : "?"
+    }
+
+    /// The actionable half of timing feedback: are you ahead of or behind the beat?
+    private func timingFeel(_ signedMs: Double) -> String {
+        if abs(signedMs) < 8 { return "on time" }
+        return signedMs < 0 ? "rushing ~\(Int(-signedMs))ms" : "dragging ~\(Int(signedMs))ms"
     }
 }
 

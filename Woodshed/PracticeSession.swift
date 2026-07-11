@@ -134,8 +134,28 @@ final class PracticeSession: ObservableObject {
     @Published var loopCountInPulses = 0        // count-in beats before each loop pass (0 = off)
     private var lastDiscreteBeat: Double = -1
 
-    /// Beats (metronome pulses) in a bar, for the loop count-in choices (meter-aware).
-    var pulsesPerBar: Int { max(1, score?.metronomeBarPattern.count ?? 4) }
+    /// The meter of the section's first bar (falls back to the piece default).
+    private var sectionMeter: (num: Int, den: Int) {
+        guard let s = score, sectionStart - 1 < s.measureMeters.count, sectionStart >= 1 else { return (4, 4) }
+        return s.measureMeters[sectionStart - 1]
+    }
+
+    /// Beats (metronome pulses) in the section's bar, for the loop count-in choices —
+    /// meter-aware per SECTION, not just the piece's first bar (a 4/4 passage in a
+    /// 12/8 piece counts in 4, not 12).
+    var pulsesPerBar: Int { max(1, sectionMeter.num) }
+
+    /// Push the section's count-in pattern + pulse spacing (tempo-map-aware at the
+    /// section start) to the audio engine.
+    private func applySectionCountIn() {
+        guard let s = score else { return }
+        let m = sectionMeter
+        let pattern = (0..<max(1, m.num)).map { Ingest.clickLevel(pulseIndex: $0, num: m.num, den: m.den) }
+        let pulseBeats = 4.0 / Double(m.den)
+        let pulse = s.secondsAtBeat(sectionStartBeat + pulseBeats) - s.secondsAtBeat(sectionStartBeat)
+        audio.setCountIn(pattern: pattern, pulseSeconds: max(0.05, pulse))
+        if loopCountInPulses > pattern.count { loopCountInPulses = pattern.count }   // keep the picker valid
+    }
 
     // MARK: Speed trainer / mastery — an auto-tempo drill on a looped section (Grade mode).
     // After each graded loop pass the tempo ramps toward the target; "by accuracy" only
@@ -243,6 +263,8 @@ final class PracticeSession: ObservableObject {
     private var waitSteps: [(beat: Double, rh: Set<Int>, lh: Set<Int>)] = []
     private var waitPlayed: Set<Int> = []       // note-ons accumulated for the current step
     private var mistakes: Set<Mistake> = []     // notes at steps where a wrong note was played
+    private var fumbledSteps: Set<Int> = []     // step indices with ≥1 wrong note — the honest count
+                                                // (one slip on a 4-note chord is ONE fumble, not four)
 
     /// A fumbled/missed note position, for the review marks.
     private struct Mistake: Hashable { let beat: Double; let pitch: Int }
@@ -251,15 +273,14 @@ final class PracticeSession: ObservableObject {
     @Published var gradeMode = false
     @Published var gradeResult: GradeResult?
     @Published var gradeHistory: [GradeResult] = []   // one entry per pass this session (progress)
+    @Published private(set) var passAbandoned = false // stopped mid-pass → not recorded (say so)
+    /// Grading tolerance in **musical** seconds (window scales with the tempo slider,
+    /// matching the clock everything else runs on). Tunable: strict/normal/relaxed.
+    @Published var gradeTolerance = 0.30
     // Real-time grading state for the current pass:
-    private var gradeExpected: [(pitch: Int, onset: Double, beat: Double, matched: Bool)] = []
+    private var matcher: GradeMatcher?           // the pure matching engine (GradeMatcher.swift)
     private var gradeMissed: Set<Mistake> = []   // notes already flagged missed (ringed) this pass
-    private var gradeCheckIdx = 0                // expected notes up to here have had their window close
-    private var gradeHits = 0
-    private var gradeWrong = 0
-    private var gradeTiming: [Double] = []       // |timing error| of hits
     private var gradePassRecorded = false        // this pass already tallied? (avoid double-recording)
-    private let gradeTolerance = 0.30   // musical seconds; a note counts if within this of expected
 
     struct GradeResult {
         var accuracy: Double   // hits / expected
@@ -268,6 +289,7 @@ final class PracticeSession: ObservableObject {
         var missed: Int
         var extra: Int         // notes you played that matched nothing
         var avgMs: Double      // mean absolute timing error of hits
+        var signedMs: Double   // mean signed error: < 0 = rushing, > 0 = dragging
     }
 
     /// Called when a Grade pass is tallied, so the library can persist it (history +
@@ -429,71 +451,54 @@ final class PracticeSession: ObservableObject {
         }
     }
 
-    /// The section's expected notes (selected hands), sorted by onset, for grading.
-    private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double, matched: Bool)] {
+    /// The section's expected notes (selected hands) for grading.
+    private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double)] {
         guard let events = score?.events else { return [] }
         let rhOn = handMode != 2, lhOn = handMode != 1
         return events
             .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
-            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat, matched: false) }
-            .sorted { $0.onset < $1.onset }
+            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
     }
 
-    /// Begin a fresh grading pass (Play start / each loop): reset tallies, wipe rings.
+    /// Begin a fresh grading pass (Play start / each loop): new matcher, wipe rings.
     private func startGradePass() {
-        gradeExpected = buildGradeExpected()
-        gradeMissed = []; gradeCheckIdx = 0; gradeHits = 0; gradeWrong = 0; gradeTiming = []
+        matcher = GradeMatcher(expected: buildGradeExpected(), tolerance: gradeTolerance)
+        gradeMissed = []
         gradePassRecorded = false
+        passAbandoned = false
         bridge.markMissed([])
     }
 
-    /// A note-on during a graded pass: match it to the nearest expected note (same
-    /// pitch, within tolerance of now) → hit; otherwise it's a wrong/extra note.
+    /// A note-on during a graded pass — forwarded to the matcher.
     private func handleGradeNoteOn(_ added: Set<Int>) {
         let t = audio.currentTime
-        for p in added {
-            var best = -1, bestD = gradeTolerance + 1
-            for i in gradeExpected.indices where !gradeExpected[i].matched && gradeExpected[i].pitch == p {
-                let d = abs(gradeExpected[i].onset - t)
-                if d <= gradeTolerance && d < bestD { bestD = d; best = i }
-            }
-            if best >= 0 {
-                gradeExpected[best].matched = true; gradeHits += 1; gradeTiming.append(bestD)
-            } else {
-                gradeWrong += 1
-            }
-        }
+        for p in added { matcher?.noteOn(p, at: t) }
     }
 
     /// On each tick, ring any expected note whose window has now closed unmatched —
     /// so misses appear progressively as the cursor passes them.
     private func advanceGradeMisses(_ t: Double) {
-        var changed = false
-        while gradeCheckIdx < gradeExpected.count && gradeExpected[gradeCheckIdx].onset + gradeTolerance < t {
-            let e = gradeExpected[gradeCheckIdx]
-            if !e.matched { gradeMissed.insert(Mistake(beat: e.beat, pitch: e.pitch)); changed = true }
-            gradeCheckIdx += 1
-        }
-        if changed { bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) }) }
+        guard let newly = matcher?.closeWindows(upTo: t), !newly.isEmpty else { return }
+        for m in newly { gradeMissed.insert(Mistake(beat: m.beat, pitch: m.pitch)) }
+        bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) })
     }
 
     /// Tally the finished pass into the progress history and persist it. Idempotent:
     /// a pass is recorded at most once (completion), never again when playback stops.
     private func finalizeGradePass() {
-        let total = gradeExpected.count
-        guard total > 0, !gradePassRecorded else { return }
+        guard let matcher, matcher.expected.count > 0, !gradePassRecorded else { return }
         gradePassRecorded = true
-        let missed = gradeExpected.filter { !$0.matched }.count
-        let avgMs = gradeTiming.isEmpty ? 0 : gradeTiming.reduce(0, +) / Double(gradeTiming.count) * 1000
-        let r = GradeResult(accuracy: Double(gradeHits) / Double(total),
-                            hits: gradeHits, total: total, missed: missed, extra: gradeWrong, avgMs: avgMs)
+        let t = matcher.tally()
+        let r = GradeResult(accuracy: t.accuracy, hits: t.hits, total: t.total, missed: t.missed,
+                            extra: t.wrong, avgMs: t.avgAbsMs, signedMs: t.meanSignedMs)
         gradeResult = r
         gradeHistory.append(r)
 
         let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,
-                                total: total, hits: gradeHits, missed: missed, wrong: gradeWrong, avgMs: avgMs,
-                                missedBars: gradeExpected.filter { !$0.matched }.map { barForBeat($0.beat) })
+                                total: t.total, hits: t.hits, missed: t.missed, wrong: t.wrong, avgMs: t.avgAbsMs,
+                                missedBars: matcher.unmatched().map { barForBeat($0.beat) },
+                                signedMs: t.meanSignedMs)
         onPassRecorded?(pass)          // persist (disk + library stats)
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up
@@ -518,7 +523,7 @@ final class PracticeSession: ObservableObject {
         if on {
             gradeMode = false; gradeResult = nil
             audio.stop()
-            mistakes = []; mistakeCount = 0; mistakesShown = false
+            mistakes = []; fumbledSteps = []; mistakeCount = 0; mistakesShown = false
             bridge.clearMistakes()
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count
             waitIndex = 0
@@ -538,7 +543,7 @@ final class PracticeSession: ObservableObject {
 
     func clearMistakeMarks() {
         bridge.clearMistakes()
-        mistakes = []; mistakeCount = 0
+        mistakes = []; fumbledSteps = []; mistakeCount = 0
         mistakesShown = false
         resetCursor()
     }
@@ -583,8 +588,11 @@ final class PracticeSession: ObservableObject {
         // notes so they can be reviewed (marked red) afterwards.
         if !added.subtracting(required).isEmpty {
             let beat = waitSteps[waitIndex].beat
+            // Review marks show WHERE you fumbled (the chord you were attempting);
+            // the count is honest — one fumble per step, however many notes it has.
             for p in required { mistakes.insert(Mistake(beat: beat, pitch: p)) }
-            mistakeCount = mistakes.count
+            fumbledSteps.insert(waitIndex)
+            mistakeCount = fumbledSteps.count
         }
         if required.isSubset(of: waitPlayed) {
             waitIndex += 1
@@ -644,6 +652,7 @@ final class PracticeSession: ObservableObject {
             audio.clickCeiling = sectionEndTime
             audio.startSeconds = sectionStartTime
         }
+        applySectionCountIn()                                       // meter/tempo at the new section
         if speedMode != .off { resetDrill() }                       // a new section restarts the drill
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
@@ -711,8 +720,13 @@ final class PracticeSession: ObservableObject {
         guard was && !now && gradeMode else { return }
         // Only count a pass that actually reached the section end. Completion already
         // records it (idempotently); this catches the case where the sequencer ends on
-        // its own before the tick sees it. Stopping early abandons the partial pass.
-        if audio.currentTime + 0.15 >= sectionEndTime { finalizeGradePass() }
+        // its own before the tick sees it. Stopping early abandons the partial pass —
+        // and says so, so the "missing" pass isn't a mystery.
+        if audio.currentTime + 0.15 >= sectionEndTime {
+            finalizeGradePass()
+        } else if !gradePassRecorded {
+            passAbandoned = true
+        }
     }
 
     // MARK: - Playback + cursor sync
@@ -881,6 +895,7 @@ final class PracticeSession: ObservableObject {
             audio.configureMetronome(clickGrid: fused.clickGrid,
                                      barPattern: fused.metronomeBarPattern,
                                      pulseSeconds: fused.metronomePulseSeconds)
+            applySectionCountIn()
         } catch {
             errorText = "\(error)"
         }
