@@ -26,6 +26,8 @@ struct PracticeView: View {
     @State private var keyboardVisible = true
     @State private var flagEditorBar: Int?      // non-nil ⇒ inline flag editor open (from a score tap)
     @State private var flagEditorNote = ""
+    @State private var showSectionNamePrompt = false
+    @State private var sectionNameText = ""
 
     private enum InspectorTab: String, CaseIterable, Identifiable {
         case controls = "Controls", progress = "Progress", flags = "Flags"
@@ -90,6 +92,14 @@ struct PracticeView: View {
             Button("Cancel", role: .cancel) { flagEditorBar = nil }
         } message: {
             Text("A short reminder of what to work on at this bar.")
+        }
+        .alert("Save section (bars \(session.sectionStart)–\(session.sectionEnd))",
+               isPresented: $showSectionNamePrompt) {
+            TextField("Name (e.g. Bridge)", text: $sectionNameText)
+            Button("Save") { session.saveCurrentSection(named: sectionNameText) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Saved sections appear in the Focus group for one-tap recall.")
         }
     }
 
@@ -300,6 +310,7 @@ struct PracticeView: View {
                                                   set: { session.setMetronome($0) }))
                 Toggle("Metronome starts with playback", isOn: $session.metronomeStartsWithPlayback)
                 Toggle("Metronome stops with playback", isOn: $session.metronomeStopsWithPlayback)
+                Toggle("Rhythm only (ticks + tap along)", isOn: $session.rhythmMode)
             }
             Section("Focus") {
                 LabeledContent("Section") {
@@ -321,6 +332,24 @@ struct PracticeView: View {
                 if !session.isFullPiece {
                     Button("Whole piece") { session.selectWholePiece() }
                 }
+                // Named sections: save the current range, re-apply or delete saved ones.
+                ForEach(session.savedSections) { s in
+                    HStack {
+                        Button("\(s.name)  (\(s.start)–\(s.end))") { session.applySavedSection(s) }
+                            .buttonStyle(.borderless)
+                        Spacer()
+                        Button(role: .destructive) { session.deleteSavedSection(s) } label: {
+                            Image(systemName: "trash").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Delete this saved section")
+                    }
+                }
+                Button {
+                    sectionNameText = ""
+                    showSectionNamePrompt = true
+                } label: { Label("Save current section…", systemImage: "bookmark") }
+                    .disabled(session.isFullPiece)
                 Picker("Speed trainer", selection: $session.speedMode) {
                     ForEach(PracticeSession.SpeedTrainerMode.allCases) { Text($0.title).tag($0) }
                 }

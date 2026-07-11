@@ -280,6 +280,14 @@ final class PracticeSession: ObservableObject {
     @Published var outputMode = 0 {            // 0 = PC speakers, 1 = piano, 2 = both
         didSet { applyOutput() }
     }
+    /// Rhythm-only mode: the piano is silent, every note onset ticks instead, and
+    /// Grade becomes a tap-along — any key counts, only the timing is scored.
+    @Published var rhythmMode = false {
+        didSet {
+            audio.setRhythmOnly(rhythmMode)
+            if gradeMode { startGradePass() }   // rebuild expected (collapsed onsets / pitches)
+        }
+    }
 
     // MARK: Keyboard highlight
     // The score-note highlight lives in its own object (not @Published on the session)
@@ -333,6 +341,27 @@ final class PracticeSession: ObservableObject {
 
     // MARK: Manual revisit flags (user notes pinned to bars)
     @Published private(set) var flags: [BarFlag] = []
+
+    // MARK: Saved (named) practice sections — persisted per song as sections.json.
+    @Published private(set) var savedSections: [SavedSection] = []
+
+    func saveCurrentSection(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        savedSections.append(SavedSection(name: trimmed, start: sectionStart, end: sectionEnd))
+        savedSections.sort { $0.start < $1.start }
+        SavedSectionStore.save(savedSections, to: song.folder)
+    }
+
+    func applySavedSection(_ s: SavedSection) {
+        sectionStart = min(max(1, s.start), measureCount)
+        sectionEnd = min(max(sectionStart, s.end), measureCount)
+    }
+
+    func deleteSavedSection(_ s: SavedSection) {
+        savedSections.removeAll { $0.id == s.id }
+        SavedSectionStore.save(savedSections, to: song.folder)
+    }
 
     // MARK: Progress / trouble spots
     @Published private(set) var history: [PracticePass] = []   // this song's recorded passes
@@ -405,6 +434,7 @@ final class PracticeSession: ObservableObject {
         ingest()
         reloadHistory()
         flags = BarFlagStore.load(from: song.folder)
+        savedSections = SavedSectionStore.load(from: song.folder)
         refreshFlagOverlay()
         loadingLayout = true                      // apply the remembered layout without re-saving it
         barsPerLine = song.meta.barsPerLine ?? 0
@@ -489,18 +519,27 @@ final class PracticeSession: ObservableObject {
         }
     }
 
-    /// The section's expected notes (selected hands) for grading.
+    /// The section's expected notes (selected hands) for grading. In rhythm mode
+    /// chords collapse to ONE expected tap per onset (timing is graded, not pitch).
     private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double)] {
         guard let events = score?.events else { return [] }
         let rhOn = handMode != 2, lhOn = handMode != 1
-        return events
+        let notes = events
             .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
             .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
+        guard rhythmMode else { return notes }
+        var collapsed: [(pitch: Int, onset: Double, beat: Double)] = []
+        for n in notes.sorted(by: { $0.onset < $1.onset }) {
+            if let last = collapsed.last, abs(last.onset - n.onset) < 0.01 { continue }   // same chord
+            collapsed.append(n)
+        }
+        return collapsed
     }
 
     /// Begin a fresh grading pass (Play start / each loop): new matcher, wipe rings.
     private func startGradePass() {
-        matcher = GradeMatcher(expected: buildGradeExpected(), tolerance: gradeTolerance)
+        matcher = GradeMatcher(expected: buildGradeExpected(), tolerance: gradeTolerance,
+                               pitchAgnostic: rhythmMode)
         gradeMissed = []
         gradePassRecorded = false
         passAbandoned = false
@@ -951,7 +990,8 @@ final class PracticeSession: ObservableObject {
         }
 
         // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.
-        if outputMode != 0 {
+        // Rhythm-only mode sends no notes anywhere — the tick is the whole point.
+        if outputMode != 0 && !rhythmMode {
             let rhOn = handMode != 2, lhOn = handMode != 1
             var target = Set<Int>()
             for i in tracker.activeIdx {
@@ -998,6 +1038,13 @@ final class PracticeSession: ObservableObject {
             audio.configureMetronome(clickGrid: fused.clickGrid,
                                      barPattern: fused.metronomeBarPattern,
                                      pulseSeconds: fused.metronomePulseSeconds)
+            // Rhythm-only note grid: one tick per onset, chords deduped.
+            var onsets: [Double] = []
+            for e in fused.events.sorted(by: { $0.onsetSeconds < $1.onsetSeconds }) {
+                if let last = onsets.last, abs(last - e.onsetSeconds) < 0.01 { continue }
+                onsets.append(e.onsetSeconds)
+            }
+            audio.configureRhythm(noteOnsets: onsets)
             applySectionCountIn()
         } catch {
             errorText = "\(error)"
