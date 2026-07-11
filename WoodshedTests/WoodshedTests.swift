@@ -153,6 +153,15 @@ struct SpeedTrainerDrill {
         #expect(s.tempoPct == 100)
     }
 
+    @Test("hands progression stages advance R.H. → L.H. → both, then complete")
+    func stages() {
+        typealias Stage = PracticeSession.DrillStage
+        #expect(Stage.rh.next == .lh)
+        #expect(Stage.lh.next == .both)
+        #expect(Stage.both.next == nil)
+        #expect(Stage.rh.handMode == 1 && Stage.lh.handMode == 2 && Stage.both.handMode == 0)
+    }
+
     @Test("by reps ignores accuracy; off is a no-op")
     func repsAndOff() {
         var r = S(passes: 0, tempoPct: 60, mastered: false)

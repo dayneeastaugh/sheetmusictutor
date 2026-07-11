@@ -183,6 +183,25 @@ final class PracticeSession: ObservableObject {
     }
     @Published var speedStepPct: Double = 5        // tempo increment per advance
 
+    // Hands progression (PRD: hands-separate → hands-together gating). When on, the
+    // drill runs three STAGES — R.H. alone, L.H. alone, then both hands — each through
+    // the full tempo ramp with the mastery gate; mastering a stage advances the hands
+    // and restarts the ramp. Only after "both hands" masters is the section done.
+    enum DrillStage: Int, CaseIterable {
+        case rh, lh, both
+        var title: String {
+            switch self { case .rh: return "R.H."; case .lh: return "L.H."; case .both: return "both hands" }
+        }
+        var handMode: Int { switch self { case .rh: return 1; case .lh: return 2; case .both: return 0 } }
+        /// The next stage, or nil when the progression is complete. Pure — tested.
+        var next: DrillStage? { DrillStage(rawValue: rawValue + 1) }
+    }
+    @Published var handsProgression = false {
+        didSet { if speedMode != .off { resetDrill() } }
+    }
+    @Published private(set) var drillStage: DrillStage = .both
+    private var drillStartTempo: Double = 100      // each stage ramps from here
+
     /// The drill must have somewhere to ramp: if the current tempo is already at or
     /// above the target, drop to the target so mastery there is earned, not instant.
     private func clampTempoToDrillTarget() {
@@ -193,9 +212,18 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var passesAtThisTempo = 0
     @Published private(set) var mastered = false
 
-    private func resetDrill() { passesAtThisTempo = 0; mastered = false }
+    private func resetDrill() {
+        passesAtThisTempo = 0
+        mastered = false
+        drillStartTempo = tempoPct
+        drillStage = handsProgression ? .rh : .both
+        if speedMode != .off, handsProgression { handMode = drillStage.handMode }
+    }
 
     /// After a graded loop pass, ramp the tempo toward the target per the trainer rule.
+    /// With hands progression on, mastering a stage advances R.H. → L.H. → both (the
+    /// ramp restarts from the stage's starting tempo); only the final stage sets
+    /// `mastered` (which stops the loop and celebrates).
     private func applySpeedTrainer(accuracy: Double) {
         guard speedMode != .off, loopSection else { return }
         let next = Self.drillAdvance(mode: speedMode, accuracy: accuracy, threshold: speedThreshold,
@@ -203,7 +231,14 @@ final class PracticeSession: ObservableObject {
                                      tempoPct: tempoPct, target: speedTargetPct, step: speedStepPct, mastered: mastered)
         passesAtThisTempo = next.passes
         if next.tempoPct != tempoPct { tempoPct = next.tempoPct }   // didSet → audio.setRate; slider follows
-        mastered = next.mastered
+        if next.mastered, handsProgression, let following = drillStage.next {
+            drillStage = following                 // stage cleared — on to the next hands
+            handMode = following.handMode          // didSet re-mutes samplers; next pass rebuilds expected
+            tempoPct = drillStartTempo             // each stage earns the ramp again
+            passesAtThisTempo = 0
+        } else {
+            mastered = next.mastered
+        }
     }
 
     /// Pure state transition for one graded pass — no engine/UI refs, so it's unit-testable.

@@ -190,7 +190,8 @@ struct PracticeView: View {
                         .foregroundStyle(.green)
                 } else {
                     let unit = session.speedMode == .byAccuracy ? "clean" : "passes"
-                    Text("Speed trainer · \(Int(session.tempoPct))% → \(Int(session.speedTargetPct))% · "
+                    let stage = session.handsProgression ? "\(session.drillStage.title) · " : ""
+                    Text("Speed trainer · \(stage)\(Int(session.tempoPct))% → \(Int(session.speedTargetPct))% · "
                          + "\(session.passesAtThisTempo)/\(session.speedPassesPerStep) \(unit)"
                          + (session.gradeResult.map { " · last \(Int($0.accuracy * 100))%" } ?? ""))
                         .foregroundStyle(.blue)
@@ -324,6 +325,7 @@ struct PracticeView: View {
                     ForEach(PracticeSession.SpeedTrainerMode.allCases) { Text($0.title).tag($0) }
                 }
                 if session.speedMode != .off {
+                    Toggle("Hands: separate → together", isOn: $session.handsProgression)
                     Picker("Target tempo", selection: $session.speedTargetPct) {
                         ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
                     }
