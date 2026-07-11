@@ -67,6 +67,13 @@ final class AudioEnginePlayer: ObservableObject {
     var pianoClick: ((ClickLevel) -> Void)?
 
     init() {
+        #if os(iOS)
+        // iOS requires an explicit audio session: .playback so the piano sounds even
+        // with the silent switch on, activated before the engine starts. Without this
+        // the engine's behaviour on iPad is undefined (audit ARCH-06).
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
         engine.attach(samplerRH)
         engine.attach(samplerLH)
         engine.connect(samplerRH, to: engine.mainMixerNode, format: nil)
@@ -263,20 +270,30 @@ final class AudioEnginePlayer: ObservableObject {
         if metronomePiano { pianoClick?(level) }
     }
 
-    /// Load the system GM sound bank (Acoustic Grand Piano) into both hand samplers.
+    /// Load a piano into both hand samplers. macOS keeps the system GM bank (zero
+    /// app-size cost, the sound the app has always had); iPadOS has no system `.dls`,
+    /// so it loads the bundled GeneralUser GS SoundFont — without this the iPad build
+    /// was silent. Falls back to the bundled font on macOS if the system bank moves.
     private func loadPianoSound() {
-        let dls = URL(fileURLWithPath:
-            "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls")
-        guard FileManager.default.fileExists(atPath: dls.path) else {
-            status = "no system sound bank — playback will be silent"
-            return
+        var candidates: [URL] = []
+        #if os(macOS)
+        candidates.append(URL(fileURLWithPath:
+            "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls"))
+        #endif
+        if let sf2 = Bundle.main.url(forResource: "GeneralUserGS", withExtension: "sf2", subdirectory: "Sounds")
+            ?? Bundle.main.url(forResource: "GeneralUserGS", withExtension: "sf2") {
+            candidates.append(sf2)
         }
-        do {
-            try samplerRH.loadSoundBankInstrument(at: dls, program: 0, bankMSB: 0x79, bankLSB: 0)
-            try samplerLH.loadSoundBankInstrument(at: dls, program: 0, bankMSB: 0x79, bankLSB: 0)
-        } catch {
-            status = "sound load error: \(error.localizedDescription)"
+        for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try samplerRH.loadSoundBankInstrument(at: url, program: 0, bankMSB: 0x79, bankLSB: 0)
+                try samplerLH.loadSoundBankInstrument(at: url, program: 0, bankMSB: 0x79, bankLSB: 0)
+                return
+            } catch {
+                status = "sound load error: \(error.localizedDescription)"
+            }
         }
+        if status.isEmpty { status = "no sound bank found — playback will be silent" }
     }
 
     /// Point the player at a MIDI file, routing each track to its hand's sampler.
