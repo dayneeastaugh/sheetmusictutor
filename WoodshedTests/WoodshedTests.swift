@@ -240,6 +240,14 @@ struct GradeMatcherTests {
         #expect(t.hits == 1 && t.wrong == 2 && t.missed == 2 && t.total == 3)
     }
 
+    @Test("noteOn returns true for a hit, false for a wrong note")
+    func noteOnReturn() {
+        var m = matcher([(60, 1.0)])
+        #expect(m.noteOn(60, at: 1.05) == true)    // hit
+        #expect(m.noteOn(61, at: 1.05) == false)   // wrong pitch → wrong note
+        #expect(m.noteOn(60, at: 5.0) == false)    // right pitch, far too late → wrong
+    }
+
     @Test("signed timing: early = rushing (negative), late = dragging (positive)")
     func signedTiming() {
         var m = matcher([(60, 1.0), (62, 2.0)])

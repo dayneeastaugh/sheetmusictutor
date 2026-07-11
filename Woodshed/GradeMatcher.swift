@@ -55,7 +55,10 @@ struct GradeMatcher {
     /// A live note-on at playback time `t`: match it to the nearest unmatched
     /// expected note of the same pitch (any pitch when `pitchAgnostic`) within
     /// tolerance → hit (recording the signed error); otherwise it's a wrong/extra.
-    mutating func noteOn(_ pitch: Int, at t: Double) {
+    /// Returns `true` if it was a hit, `false` if it was a wrong note (so the caller
+    /// can mark wrong notes on the score).
+    @discardableResult
+    mutating func noteOn(_ pitch: Int, at t: Double) -> Bool {
         var best = -1
         var bestAbs = tolerance + 1
         for i in expected.indices where !expected[i].matched
@@ -67,9 +70,10 @@ struct GradeMatcher {
             expected[best].matched = true
             hits += 1
             signedErrors.append(t - expected[best].onset)   // + late, − early
-        } else {
-            wrong += 1
+            return true
         }
+        wrong += 1
+        return false
     }
 
     /// Advance to playback time `t`, closing the window of every expected note whose

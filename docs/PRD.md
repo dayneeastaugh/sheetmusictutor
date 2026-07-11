@@ -64,10 +64,11 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Matching — Tempo/Grade mode** — play along at tempo; a windowed greedy matcher (a pure,
   unit-tested `GradeMatcher`) scores hit / missed / wrong, mean timing, and **signed** timing —
   the summary says whether you're **rushing or dragging** and by how much. Tolerance is **tunable**
-  (Strict ±150 / Normal ±300 / Relaxed ±450 ms, in musical time); missed notes marked red. With
-  section **Loop** on, each pass is graded and a per-pass **accuracy trend** is shown; the notes
-  you're still missing are ringed on the score, updated every pass. Stopping mid-pass says "pass
-  abandoned" rather than silently dropping it.
+  (Strict ±150 / Normal ±300 / Relaxed ±450 ms, in musical time); missed notes are ringed red and the
+  **wrong notes you play are drawn on the score** (a labelled red dot at their beat and pitch). With
+  section **Loop** on, each pass is graded and a per-pass **accuracy trend** is shown, updated every
+  pass; notes played during the count-in grade against bar 1. Stopping mid-pass says "pass abandoned"
+  rather than silently dropping it.
 - **Section focus & looping** — select a bar range (from/to bar) and play or **loop** just that
   section; a "Whole piece" reset. Playback, cursor, metronome, and Wait/Grade are all scoped to the
   section. An optional **per-loop count-in** clicks a pickup before each pass — meter- and

@@ -410,9 +410,11 @@ final class AudioEnginePlayer: ObservableObject {
 
     /// Start playback, optionally preceded by an N-bar count-in.
     func play(countInBars: Int = 0) {
-        guard sequencer != nil else { return }
+        guard let seq = sequencer else { return }
         isPlaying = true          // reflect immediately; count-in counts as "playing"
         isRunning = false         // ...but the clock isn't advancing during the count-in
+        seq.currentPositionInSeconds = startSeconds   // park the clock at the start so notes played
+                                                      // during the count-in grade against bar 1
         stopMetroTimer()          // stop any free-run click
         if countInBars > 0 {
             startCountIn(bars: countInBars) { [weak self] in self?.reallyStart() }

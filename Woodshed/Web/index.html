@@ -528,7 +528,7 @@
     })();
 
     // Rebuild rects + reattach + redraw overlays after any (re)render.
-    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); drawTrouble(); drawFlags(); }
+    function refreshSelection() { buildMeasureRects(); window._attachSelection(); drawSelection(); drawMissed(); drawWrong(); drawTrouble(); drawFlags(); }
 
     // --- Missed-note markers (cheap overlay, updated every practice pass; no re-render) ---
     var missedPairs = [];   // [[beat, midi], …]
@@ -574,6 +574,77 @@
     }
     window.markMissed = function (pairs) { missedPairs = pairs || []; drawMissed(); };
     window.clearMissed = function () { missedPairs = []; drawMissed(); };
+
+    // ---- Wrong notes you played (no matching notehead, so we place a marker) ----
+    var wrongPairs = [];   // [[beat, midi], …]
+    var NAMES = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+    var DIATONIC = [0,0,1,1,2,3,3,4,4,5,5,6];   // pitch-class → diatonic step (C=0…B=6)
+    function midiToName(p) { return NAMES[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1); }
+    function midiToDiatonic(p) { var pc = ((p % 12) + 12) % 12; return (Math.floor(p / 12) - 1) * 7 + DIATONIC[pc]; }
+
+    function drawWrong() {
+      var ov = wrongOverlay(); if (!ov) return; ov.innerHTML = "";
+      if (!wrongPairs.length || !osmd.graphic) return;
+      var ml = osmd.graphic.measureList, f = 10 * osmd.zoom;
+      // Collect every notehead as a placement reference: its beat, pixel x/y, and its
+      // diatonic staff-step derived from MIDI (halfTone+12) so it shares one basis with
+      // the wrong note. y is linear in diatonic step, so we offset from the nearest
+      // reference by the step difference.
+      var refs = [];
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row) continue;
+        for (var s = 0; s < row.length; s++) {
+          var gm = row[s]; if (!gm || !gm.staffEntries) continue;
+          gm.staffEntries.forEach(function (se) {
+            var sse = se.sourceStaffEntry; if (!sse || !sse.AbsoluteTimestamp) return;
+            var beat = sse.AbsoluteTimestamp.RealValue * 4;
+            (se.graphicalVoiceEntries || []).forEach(function (gve) {
+              (gve.notes || []).forEach(function (n) {
+                var sn = n.sourceNote, ps = n.PositionAndShape;
+                if (!sn || sn.halfTone == null || !ps) return;
+                refs.push({ beat: beat, x: ps.AbsolutePosition.x * f, y: ps.AbsolutePosition.y * f,
+                            dia: midiToDiatonic(sn.halfTone + 12) });
+              });
+            });
+          });
+        }
+      }
+      if (!refs.length) return;
+      var stepPx = 0.5 * f;   // one diatonic step ≈ half a staff space
+      wrongPairs.forEach(function (p) {
+        var beat = p[0], wantDia = midiToDiatonic(p[1]);
+        // Nearest notehead in time; among near-ties, the one closest in pitch (which
+        // also selects the correct staff, treble vs bass).
+        var best = null, bestScore = 1e9;
+        for (var i = 0; i < refs.length; i++) {
+          var r = refs[i], score = Math.abs(r.beat - beat) * 20 + Math.abs(r.dia - wantDia);
+          if (score < bestScore) { bestScore = score; best = r; }
+        }
+        if (!best) return;
+        var x = best.x, y = best.y - (wantDia - best.dia) * stepPx;
+        var d = document.createElement("div");
+        d.style.cssText = "position:absolute;left:" + (x - 6) + "px;top:" + (y - 6) +
+          "px;width:12px;height:12px;background:rgba(211,47,47,0.85);border-radius:50%;" +
+          "box-shadow:0 0 0 1.5px #fff;";
+        var lbl = document.createElement("div");
+        lbl.textContent = midiToName(p[1]);
+        lbl.style.cssText = "position:absolute;left:" + (x + 8) + "px;top:" + (y - 8) +
+          "px;font:600 11px system-ui;color:rgba(211,47,47,0.95);white-space:nowrap;";
+        ov.appendChild(d); ov.appendChild(lbl);
+      });
+    }
+    function wrongOverlay() {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return null;
+      if (getComputedStyle(cont).position === "static") cont.style.position = "relative";
+      var ov = document.getElementById("wrongOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "wrongOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:3;";
+        cont.appendChild(ov);
+      }
+      return ov;
+    }
+    window.markWrong = function (pairs) { wrongPairs = pairs || []; drawWrong(); };
 
     // Move the cursor to a notated beat position (quarter beats from the start).
     // Steps forward using OSMD's own timestamps, so it self-corrects and is robust

@@ -376,6 +376,7 @@ final class PracticeSession: ObservableObject {
     // Real-time grading state for the current pass:
     private var matcher: GradeMatcher?           // the pure matching engine (GradeMatcher.swift)
     private var gradeMissed: Set<Mistake> = []   // notes already flagged missed (ringed) this pass
+    private var wrongMarks: [Mistake] = []       // wrong notes you played, shown on the score this pass
     private var gradePassRecorded = false        // this pass already tallied? (avoid double-recording)
 
     struct GradeResult {
@@ -707,7 +708,9 @@ final class PracticeSession: ObservableObject {
         } else {
             gradeMode = false
             gradeResult = nil; gradeHistory = []
+            wrongMarks = []
             bridge.clearMissed()
+            bridge.markWrong([])
         }
     }
 
@@ -733,15 +736,27 @@ final class PracticeSession: ObservableObject {
         matcher = GradeMatcher(expected: buildGradeExpected(), tolerance: gradeTolerance,
                                pitchAgnostic: rhythmMode)
         gradeMissed = []
+        wrongMarks = []
         gradePassRecorded = false
         passAbandoned = false
         bridge.markMissed([])
+        bridge.markWrong([])
     }
 
-    /// A note-on during a graded pass — forwarded to the matcher.
+    /// A note-on during a graded pass — forwarded to the matcher. Wrong notes are
+    /// recorded at the current beat and drawn on the score (so you can see exactly
+    /// which extra keys you hit, and where). Rhythm mode is pitch-agnostic, so a
+    /// "wrong" note there has no meaningful pitch to place — skip the marks.
     private func handleGradeNoteOn(_ added: Set<Int>) {
         let t = audio.currentTime
-        for p in added { matcher?.noteOn(p, at: t) }
+        let beat = tracker.continuousBeat(at: t, schedule: schedule)
+        var changed = false
+        for p in added where !(matcher?.noteOn(p, at: t) ?? true) && !rhythmMode {
+            wrongMarks.append(Mistake(beat: beat, pitch: p))
+            if wrongMarks.count > 60 { wrongMarks.removeFirst() }   // cap the overlay
+            changed = true
+        }
+        if changed { bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) }) }
     }
 
     /// On each tick, ring any expected note whose window has now closed unmatched —
@@ -1068,7 +1083,11 @@ final class PracticeSession: ObservableObject {
             startPlayback(countIn: 0)                // immediate — your note IS the downbeat
         }
         if waitMode { handleWaitInput(added) }
-        if gradeMode, audio.isRunning { handleGradeNoteOn(added) }   // isRunning is true right after startPlayback
+        // Grade input the whole time playback is live — INCLUDING the count-in, whose
+        // clock is parked at the section start. Without this, the downbeat notes you
+        // play as the count-in ends (before the clock resumes) were dropped and then
+        // rung as "missed". Matching them against the parked start time is correct.
+        if gradeMode, audio.isPlaying { handleGradeNoteOn(added) }
     }
 
     /// Playback started/stopped: flush the time ledger; in Grade mode a stop tallies
@@ -1322,7 +1341,8 @@ final class PracticeSession: ObservableObject {
             sectionStart = 1
             sectionEnd = fused.measureStartBeats.count      // whole piece by default
             bridge.clearSelection()
-            bridge.clearMissed(); gradeResult = nil; gradeHistory = []
+            bridge.clearMissed(); bridge.markWrong([]); wrongMarks = []
+            gradeResult = nil; gradeHistory = []
             audio.startSeconds = 0
             audio.load(midiURL: midiURL, trackHands: fused.trackHands)
             applyHands()

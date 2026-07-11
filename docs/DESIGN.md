@@ -155,7 +155,11 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 - **Wait/Grade feedback:** blue (needed / in-window), green (correct held), red (wrong held); Wait-mode
   review marks appear on the score on exit and are removed with "Clear marks".
 - **Per-pass grading (Grade + Loop):** misses **ring red progressively** as the cursor passes each note
-  you didn't play (open circle, doesn't fill the notehead); the rings **wipe at each loop restart**.
+  you didn't play (open circle, doesn't fill the notehead); **wrong notes you play** are drawn on the
+  score too — a small red dot at that beat, at the pitch's height (relative to a real notehead there,
+  so it picks the right staff), labelled with the note name. Both **wipe at each loop restart**. Notes
+  played during the **count-in** are graded against bar 1 (the clock is parked at the section start),
+  so the downbeat you play as the count-in ends isn't dropped and mis-marked as missed.
   Each loop shows "Pass N: X% · Missed · Wrong · ±ms · **rushing/dragging ~Nms**" (signed timing —
   the actionable half of timing feedback) and a "Progress 72→80→87%" accuracy trend. Stopping early
   shows "Pass abandoned — stopped before the end (not recorded)". Wait-mode **fumbles count steps,

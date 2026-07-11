@@ -108,6 +108,13 @@ final class NotationBridge: ObservableObject {
         run("window.clearMissed()")
     }
 
+    /// Draw the WRONG notes you played on the score (`pairs` = notated beat, MIDI
+    /// pitch) — a red mark at that beat's x, at the pitch's height, labelled.
+    func markWrong(_ pairs: [(beat: Double, pitch: Int)]) {
+        let js = pairs.map { "[\($0.beat),\($0.pitch)]" }.joined(separator: ",")
+        run("window.markWrong([\(js)])")
+    }
+
     /// Tint whole bars amber as "still needs work" trouble spots (1-based bar numbers).
     func setTroubleBars(_ bars: [Int]) {
         let js = bars.map(String.init).joined(separator: ",")
