@@ -300,6 +300,9 @@ struct PracticeView: View {
                 FlagsPanel(session: session)
             }
         }
+        // Fill the column top-aligned so the Controls Form pins to the top like the
+        // scrolling Progress/Flags tabs, instead of centring vertically.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .inspectorColumnWidth(min: 250, ideal: 300, max: 400)
     }
 
