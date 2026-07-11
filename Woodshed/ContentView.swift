@@ -37,15 +37,25 @@ struct ContentView: View {
 struct LibraryView: View {
     @ObservedObject var library: SongLibrary
     @Binding var selection: Song.ID?
-    @State private var showImporter = false
+    // Guided two-step import: pick the score (MusicXML/.mxl), then the MIDI. The old
+    // single picker required multi-selecting both files at once — undiscoverable.
+    @State private var showScoreImporter = false
+    @State private var showMIDIImporter = false
+    @State private var pendingScoreURL: URL?
     @State private var importError: String?
     @State private var renameTarget: Song?
     @State private var renameText = ""
 
-    /// File types the importer offers (MusicXML + MIDI).
-    private var importTypes: [UTType] {
-        var t: [UTType] = [.xml, .midi]
+    /// Step 1 file types: MusicXML, uncompressed or .mxl (MuseScore's default export).
+    private var scoreTypes: [UTType] {
+        var t: [UTType] = [.xml]
         if let x = UTType(filenameExtension: "musicxml") { t.append(x) }
+        if let z = UTType(filenameExtension: "mxl") { t.append(z) }
+        return t
+    }
+    /// Step 2 file types: standard MIDI.
+    private var midiTypes: [UTType] {
+        var t: [UTType] = [.midi]
         if let m = UTType(filenameExtension: "mid") { t.append(m) }
         return t
     }
@@ -90,12 +100,24 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            Button { showImporter = true } label: { Label("Add song", systemImage: "plus") }
+            Button { showScoreImporter = true } label: { Label("Add song", systemImage: "plus") }
         }
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: importTypes,
-                      allowsMultipleSelection: true) { result in
-            handleImport(result)
+        // Step 1: the score. Step 2 opens automatically after a valid pick.
+        .fileImporter(isPresented: $showScoreImporter,
+                      allowedContentTypes: scoreTypes,
+                      allowsMultipleSelection: false) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                pendingScoreURL = url
+                showMIDIImporter = true
+            }
+        }
+        .fileImporter(isPresented: $showMIDIImporter,
+                      allowedContentTypes: midiTypes,
+                      allowsMultipleSelection: false) { result in
+            defer { pendingScoreURL = nil }
+            if case .success(let urls) = result, let midiURL = urls.first, let xmlURL = pendingScoreURL {
+                performImport(musicXML: xmlURL, midi: midiURL)
+            }
         }
         .alert("Import", isPresented: Binding(get: { importError != nil },
                                               set: { if !$0 { importError = nil } })) {
@@ -144,19 +166,11 @@ struct LibraryView: View {
         renameTarget = nil
     }
 
-    /// Pick out the MusicXML and MIDI from the chosen files and import them.
-    /// The imported pair is validated by actually fusing it: a pair that can't be
+    /// Import the picked pair. Validated by actually fusing it: a pair that can't be
     /// parsed is rejected (and removed) with a clear error, and a pair that parses
     /// but doesn't reconcile cleanly is imported with an up-front warning — never
     /// silently, so practice is never graded against a wrong model unannounced.
-    private func handleImport(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result else { return }
-        let xml = urls.first { ["musicxml", "xml"].contains($0.pathExtension.lowercased()) }
-        let mid = urls.first { ["mid", "midi"].contains($0.pathExtension.lowercased()) }
-        guard let xml, let mid else {
-            importError = "Select one MusicXML (.musicxml/.xml) file and one MIDI (.mid) file together."
-            return
-        }
+    private func performImport(musicXML xml: URL, midi mid: URL) {
         do {
             let song = try library.importSong(musicXML: xml, midi: mid)
             // Validate the copied pair by fusing it (same path the practice screen uses).
@@ -171,7 +185,7 @@ struct LibraryView: View {
                 importError = "Couldn't import: the files aren't a readable MusicXML + MIDI pair (\(error))."
             }
         } catch {
-            importError = "Couldn't import: \(error.localizedDescription)"
+            importError = "Couldn't import: \(error)"
         }
     }
 }

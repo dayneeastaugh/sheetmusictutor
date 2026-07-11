@@ -72,13 +72,21 @@ final class SongLibrary: ObservableObject {
     }
 
     /// Import a MusicXML + MIDI pair into a new song folder. `title` defaults to the
-    /// MusicXML file's name.
+    /// MusicXML file's name. A compressed `.mxl` is accepted and extracted — MuseScore's
+    /// default MusicXML export — so the user needn't remember to export uncompressed.
     @discardableResult
     func importSong(musicXML: URL, midi: URL, title: String? = nil) throws -> Song {
         let id = UUID()
         let folder = scoresDir.appendingPathComponent(id.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try copyIn(musicXML, to: folder.appendingPathComponent("score.musicxml"))
+        if musicXML.pathExtension.lowercased() == "mxl" {
+            let scoped = musicXML.startAccessingSecurityScopedResource()
+            defer { if scoped { musicXML.stopAccessingSecurityScopedResource() } }
+            let extracted = try MXLArchive.extractScore(from: try Data(contentsOf: musicXML))
+            try extracted.write(to: folder.appendingPathComponent("score.musicxml"), options: .atomic)
+        } else {
+            try copyIn(musicXML, to: folder.appendingPathComponent("score.musicxml"))
+        }
         try copyIn(midi, to: folder.appendingPathComponent("score.mid"))
         let name = (title ?? musicXML.deletingPathExtension().lastPathComponent)
             .trimmingCharacters(in: .whitespacesAndNewlines)
