@@ -311,6 +311,25 @@ it "just works."
 step). **Open:** hands-separate → hands-together gating; whether mastery should also auto-advance to
 the next section.
 
+### ADR-030 — Wave 0 hardening: never crash on input, never lose a song, never warn silently
+**2026-07-11.** From the audit roadmap (docs/audit/04-roadmap.md), the first remediation wave:
+(1) `MIDIParser`'s byte reader is fully bounds-checked and throwing — corrupt/truncated files are a
+catchable import error, never an index-out-of-range crash (fuzz-tested: 900+ adversarial inputs).
+(2) `metadata.json`/`flags.json` writes are **atomic**; a song folder whose metadata is
+missing/corrupt is **recovered** (rebuilt metadata, stable id from the folder name) instead of
+silently vanishing from the library; unrecoverable folders are surfaced with a count.
+(3) Ingest quality is never silent: `FusedScore.structureWarning` flags an unfolded-repeats
+timeline mismatch (`Ingest.timelinesMismatch`, pure + tested), and any unclean reconciliation
+produces a persistent **banner** on the practice screen (Details → diagnostics) and an alert at
+import; an unparseable pair is rejected and removed at import.
+(4) Speed trainer clamps the tempo to the target when enabled (no instant unearned "mastered");
+a mid-loop section change updates the loop *start* as well as the end.
+(5) The `WoodshedTests` target is real: 15 tests — parser fuzzing, golden reconciliation for both
+fixtures, the repeats guard, drill transitions, trouble-bar decay, metadata back-compat.
+**Rationale:** these are the "app lies or dies" edges — all cheap, all prerequisite to trusting the
+tool with real repertoire. **Rejected:** implementing repeat *unfolding* now (Wave 4 — needs the
+test bed first); a full import wizard (Wave 2).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.

@@ -254,8 +254,10 @@ UI-decoupled; extracting the matcher into its own unit-tested pure module is the
   the pure matching (expected events + note-ons + clock → hits/misses) could be lifted into a
   standalone `struct` with no engine references, making it trivially unit-testable. Done: the
   ~630-line view monolith was split into `PracticeSession` (logic) + `PracticeView` (presentation).
-- **No automated tests** wired into the project (`WoodshedTests`/`WoodshedUITests` are template
-  stubs). The pure ingestion layer and (once extracted) the matcher are the obvious first targets.
+- **Tests exist but coverage is young:** `WoodshedTests` now covers parser robustness (fuzzed),
+  golden reconciliation for both fixtures, the repeats guard, the drill transition, trouble-bar
+  decay, and metadata back-compat. Still untested: the Wait/Grade matchers (extract first — see
+  above), the audio engine, and real user repertoire beyond the two fixtures (roadmap Wave 1).
 - **Threading/concurrency:** CoreMIDI callbacks and the metronome `DispatchSourceTimer` hop to main;
   `PracticeSession` is a plain `ObservableObject` (not `@MainActor`); Swift 6 strict concurrency is
   not adopted. Revisit when moving off Swift 5 language mode.

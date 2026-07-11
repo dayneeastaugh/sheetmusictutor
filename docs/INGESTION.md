@@ -56,16 +56,27 @@ of importing both.
 
 ## Reconciliation (the self-check)
 `Ingest` produces a per-hand `Reconciliation` (`isClean` when every MIDI note is accounted for as a
-written note or an absorbed ornament, and every written note matched). This is surfaced in the UI as
-a ✅/⚠️ table. If a user's own file fails to reconcile, that surfaces immediately — the spike's whole
-purpose.
+written note or an absorbed ornament, and every written note matched). If anything is unclean, a
+**warning banner** appears on the practice screen (and at import) with a Details link to the ✅/⚠️
+table — an unclean import is never silent, because grading against a wrong model is the worst
+failure mode this app has.
+
+## Known limitation: repeats / voltas / D.C. are NOT aligned
+The MIDI export is **unfolded** (repeats expanded into real time) while the MusicXML beat timeline
+is **written/folded** — and the aligner matches on beats. A piece with repeats therefore cannot be
+aligned past the first repeat: every second-pass MIDI note misses its 1-beat window and the model is
+wrong from there on. `Ingest` detects the signature (the MIDI running more than a bar past the
+written score — `timelinesMismatch`) and sets `FusedScore.structureWarning`, which the UI surfaces
+prominently. Until unfolding is implemented (parse `<repeat>`/`<ending>` barlines and expand the XML
+timeline), the workaround is to export from MuseScore with repeats written out.
 
 ## Parser specifics worth knowing
 - **`MusicXMLParser` uses `XMLParser` (SAX), not `XMLDocument`** — because `XMLDocument` is macOS-only
   and would break the iPad target.
 - **`MIDIParser` is hand-rolled** (no dependency): header + `MTrk` chunks, running status, varlen
   deltas, tempo map integration, note-on/off pairing. Supports musical (ticks-per-quarter) division
-  only, not SMPTE.
+  only, not SMPTE. Every byte read is **bounds-checked and throwing** — a truncated/corrupt file is
+  a catchable `MIDIError.malformed`, never a crash (fuzz-tested in `WoodshedTests`).
 - Grace notes: currently parsed as zero-duration notes; they generally match fine but are an edge
   case to watch.
 
@@ -76,6 +87,8 @@ subdivisions). It clicks the denominator's unit (eighths for `x/8`, quarters for
 downbeat on the barline through pickups and meter changes.
 
 ## Open Questions
+- **Repeats/voltas** are detected and warned about but not aligned (see Known limitation above) —
+  implementing XML timeline unfolding is the biggest ingestion feature left.
 - Grace-note timing/handling isn't specially modelled — confirm whether the matcher needs it.
 - Multiple voices per staff beyond the tested files (e.g. divisi) are parsed (`voice`) but untested.
 - `.mxl` (compressed) import is not implemented; the contract is uncompressed `.musicxml`.

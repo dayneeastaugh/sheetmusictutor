@@ -36,7 +36,11 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
    modes, replacing the old scattered toggles) on the left; an audio-status caption and the
    `▶︎ Play / ◼ Stop` button (`.borderedProminent`, Space shortcut, disabled in Wait mode) on the right.
    On macOS a `navigationSubtitle` shows tempo · time-sig · key · note count.
-2. **Status line** — one caption that shows whatever's relevant: "Play a note to start…" (when armed
+2. **Ingest-quality banner** (only when needed) — a persistent orange banner when the song's files
+   didn't fuse cleanly (unmatched notes, or a repeats/structure mismatch), with a **Details** button
+   opening the diagnostics sheet. Grading is never silently wrong. The same warning appears as an
+   alert at import time; an unparseable pair is rejected at import.
+3. **Status line** — one caption that shows whatever's relevant: "Play a note to start…" (when armed
    for sync start), Wait progress (`n/N` + fumbles), Grade pass result + accuracy trend, "Red = notes
    you fumbled" + **Clear marks**, the active section range, or the web-bridge status. The Play button
    shows **Waiting…** while armed.
