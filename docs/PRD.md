@@ -89,6 +89,15 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Rhythm tools v1** — "Rhythm only" mode: the piano is silent and every note onset ticks (distinct
   tone, per-hand mutes respected), and Grade becomes a **tap-along** — any key counts, only timing is
   scored (chords collapse to one expected tap).
+- **Takes (record & replay)** — every pass records what you play from MIDI; play back your last take
+  or your **best graded take per section** at the current tempo through the chosen output.
+- **Practice time** — active practice seconds are tracked per day per song; Progress shows today +
+  total, the overview shows this-week + all-time. Together with the **tempo trend** sparkline this
+  makes success criterion #2 measurable.
+- **Wait-mode history** — completed walkthroughs are recorded as passes (fumbled steps feed the
+  trouble heatmap).
+- **Drill me** — one button picks today's spot (worst trouble bar → oldest flag → random) and loops
+  a 2-bar window around it.
 
 ### Planned (from the roadmap, not yet built)
 - **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), target-tempo in the list.
@@ -130,8 +139,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 
 - **Ingestion is faithful** across the user's *own* MuseScore exports — correct note count, hands
   separated, sensible timing — and reconciles 100% (met for the two current fixtures).
-- The user reaches target tempo on tracked sections measurably faster than before *(needs the
-  progress/analytics + mastery features)*.
+- The user reaches target tempo on tracked sections measurably faster than before — now measurable
+  via the tempo-trend sparkline + practice-time ledger.
 - **Weekly use** — if it gathers dust it failed regardless of features.
 - Wait/Grade feedback feels **encouraging, never punitive** (generous, tunable tolerance).
 

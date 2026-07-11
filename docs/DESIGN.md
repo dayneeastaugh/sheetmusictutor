@@ -21,7 +21,8 @@ empty detail shows a `ContentUnavailableView` prompt.
 A `List` of songs (title + a subtitle: **last-practised + best % + #tags** once set, else
 date-added; ⭐ for favourites), a **search field** (titles + tags), a **sort menu** (title / last
 practised / best), a **Practice overview** toolbar button (cross-song totals + stalest-first
-"most due" list, in a sheet), and a **+** toolbar button that runs a **guided two-step import**:
+"most due" list + practice-time totals, in a sheet), and a **+** toolbar button that runs a
+**guided two-step import** (a score + MIDI pair can also be **dragged from Finder** onto the list):
 pick the score (`.musicxml`/`.xml`/**`.mxl`**), then the MIDI — no multi-select needed. The pair is
 validated by fusing it (unparseable → rejected with a clear error; unclean → imported with a
 warning). Per-row actions (Rename / Favourite / Delete) are on a
@@ -67,15 +68,20 @@ in the overflow menu).
 6. **Inspector — Controls tab** — a grouped `Form`: **Playback** (Tempo slider, Hands, Output,
    Metronome + start/stop-with-playback, **Rhythm only** = note-onset ticks + tap-along grading),
    **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
-   sections** (named ranges: save current, one-tap recall, delete), Speed trainer + its settings
-   incl. **hands progression**), **Start** (Count-in,
-   "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **View**
+   sections** (named ranges: save current, one-tap recall, delete), **Drill me** (picks today's
+   spot — worst trouble bar, else oldest flag, else random — and loops a 2-bar window, saying why),
+   Speed trainer + its settings incl. **hands progression**), **Start** (Count-in,
+   "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **Takes**
+   (every pass records what you play from MIDI; ▶ last take / ▶ best graded take for the current
+   section, replayed at the current tempo through the chosen output), **View**
    (Bars per line — remembered per song, Smooth cursor, Highlight score notes, Trouble spots,
    Colour hands, Show keyboard).
-7. **Inspector — Progress tab** — headline stats (passes, best full run, last), the accuracy
-   **trend sparkline** (95% guide), the **"still need work"** list (tap to drill; clears as you
-   improve), the recent-pass log, and **Reset progress** (confirmed). Empty state until the first
-   Grade pass.
+7. **Inspector — Progress tab** — headline stats (passes, best full run, last, **today's / total
+   practice time**), the accuracy **trend sparkline** (95% guide), a **tempo trend** sparkline
+   (100% guide — the PRD's "reaches target tempo faster" made visible), the **"still need work"**
+   list (tap to drill; clears as you improve), the recent-pass log, and **Reset progress**
+   (confirmed). Empty state until the first Grade pass. Completed **Wait walkthroughs** are
+   recorded as passes too (fumbled steps feed the same trouble bars).
 8. **Inspector — Flags tab** — add a note for a bar, the flagged-bars list (tap to drill, ⋯ to
    edit/delete). The on-score ⚑ tap still opens the inline editor.
 9. **More menu** (toolbar `⋯`) — just **Show diagnostics…** (sheet: score summary, per-hand

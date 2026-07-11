@@ -654,6 +654,55 @@ struct TickTrackerTests {
     }
 }
 
+// MARK: - Practice time ledger + takes
+
+@Suite("Practice time and takes")
+struct TimeAndTakesTests {
+
+    private func tempDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ws-tt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test("time ledger accumulates per day and computes recents")
+    func timeLedger() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        PracticeTime.add(100, on: "2026-07-10", to: dir)
+        PracticeTime.add(50, on: "2026-07-10", to: dir)
+        PracticeTime.add(30, on: "2026-07-01", to: dir)
+        let dict = PracticeTime.load(from: dir)
+        #expect(dict["2026-07-10"] == 150)
+        #expect(PracticeTime.total(dict) == 180)
+        // recent(7) from 2026-07-11 includes the 10th but not the 1st.
+        let ref = ISO8601DateFormatter().date(from: "2026-07-11T12:00:00Z")!
+        #expect(PracticeTime.recent(dict, days: 7, from: ref) == 150)
+        #expect(PracticeTime.format(3725) == "1h 02m")
+        #expect(PracticeTime.format(240) == "4m")
+    }
+
+    @Test("best take per section: kept only when it beats the stored accuracy")
+    func bestTake() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let notes = [TakeNote(p: 60, v: 90, on: 0.0, off: 0.5)]
+        let take80 = Take(sectionStart: 3, sectionEnd: 5, tempoPct: 100, accuracy: 0.8, notes: notes)
+        let take90 = Take(sectionStart: 3, sectionEnd: 5, tempoPct: 100, accuracy: 0.9, notes: notes)
+        let take85 = Take(sectionStart: 3, sectionEnd: 5, tempoPct: 100, accuracy: 0.85, notes: notes)
+        #expect(TakeStore.keepIfBest(take80, in: dir))          // first is best
+        #expect(TakeStore.keepIfBest(take90, in: dir))          // improvement kept
+        #expect(!TakeStore.keepIfBest(take85, in: dir))         // regression discarded
+        let stored = TakeStore.load(from: dir)[TakeStore.key(start: 3, end: 5)]
+        #expect(stored?.accuracy == 0.9)
+        #expect(stored?.notes == notes)
+        // Ungraded takes are never persisted as "best".
+        let ungraded = Take(sectionStart: 1, sectionEnd: 2, tempoPct: 100, accuracy: nil, notes: notes)
+        #expect(!TakeStore.keepIfBest(ungraded, in: dir))
+    }
+}
+
 // MARK: - Metadata back-compat (older metadata.json must keep decoding)
 
 @Suite("SongMeta compatibility")

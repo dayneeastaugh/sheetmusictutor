@@ -135,6 +135,8 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
+        // Drag a score (.musicxml/.mxl) + MIDI (.mid) pair from Finder straight in.
+        .dropDestination(for: URL.self) { urls, _ in handleDrop(urls) }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search titles and tags")
         .toolbar {
             Button { showOverview = true } label: { Label("Practice overview", systemImage: "chart.bar.doc.horizontal") }
@@ -251,6 +253,18 @@ struct LibraryView: View {
             library.update(meta, in: song.folder)
         }
         renameTarget = nil
+    }
+
+    /// Files dropped from Finder: find the score + MIDI in the drop and import.
+    private func handleDrop(_ urls: [URL]) -> Bool {
+        let xml = urls.first { ["musicxml", "xml", "mxl"].contains($0.pathExtension.lowercased()) }
+        let mid = urls.first { ["mid", "midi"].contains($0.pathExtension.lowercased()) }
+        guard let xml, let mid else {
+            importError = "Drop a score (.musicxml/.xml/.mxl) and its MIDI (.mid) together."
+            return false
+        }
+        performImport(musicXML: xml, midi: mid)
+        return true
     }
 
     /// Import the picked pair. Validated by actually fusing it: a pair that can't be

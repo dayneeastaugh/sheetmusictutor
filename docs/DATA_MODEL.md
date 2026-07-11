@@ -102,6 +102,9 @@ The library is stored on disk as **self-contained per-song folders** (no databas
         metadata.json      # SongMeta (Codable)
         history.jsonl      # one PracticePass per line (append-only; created on first pass)
         flags.json         # [BarFlag] — manual revisit notes (rewritten on change)
+        sections.json      # [SavedSection] — named practice sections
+        time.json          # {"YYYY-MM-DD": seconds} — active practice time per day
+        takes.json         # {"start-end": Take} — best graded take per section
 ```
 
 - **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,

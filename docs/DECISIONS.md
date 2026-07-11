@@ -416,9 +416,31 @@ instantly; reaffirms ADR-018/021 (GRDB only if this ever feels slow).
 **Also deliberately skipped:** the sample-accurate metronome scheduler (ARCH-09 — no audible-jitter
 report to justify it) and a Swift 6 flag-day (still incremental-when-touched).
 
+### ADR-035 — Post-roadmap batch: takes, time ledger, wait history, drill-me, drag-drop
+**2026-07-11.** Five additions beyond the original PRD (proposed and accepted):
+(1) **Takes** — every pass records what you play from MIDI (pitch, velocity, musical-clock on/off).
+The last take is replayable immediately; the **best graded take per section** persists in
+`takes.json` (kept only when it beats the stored accuracy). Replay runs off the shared tick at the
+current tempo through the chosen output; starting playback stops a replay.
+(2) **Practice-time ledger** — active seconds (playback running, or Wait with input in the last
+30 s) accumulate per calendar day in `time.json`, flushed in 30 s chunks and on stop/teardown.
+Progress shows today/total; the overview shows this-week/all-time. Makes the PRD's "reaches target
+tempo measurably faster" criterion actually measurable, together with:
+(3) **Tempo trend** — a second Progress sparkline of pass tempo over time (100% guide).
+(4) **Wait-mode history** — a completed walkthrough records a `PracticePass(mode: "wait")` (hits =
+clean steps, wrong = fumbled steps; fumbled bars feed the same trouble heatmap). `bestAccuracy`
+stays Grade-only (different metric).
+(5) **Drill me** — one button picks today's spot (worst current trouble bar → oldest flag → random),
+loops a 2-bar window, and says why. (6) **Drag-and-drop import** onto the library list.
+**Deliberately not built:** Mac↔iPad library sync — it touches the PRD's no-cloud non-goal and
+awaits an explicit decision (folder export/import vs iCloud Drive).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
+- **Two-device use:** library/history don't sync between Mac and iPad. Decide between manual
+  song-folder export/import (AirDrop a zip) or an iCloud Drive library folder (amends the
+  no-cloud non-goal) before long histories accumulate on both devices.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.
 - Section loop has no silent reset gap and repositioning may briefly clip a sounding note; evaluate if
   it needs smoothing (ADR-016).
