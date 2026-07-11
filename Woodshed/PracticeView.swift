@@ -76,6 +76,7 @@ struct PracticeView: View {
         .onAppear {
             session.onPassRecorded = { [library, song] pass in library.recordPass(pass, for: song) }
             session.onSaveBarsPerLine = { [library, song] n in library.setBarsPerLine(n, for: song) }
+            session.onSaveScoreZoom = { [library, song] z in library.setScoreZoom(z, for: song) }
             session.onFlagTapped = { bar in flagEditorBar = bar; flagEditorNote = session.flagNote(forBar: bar) ?? "" }
             session.onAppear()
         }
@@ -418,6 +419,13 @@ struct PracticeView: View {
                     Text("Auto").tag(0)
                     ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                 }
+                // Bars per line is a MAXIMUM — dense music may not fit that many at
+                // full size. Shrinking the score is how you make it achievable.
+                Picker("Score size", selection: $session.scoreZoom) {
+                    Text("60%").tag(0.6); Text("70%").tag(0.7); Text("80%").tag(0.8)
+                    Text("90%").tag(0.9); Text("100%").tag(1.0); Text("115%").tag(1.15)
+                    Text("130%").tag(1.3)
+                }
                 Toggle("Smooth cursor", isOn: $session.cursorSmooth)
                 Toggle("Highlight score notes", isOn: $session.showScoreNotes)
                 Toggle("Trouble spots on score", isOn: $session.showTroubleOnScore)
@@ -499,7 +507,9 @@ struct PracticeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(r.isClean ? "✅" : "⚠️")
-                    Text("\(r.hand.rawValue): \(r.matched) written + \(r.ornamentRealizations) ornament = \(r.matched + r.ornamentRealizations) / \(r.midiCount) MIDI")
+                    Text("\(r.hand.rawValue): \(r.matched) written + \(r.ornamentRealizations) ornament"
+                         + (r.crossStaff > 0 ? " + \(r.crossStaff) cross-staff" : "")
+                         + " = \(r.matched + r.ornamentRealizations + r.crossStaff) / \(r.midiCount) MIDI")
                         .bold()
                 }
                 ForEach(r.unmatchedMIDI, id: \.self) { Text("   extra MIDI: \($0)").foregroundStyle(.orange) }

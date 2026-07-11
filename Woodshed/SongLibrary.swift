@@ -136,6 +136,17 @@ final class SongLibrary: ObservableObject {
         try? writeMeta(meta, in: songs[idx].folder)
     }
 
+    /// Remember this song's engraving scale (1.0 = default). In-place, like barsPerLine.
+    func setScoreZoom(_ z: Double, for song: Song) {
+        guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        let stored: Double? = abs(z - 1.0) < 0.001 ? nil : z
+        guard songs[idx].meta.scoreZoom != stored else { return }
+        var meta = songs[idx].meta
+        meta.scoreZoom = stored
+        songs[idx].meta = meta
+        try? writeMeta(meta, in: songs[idx].folder)
+    }
+
     /// Wipe a song's recorded practice history and the derived stats (for a fresh start).
     func resetProgress(for song: Song) {
         try? FileManager.default.removeItem(at: PracticeHistory.fileURL(in: song.folder))

@@ -128,6 +128,10 @@ enum Ingest {
 
         var events: [NoteEvent] = []
         var reconciliations: [Reconciliation] = []
+        var leftoverSlots: [Hand: [MidiSlot]] = [:]
+        var leftoverSounding: [Hand: [Sounding]] = [:]
+        var handTallies: [Hand: (soundingCount: Int, midiCount: Int, matched: Int,
+                                 ornaments: Int, unmatchedXML: [String])] = [:]
 
         for hand in [Hand.right, Hand.left] {
             // XML sounding notes for this hand (unfolded, ties merged).
@@ -141,7 +145,7 @@ enum Ingest {
 
             var soundingMut = sounding
             var matched = 0
-            var unmatchedXML: [String] = []
+            let unmatchedXML: [String] = []   // filled after the cross-staff pass
 
             // Each matched event, with the parent notated note's beat span, so we can
             // absorb ornament-realization notes into it afterwards. `index` points into
@@ -179,9 +183,8 @@ enum Ingest {
                                             durationSeconds: m.durationSeconds,
                                             notatedBeat: s.writtenBeat,   // display timeline
                                             matchedXML: true, ornamentNotes: 0))
-                } else {
-                    unmatchedXML.append("\(s.spelledName) @ beat \(fmt(s.writtenBeat)) (voice \(s.voice))")
                 }
+                // No in-hand partner → stays unmatched; the cross-staff pass tries next.
             }
 
             // Absorb leftover MIDI notes that fall inside an *ornamented* written
@@ -202,9 +205,56 @@ enum Ingest {
                 }
             }
 
-            // Any MIDI note still with no XML partner: emit it, flagged, and report it.
+            // Leftovers are NOT emitted yet — a cross-staff pass runs first (below).
+            leftoverSlots[hand] = slots.filter { !$0.matched }
+            leftoverSounding[hand] = soundingMut.filter { !$0.matched }
+            handTallies[hand] = (soundingCount: sounding.count, midiCount: slots.count,
+                                 matched: matched, ornaments: ornamentRealizations,
+                                 unmatchedXML: unmatchedXML)
+        }
+
+        // ---- Cross-staff pass ----
+        // Piano notation routinely writes a hand's notes on the OTHER staff for
+        // readability (e.g. the Moonlight's triplets dipping onto the bass staff).
+        // Our hands come from MIDI tracks; the XML's from <staff> — so those notes
+        // end up "unmatched MIDI" in one hand and "unmatched XML" in the other, in
+        // perfectly matching pairs. Marry them here: the event plays as the MIDI
+        // hand (that's who actually plays it) with the XML note's identity.
+        var crossStaff: [Hand: Int] = [.right: 0, .left: 0]
+        for (midiHand, xmlHand) in [(Hand.right, Hand.left), (Hand.left, Hand.right)] {
+            guard var slots = leftoverSlots[midiHand], !slots.isEmpty,
+                  var sounding = leftoverSounding[xmlHand], !sounding.isEmpty else { continue }
+            for i in sounding.indices where !sounding[i].isGrace {
+                let s = sounding[i]
+                var bestJ = -1
+                var bestDelta = Double.greatestFiniteMagnitude
+                for j in slots.indices where !slots[j].matched && slots[j].note.pitch == s.pitch {
+                    let delta = abs(slots[j].onsetBeats - s.onsetBeats)
+                    if delta < bestDelta { bestDelta = delta; bestJ = j }
+                }
+                if bestJ >= 0 && bestDelta <= 1.0 {
+                    slots[bestJ].matched = true
+                    sounding[i].matched = true
+                    crossStaff[midiHand, default: 0] += 1
+                    let m = slots[bestJ].note
+                    events.append(NoteEvent(pitch: m.pitch, spelledName: s.spelledName,
+                                            hand: midiHand, voice: s.voice,
+                                            notatedType: s.notatedType,
+                                            onsetSeconds: m.onsetSeconds,
+                                            durationSeconds: m.durationSeconds,
+                                            notatedBeat: s.writtenBeat,
+                                            matchedXML: true, ornamentNotes: 0))
+                }
+            }
+            leftoverSlots[midiHand] = slots.filter { !$0.matched }
+            leftoverSounding[xmlHand] = sounding.filter { !$0.matched }
+        }
+
+        // ---- Emit what's still unexplained + build the reconciliations ----
+        for hand in [Hand.right, Hand.left] {
+            let tally = handTallies[hand] ?? (0, 0, 0, 0, [])
             var unmatchedMIDI: [String] = []
-            for slot in slots where !slot.matched {
+            for slot in leftoverSlots[hand] ?? [] {
                 let m = slot.note
                 unmatchedMIDI.append("\(defaultPitchName(m.pitch)) @ \(fmt(m.onsetSeconds))s")
                 events.append(NoteEvent(pitch: m.pitch, spelledName: defaultPitchName(m.pitch),
@@ -214,12 +264,14 @@ enum Ingest {
                                         notatedBeat: writtenBeat(forUnfolded: m.onsetBeats),   // rare fallback
                                         matchedXML: false, ornamentNotes: 0))
             }
-
+            let unmatchedXML = tally.unmatchedXML
+                + (leftoverSounding[hand] ?? []).map { "\($0.spelledName) @ beat \(fmt($0.writtenBeat)) (voice \($0.voice))" }
             reconciliations.append(Reconciliation(hand: hand,
-                                                  xmlSoundingCount: sounding.count,
-                                                  midiCount: slots.count,
-                                                  matched: matched,
-                                                  ornamentRealizations: ornamentRealizations,
+                                                  xmlSoundingCount: tally.soundingCount,
+                                                  midiCount: tally.midiCount,
+                                                  matched: tally.matched,
+                                                  ornamentRealizations: tally.ornaments,
+                                                  crossStaff: crossStaff[hand] ?? 0,
                                                   unmatchedMIDI: unmatchedMIDI,
                                                   unmatchedXML: unmatchedXML))
         }

@@ -372,6 +372,41 @@ struct ParserFixTests {
         #expect(notes[0].durationBeats == 0)
     }
 
+    @Test("cross-staff notes match across hands (Moonlight pattern)")
+    func crossStaff() throws {
+        // XML: C5 on staff 1 (RH) and E3 on staff 2 (LH) — but the MIDI's RH track
+        // plays BOTH (the E3 is written on the bass staff for readability).
+        let xml = Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <score-partwise version="4.0"><part id="P1">
+              <measure number="1">
+                <attributes><divisions>4</divisions>
+                  <time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch>
+                      <duration>8</duration><voice>1</voice><staff>1</staff></note>
+                <note><pitch><step>E</step><octave>3</octave></pitch>
+                      <duration>8</duration><voice>1</voice><staff>2</staff></note>
+                <backup><duration>16</duration></backup>
+                <note><pitch><step>C</step><octave>2</octave></pitch>
+                      <duration>16</duration><voice>5</voice><staff>2</staff></note>
+              </measure>
+            </part></score-partwise>
+            """.utf8)
+        // MIDI track 0 (RH): C5 then E3. Track 1 (LH): C2 whole note.
+        let rh: [[UInt8]] = [[0x00, 0x90, 72, 90], [0x81, 0x40, 0x80, 72, 0],   // C5, half note (192)
+                             [0x00, 0x90, 52, 90], [0x81, 0x40, 0x80, 52, 0]]   // E3, half note
+        let lh: [[UInt8]] = [[0x00, 0x90, 36, 80], [0x83, 0x00, 0x80, 36, 0]]   // C2, whole (384)
+        let fused = try Ingest.fuse(midiData: smf(tracks: [rh, lh]), musicXMLData: xml)
+        for r in fused.reconciliations {
+            #expect(r.isClean, "hand \(r.hand.rawValue): \(r.unmatchedMIDI) \(r.unmatchedXML)")
+        }
+        let rhRec = fused.reconciliations.first { $0.hand == .right }!
+        #expect(rhRec.crossStaff == 1)                          // the E3 married across staves
+        // The cross-staff event PLAYS as RH (MIDI truth) with the XML's identity.
+        let e3 = fused.events.first { $0.pitch == 52 }!
+        #expect(e3.hand == .right && e3.matchedXML && e3.spelledName == "E3")
+    }
+
     @Test("grace note never steals the principal's MIDI partner")
     func gracePriority() throws {
         // Two tracks so the average-pitch heuristic assigns hands (track 0 = RH):

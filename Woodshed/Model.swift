@@ -122,12 +122,13 @@ struct Reconciliation {
     var midiCount: Int          // MIDI note-ons, this hand
     var matched: Int            // written notes matched 1:1 to a MIDI note
     var ornamentRealizations: Int // extra MIDI notes absorbed into ornamented notes
+    var crossStaff: Int = 0     // this hand's MIDI notes written on the OTHER staff
     var unmatchedMIDI: [String] // MIDI notes with no XML partner (human-readable)
     var unmatchedXML: [String]  // XML notes with no MIDI partner
-    /// Clean = every MIDI note explained (as a written note or an ornament note)
-    /// and every written note matched.
+    /// Clean = every MIDI note explained (as a written note, an ornament note, or a
+    /// cross-staff note) and every written note matched.
     var isClean: Bool { unmatchedMIDI.isEmpty && unmatchedXML.isEmpty
-                        && matched + ornamentRealizations == midiCount }
+                        && matched + ornamentRealizations + crossStaff == midiCount }
 }
 
 /// Metronome click emphasis. Compound meters (e.g. 12/8) use all three tiers:

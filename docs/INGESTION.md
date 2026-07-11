@@ -75,6 +75,14 @@ unfolded order so it clicks every played bar. **D.C./D.S./Coda jumps are still n
 and the UI banner says so. One known coarseness: a *section* whose bars sit inside a repeat region
 plays their first pass only.
 
+## Cross-staff notation
+Piano writing routinely puts a hand's notes on the OTHER staff for readability (e.g. the
+Moonlight's triplets dipping onto the bass staff). Hands come from MIDI *tracks*; the XML's from
+`<staff>` — so those notes end up unmatched-MIDI in one hand and unmatched-XML in the other, in
+perfectly matching pairs. A **cross-staff pass** after per-hand matching marries them: the event
+plays as the MIDI hand (who actually plays it) with the XML note's identity, counted as
+`crossStaff` in the reconciliation (isClean accounts for it).
+
 ## Parser specifics worth knowing
 - **`MusicXMLParser` uses `XMLParser` (SAX), not `XMLDocument`** — because `XMLDocument` is macOS-only
   and would break the iPad target.

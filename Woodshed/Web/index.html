@@ -242,11 +242,43 @@
       handColors = on ? { rh: rh, lh: lh } : null;
       recolorAndRerender();
     };
-    // Force a fixed number of measures per line (system). 0 = automatic (OSMD default).
+    // The median bars-per-row of the current layout (via the measure rects).
+    function typicalBarsPerLine() {
+      var byY = {};
+      for (var i = 0; i < measRects.length; i++) {
+        var k = Math.round(measRects[i].y);
+        byY[k] = (byY[k] || 0) + 1;
+      }
+      var counts = Object.values(byY);
+      if (!counts.length) return 0;
+      counts.sort(function (a, b) { return a - b; });
+      return counts[Math.floor(counts.length / 2)];
+    }
+
+    // Force a fixed number of measures per line (system). 0 = automatic.
+    // OSMD treats this as a MAXIMUM (break after N) — width wrapping still applies,
+    // so dense music may fit fewer. Post what was actually achieved: a silent
+    // "asked 4, still showing 2" is indistinguishable from a broken control.
     window.setMeasuresPerSystem = function (n) {
       var er = osmd.EngravingRules || osmd.rules;
       er.RenderXMeasuresPerLineAkaSystem = n;
       recolorAndRerender();
+      var got = typicalBarsPerLine();
+      if (n > 0 && got < n) {
+        post("layout: asked " + n + "/line — only " + got + " fit at this size. Reduce Score size (View) or widen the window.");
+      } else {
+        post("layout: " + (n === 0 ? "auto" : n + " bars/line"));
+      }
+    };
+
+    // Score size: scale the engraving so more (or larger) bars fit per line. All
+    // overlays/anchors derive from post-render geometry × osmd.zoom, so they follow.
+    window.setZoom = function (z) {
+      osmd.zoom = z;
+      if (osmd.graphic) {
+        recolorAndRerender();
+        post("score size: " + Math.round(z * 100) + "% · " + typicalBarsPerLine() + " bars/line");
+      }
     };
 
     // Mistake review: colour specific noteheads red so the player can see what they

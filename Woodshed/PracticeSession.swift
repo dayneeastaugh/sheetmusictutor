@@ -114,8 +114,18 @@ final class PracticeSession: ObservableObject {
             if !loadingLayout { onSaveBarsPerLine?(barsPerLine) }   // persist user changes, not the initial load
         }
     }
+    /// Engraving scale (1.0 = 100%). Smaller fits more bars per line — the way to make
+    /// a high bars-per-line setting achievable for dense music.
+    @Published var scoreZoom = 1.0 {
+        didSet {
+            bridge.setZoom(scoreZoom)
+            if !loadingLayout { onSaveScoreZoom?(scoreZoom) }
+        }
+    }
     /// Persist the measures-per-system choice for this song. Set by the view.
     var onSaveBarsPerLine: ((Int) -> Void)?
+    /// Persist the engraving-scale choice for this song. Set by the view.
+    var onSaveScoreZoom: ((Double) -> Void)?
     /// Called when the user taps a flag marker on the score, so the view can edit it.
     var onFlagTapped: ((Int) -> Void)?
     private var loadingLayout = false           // true while applying the saved value on open
@@ -539,6 +549,7 @@ final class PracticeSession: ObservableObject {
     /// re-apply everything the page can't remember: layout, hand colours, the section
     /// highlight, and the overlays.
     private func applyPersistedLayoutToNotation() {
+        if abs(scoreZoom - 1.0) > 0.001 { bridge.setZoom(scoreZoom) }
         if barsPerLine != 0 { bridge.setMeasuresPerSystem(barsPerLine) }
         if colorHands { bridge.setHandColors(true) }
         if !isFullPiece { bridge.setSelection(sectionStart, sectionEnd) }
@@ -574,6 +585,7 @@ final class PracticeSession: ObservableObject {
         refreshFlagOverlay()
         loadingLayout = true                      // apply the remembered layout without re-saving it
         barsPerLine = song.meta.barsPerLine ?? 0
+        scoreZoom = song.meta.scoreZoom ?? 1.0
         loadingLayout = false
     }
 

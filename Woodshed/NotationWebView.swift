@@ -47,62 +47,80 @@ final class NotationBridge: ObservableObject {
         DispatchQueue.main.async { self.status = s }
     }
 
+    /// Run JS on the page, surfacing any exception into `status` — a bridge call that
+    /// silently fails looks exactly like a broken feature (it took a real bug report
+    /// to learn this), so failures must be visible.
+    private func run(_ js: String) {
+        webView?.evaluateJavaScript(js) { [weak self] _, error in
+            if let error {
+                let what = js.prefix(40)
+                self?.post("error: JS \(what)… — \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Highlight a bar range on the score (1-based) / clear the highlight.
     func setSelection(_ start: Int, _ end: Int) {
-        webView?.evaluateJavaScript("window.setSelection(\(start),\(end))")
+        run("window.setSelection(\(start),\(end))")
     }
     func clearSelection() {
-        webView?.evaluateJavaScript("window.clearSelection()")
+        run("window.clearSelection()")
     }
 
     /// Smoothly position the cursor at a (fractional) notated beat.
     func seek(_ beat: Double) {
-        webView?.evaluateJavaScript("window.cursorSeekBeat(\(beat))")
+        run("window.cursorSeekBeat(\(beat))")
     }
 
     /// Colour noteheads by hand (RH blue, LH orange — the colour-blind-safe pair)
     /// or restore default black.
     func setHandColors(_ on: Bool) {
-        webView?.evaluateJavaScript("window.setHandColorMode(\(on), '#1565C0', '#E65100')")
+        run("window.setHandColorMode(\(on), '#1565C0', '#E65100')")
     }
 
-    /// Force N measures per line/system (0 = automatic layout).
+    /// Force N measures per line/system (0 = automatic layout). A maximum: the
+    /// status reports what actually fits at the current score size.
     func setMeasuresPerSystem(_ n: Int) {
-        webView?.evaluateJavaScript("window.setMeasuresPerSystem(\(n))")
+        run("window.setMeasuresPerSystem(\(n))")
+    }
+
+    /// Scale the engraving (1.0 = 100%). Smaller sizes fit more bars per line.
+    func setZoom(_ z: Double) {
+        run("window.setZoom(\(z))")
     }
 
     /// Mark noteheads red for review: `pairs` are (notated beat, MIDI pitch).
     func markMistakes(_ pairs: [(beat: Double, pitch: Int)]) {
         let js = pairs.map { "[\($0.beat),\($0.pitch)]" }.joined(separator: ",")
-        webView?.evaluateJavaScript("window.markMistakes([\(js)])")
+        run("window.markMistakes([\(js)])")
     }
     /// Restore normal note colours (clear the mistake marks).
     func clearMistakes() {
-        webView?.evaluateJavaScript("window.clearMistakes()")
+        run("window.clearMistakes()")
     }
 
     /// Ring the missed notes (cheap overlay, no re-render — safe to call every pass).
     func markMissed(_ pairs: [(beat: Double, pitch: Int)]) {
         let js = pairs.map { "[\($0.beat),\($0.pitch)]" }.joined(separator: ",")
-        webView?.evaluateJavaScript("window.markMissed([\(js)])")
+        run("window.markMissed([\(js)])")
     }
     func clearMissed() {
-        webView?.evaluateJavaScript("window.clearMissed()")
+        run("window.clearMissed()")
     }
 
     /// Tint whole bars amber as "still needs work" trouble spots (1-based bar numbers).
     func setTroubleBars(_ bars: [Int]) {
         let js = bars.map(String.init).joined(separator: ",")
-        webView?.evaluateJavaScript("window.setTroubleBars([\(js)])")
+        run("window.setTroubleBars([\(js)])")
     }
     func clearTroubleBars() {
-        webView?.evaluateJavaScript("window.clearTroubleBars()")
+        run("window.clearTroubleBars()")
     }
 
     /// Mark bars with a tappable flag marker (1-based). Tapping posts `flag:<bar>`.
     func setFlaggedBars(_ bars: [Int]) {
         let js = bars.map(String.init).joined(separator: ",")
-        webView?.evaluateJavaScript("window.setFlaggedBars([\(js)])")
+        run("window.setFlaggedBars([\(js)])")
     }
 }
 

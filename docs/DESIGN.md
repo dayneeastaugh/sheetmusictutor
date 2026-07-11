@@ -74,7 +74,9 @@ in the overflow menu).
    "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **Takes**
    (every pass records what you play from MIDI; ▶ last take / ▶ best graded take for the current
    section, replayed at the current tempo through the chosen output), **View**
-   (Bars per line — remembered per song, Smooth cursor, Highlight score notes, Trouble spots,
+   (Bars per line — a MAXIMUM; **Score size** 60–130% zoom makes higher counts achievable for
+   dense music, both remembered per song; the status line reports what actually fits, e.g.
+   "asked 4/line — only 2 fit at this size" — Smooth cursor, Highlight score notes, Trouble spots,
    Colour hands, Show keyboard).
 7. **Inspector — Progress tab** — headline stats (passes, best full run, last, **today's / total
    practice time**), the accuracy **trend sparkline** (95% guide), a **tempo trend** sparkline
