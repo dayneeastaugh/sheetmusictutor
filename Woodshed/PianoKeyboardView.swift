@@ -36,9 +36,11 @@ struct PianoKeyboardView: View {
         blackNotes.compactMap { n in whiteNotes.firstIndex(of: n - 1).map { (n, $0) } }
     private static func isWhite(_ n: Int) -> Bool { ![1, 3, 6, 8, 10].contains(((n % 12) + 12) % 12) }
 
-    // Match the notation's hand colours (RH #1565C0, LH #C62828).
+    // Match the notation's hand colours: RH blue #1565C0, LH orange #E65100.
+    // Blue/orange is the colour-blind-safe pair (the old blue/red failed exactly the
+    // most common red-green deficiency, and hand identity is load-bearing here).
     private static let rhColor = Color(red: 21 / 255, green: 101 / 255, blue: 192 / 255)
-    private static let lhColor = Color(red: 198 / 255, green: 40 / 255, blue: 40 / 255)
+    private static let lhColor = Color(red: 230 / 255, green: 81 / 255, blue: 0 / 255)
 
     @State private var mouseNote: Int? = nil
 
