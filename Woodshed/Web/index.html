@@ -411,27 +411,63 @@
 
     (function () {
       var dragging = false, anchor = -1;
-      function onMove(e) {
+      function beginDrag(x, y) {
+        var m = measureAt(x, y); if (m < 0) return false;
+        dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; drawSelection();
+        return true;
+      }
+      function moveDrag(x, y) {
         if (!dragging) return;
-        var m = measureAt(e.clientX, e.clientY); if (m < 0) return;
+        var m = measureAt(x, y); if (m < 0) return;
         selStart = Math.min(anchor, m) + 1; selEnd = Math.max(anchor, m) + 1; drawSelection();
       }
-      function onUp() {
+      function endDrag() {
         if (!dragging) return; dragging = false;
+        post("select:" + selStart + ":" + selEnd);
+      }
+      function onMove(e) { moveDrag(e.clientX, e.clientY); }
+      function onUp() {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        post("select:" + selStart + ":" + selEnd);
+        endDrag();
       }
       window._attachSelection = function () {
         var cont = document.getElementById("osmdContainer");
         if (!cont || cont._selAttached) return;
         cont._selAttached = true;
+        // Mouse (Mac / trackpad)
         cont.addEventListener("mousedown", function (e) {
-          var m = measureAt(e.clientX, e.clientY); if (m < 0) return;
-          dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; drawSelection();
+          if (!beginDrag(e.clientX, e.clientY)) return;
           document.addEventListener("mousemove", onMove);
           document.addEventListener("mouseup", onUp);
           e.preventDefault();
+        });
+        // Touch (iPad) — the selection was mouse-event-only, so drag-to-select
+        // simply didn't exist on touch. Long-drag horizontally selects; a plain
+        // vertical swipe still scrolls (we only claim the gesture once it starts
+        // on a bar and moves mostly horizontally).
+        var touchStart = null;
+        cont.addEventListener("touchstart", function (e) {
+          if (e.touches.length !== 1) return;
+          var t = e.touches[0];
+          touchStart = { x: t.clientX, y: t.clientY, claimed: false };
+        }, { passive: true });
+        cont.addEventListener("touchmove", function (e) {
+          if (!touchStart || e.touches.length !== 1) return;
+          var t = e.touches[0];
+          if (!touchStart.claimed) {
+            var dx = Math.abs(t.clientX - touchStart.x), dy = Math.abs(t.clientY - touchStart.y);
+            if (dx < 12 && dy < 12) return;              // not yet a deliberate drag
+            if (dy > dx) { touchStart = null; return; }  // vertical → let it scroll
+            if (!beginDrag(touchStart.x, touchStart.y)) { touchStart = null; return; }
+            touchStart.claimed = true;
+          }
+          moveDrag(t.clientX, t.clientY);
+          e.preventDefault();                            // claimed: stop the scroll
+        }, { passive: false });
+        cont.addEventListener("touchend", function () {
+          if (touchStart && touchStart.claimed) { endDrag(); }
+          touchStart = null;
         });
       };
     })();

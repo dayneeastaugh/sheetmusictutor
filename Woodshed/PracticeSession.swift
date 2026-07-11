@@ -338,10 +338,13 @@ final class PracticeSession: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// After the score first renders, apply the remembered measures-per-system and the
-    /// trouble overlay (both need the page's JS to exist and a score to be loaded).
+    /// After the score renders (first load OR a web-process-crash recovery reload),
+    /// re-apply everything the page can't remember: layout, hand colours, the section
+    /// highlight, and the overlays.
     private func applyPersistedLayoutToNotation() {
         if barsPerLine != 0 { bridge.setMeasuresPerSystem(barsPerLine) }
+        if colorHands { bridge.setHandColors(true) }
+        if !isFullPiece { bridge.setSelection(sectionStart, sectionEnd) }
         refreshTroubleOverlay()
         refreshFlagOverlay()
     }

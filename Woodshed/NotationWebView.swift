@@ -60,9 +60,10 @@ final class NotationBridge: ObservableObject {
         webView?.evaluateJavaScript("window.cursorSeekBeat(\(beat))")
     }
 
-    /// Colour noteheads by hand (RH blue, LH red) or restore default black.
+    /// Colour noteheads by hand (RH blue, LH orange — the colour-blind-safe pair)
+    /// or restore default black.
     func setHandColors(_ on: Bool) {
-        webView?.evaluateJavaScript("window.setHandColorMode(\(on), '#1565C0', '#C62828')")
+        webView?.evaluateJavaScript("window.setHandColorMode(\(on), '#1565C0', '#E65100')")
     }
 
     /// Force N measures per line/system (0 = automatic layout).
@@ -221,7 +222,13 @@ struct NotationWebView {
             bridge.post("error: provisional — \(error.localizedDescription)")
         }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-            bridge.post("error: web content process TERMINATED")
+            // WebKit content processes do get killed (memory pressure, GPU resets).
+            // Reload the page and re-send the score; the "loaded" status then triggers
+            // the session's re-push of layout/overlays — instead of a dead blank pane.
+            bridge.post("web content process terminated — recovering")
+            pageLoaded = false
+            pendingB64 = lastLoadedB64.isEmpty ? nil : lastLoadedB64
+            if let html = buildInlineHTML() { webView.loadHTMLString(html, baseURL: nil) }
         }
 
         func userContentController(_ controller: WKUserContentController,
