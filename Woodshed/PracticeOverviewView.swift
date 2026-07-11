@@ -25,6 +25,8 @@ struct PracticeOverviewView: View {
         }
     }
     @State private var rows: [Row] = []
+    @State private var totalSeconds: Double = 0
+    @State private var weekSeconds: Double = 0
 
     var body: some View {
         NavigationStack {
@@ -46,10 +48,16 @@ struct PracticeOverviewView: View {
     private var practised: [Row] { rows.filter { $0.passes > 0 } }
 
     private var totals: some View {
-        HStack(spacing: 10) {
-            stat("Songs", "\(rows.count)")
-            stat("Practised", "\(practised.count)")
-            stat("Total passes", "\(rows.reduce(0) { $0 + $1.passes })")
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                stat("Songs", "\(rows.count)")
+                stat("Practised", "\(practised.count)")
+                stat("Total passes", "\(rows.reduce(0) { $0 + $1.passes })")
+            }
+            HStack(spacing: 10) {
+                stat("This week", PracticeTime.format(weekSeconds))
+                stat("All time", PracticeTime.format(totalSeconds))
+            }
         }
     }
 
@@ -100,11 +108,17 @@ struct PracticeOverviewView: View {
     }
 
     private func scan() {
+        var total = 0.0, week = 0.0
         rows = library.songs.map { song in
             let passes = PracticeHistory.load(from: song.folder)
+            let time = PracticeTime.load(from: song.folder)
+            total += PracticeTime.total(time)
+            week += PracticeTime.recent(time, days: 7)
             return Row(id: song.id, title: song.title, passes: passes.count,
                        best: passes.filter(\.isFullPiece).map(\.accuracy).max(),
                        last: passes.last?.date)
         }
+        totalSeconds = total
+        weekSeconds = week
     }
 }

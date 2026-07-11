@@ -116,7 +116,10 @@ final class SongLibrary: ObservableObject {
         guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
         var meta = songs[idx].meta
         meta.lastPracticed = pass.date
-        if pass.isFullPiece { meta.bestAccuracy = max(meta.bestAccuracy ?? 0, pass.accuracy) }
+        // "Best" tracks Grade accuracy only — a Wait walkthrough is a different metric.
+        if pass.isFullPiece && pass.mode == "grade" {
+            meta.bestAccuracy = max(meta.bestAccuracy ?? 0, pass.accuracy)
+        }
         songs[idx].meta = meta
         try? writeMeta(meta, in: songs[idx].folder)
     }

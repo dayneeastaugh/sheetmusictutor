@@ -280,6 +280,7 @@ struct PracticeView: View {
                 controlsTab
             case .progress:
                 ProgressPanel(song: song, passes: session.history,
+                              practicedToday: session.practicedToday,
                               onDrillBar: { session.focusBar($0) },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
@@ -313,6 +314,11 @@ struct PracticeView: View {
                 Toggle("Rhythm only (ticks + tap along)", isOn: $session.rhythmMode)
             }
             Section("Focus") {
+                Button { session.drillMe() } label: { Label("Drill me", systemImage: "target") }
+                    .help("Pick today's spot: worst trouble bar, else oldest flag, else random — and loop it")
+                if let reason = session.drillReason {
+                    Text(reason).font(.caption2).foregroundStyle(.secondary)
+                }
                 LabeledContent("Section") {
                     HStack(spacing: 4) {
                         Stepper("\(session.sectionStart)", value: $session.sectionStart, in: 1...session.measureCount)
@@ -383,6 +389,29 @@ struct PracticeView: View {
                     Text("Normal (±300 ms)").tag(0.30)
                     Text("Relaxed (±450 ms)").tag(0.45)
                 }
+            }
+            Section("Takes") {
+                if session.isReplaying {
+                    Button { session.stopReplay() } label: { Label("Stop replay", systemImage: "stop.circle") }
+                } else {
+                    Button {
+                        if let t = session.lastTake { session.startReplay(t) }
+                    } label: {
+                        Label(session.lastTake.map { "Play last take (\($0.notes.count) notes)" }
+                              ?? "Play last take", systemImage: "play.circle")
+                    }
+                    .disabled(session.lastTake == nil || session.audio.isPlaying)
+                    Button {
+                        if let t = session.bestTakeForCurrentSection { session.startReplay(t) }
+                    } label: {
+                        Label(session.bestTakeForCurrentSection.map {
+                                "Play best take (\(Int(($0.accuracy ?? 0) * 100))%)"
+                              } ?? "Play best take", systemImage: "star.circle")
+                    }
+                    .disabled(session.bestTakeForCurrentSection == nil || session.audio.isPlaying)
+                }
+                Text("Every pass records what you play. The best graded take per section is kept.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             Section("View") {
                 Picker("Bars per line", selection: $session.barsPerLine) {

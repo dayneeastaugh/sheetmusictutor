@@ -13,12 +13,15 @@ import SwiftUI
 struct ProgressPanel: View {
     let song: Song
     let passes: [PracticePass]
+    /// Seconds practised today (live, incl. the current session's unflushed time).
+    var practicedToday: Double = 0
     /// Focus the practice section on a bar (drill a trouble spot).
     let onDrillBar: (Int) -> Void
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
     @State private var confirmingReset = false
+    @State private var totalTime: Double = 0
 
     private var fullRuns: [PracticePass] { passes.filter { $0.isFullPiece } }
     private var best: Double? { fullRuns.map(\.accuracy).max() }
@@ -57,11 +60,18 @@ struct ProgressPanel: View {
     // MARK: - Headline stats
 
     private var statRow: some View {
-        HStack(spacing: 8) {
-            stat("Passes", "\(passes.count)")
-            stat("Best full run", best.map { "\(Int($0 * 100))%" } ?? "—")
-            stat("Last", last.map { "\(Int($0 * 100))%" } ?? "—")
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                stat("Passes", "\(passes.count)")
+                stat("Best full run", best.map { "\(Int($0 * 100))%" } ?? "—")
+                stat("Last", last.map { "\(Int($0 * 100))%" } ?? "—")
+            }
+            HStack(spacing: 8) {
+                stat("Today", PracticeTime.format(practicedToday))
+                stat("Total time", PracticeTime.format(max(totalTime, practicedToday)))
+            }
         }
+        .onAppear { totalTime = PracticeTime.total(PracticeTime.load(from: song.folder)) }
     }
 
     private func stat(_ label: String, _ value: String) -> some View {
@@ -74,15 +84,23 @@ struct ProgressPanel: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.4)))
     }
 
-    // MARK: - Accuracy trend
+    // MARK: - Accuracy + tempo trends
 
     @ViewBuilder
     private var trendSection: some View {
-        let vals = passes.suffix(24).map(\.accuracy)
-        if vals.count >= 2 {
+        let recent = Array(passes.suffix(24))
+        if recent.count >= 2 {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Accuracy trend (last \(vals.count) passes)").font(.subheadline).bold()
-                Sparkline(values: Array(vals))
+                Text("Accuracy trend (last \(recent.count) passes)").font(.subheadline).bold()
+                Sparkline(values: recent.map(\.accuracy))
+                    .frame(height: 48)
+            }
+            // Tempo over time — the PRD's own success measure ("reaches target tempo
+            // faster"). Normalised over the slider's 25–120% range.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Tempo trend · now \(Int(recent.last?.tempoPct ?? 100))%")
+                    .font(.subheadline).bold()
+                Sparkline(values: recent.map { ($0.tempoPct - 25) / 95 }, guide: (100.0 - 25) / 95)
                     .frame(height: 48)
             }
         }
@@ -150,18 +168,19 @@ struct ProgressPanel: View {
     }
 }
 
-/// A minimal line sparkline for values in 0…1 (drawn bottom = 0, top = 1).
+/// A minimal line sparkline for values in 0…1 (drawn bottom = 0, top = 1), with a
+/// dashed guide line (default: the 95% accuracy target).
 struct Sparkline: View {
     var values: [Double]
+    var guide: Double = 0.95
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             let n = values.count
             ZStack {
-                // 95% target guide
                 Path { p in
-                    let y = h * (1 - 0.95)
+                    let y = h * (1 - min(max(guide, 0), 1))
                     p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: w, y: y))
                 }.stroke(.green.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                 if n >= 2 {

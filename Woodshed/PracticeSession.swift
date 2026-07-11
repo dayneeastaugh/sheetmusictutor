@@ -363,6 +363,139 @@ final class PracticeSession: ObservableObject {
         SavedSectionStore.save(savedSections, to: song.folder)
     }
 
+    // MARK: Takes — record what you play, listen back (see Take.swift)
+    @Published private(set) var lastTake: Take?
+    @Published private(set) var isReplaying = false
+    @Published private(set) var bestTakes: [String: Take] = [:]   // section key → best graded take
+    private var takeOpen: [Int: (on: Double, v: Int)] = [:]       // held notes being captured
+    private var takeNotes: [TakeNote] = []
+    private var takeStart: Double = 0                             // musical time the take began
+    private var capturing = false
+    // Replay: a merged on/off event stream driven from the shared 50 Hz tick.
+    private var replayEvents: [(t: Double, p: Int, v: Int, isOn: Bool)] = []
+    private var replayIdx = 0
+    private var replayBegan = Date()
+    private var replaySounding: Set<Int> = []
+
+    /// Begin capturing a take (each Play and each loop pass starts fresh).
+    /// `audio.startSeconds` is where the pass begins — the clock may not have been
+    /// repositioned yet when a count-in is pending.
+    private func beginTakeCapture() {
+        capturing = true
+        takeOpen = [:]
+        takeNotes = []
+        takeStart = audio.startSeconds
+    }
+
+    /// Close the capture into `lastTake` (and persist it if it's the best graded
+    /// take for this section). Empty takes are discarded.
+    private func endTakeCapture(accuracy: Double?) {
+        guard capturing else { return }
+        capturing = false
+        let now = audio.currentTime
+        for (p, open) in takeOpen {                    // close anything still held
+            takeNotes.append(TakeNote(p: p, v: open.v, on: open.on - takeStart, off: now - takeStart))
+        }
+        takeOpen = [:]
+        guard !takeNotes.isEmpty else { return }
+        let take = Take(sectionStart: sectionStart, sectionEnd: sectionEnd,
+                        tempoPct: tempoPct, accuracy: accuracy,
+                        notes: takeNotes.sorted { $0.on < $1.on })
+        lastTake = take
+        if accuracy != nil, TakeStore.keepIfBest(take, in: song.folder) {
+            bestTakes = TakeStore.load(from: song.folder)
+        }
+        takeNotes = []
+    }
+
+    /// The persisted best graded take covering the current section, if any.
+    var bestTakeForCurrentSection: Take? {
+        bestTakes[TakeStore.key(start: sectionStart, end: sectionEnd)]
+    }
+
+    /// Play a take back through the current output routing. Replays at the CURRENT
+    /// tempo slider (timestamps are musical seconds).
+    func startReplay(_ take: Take) {
+        guard !audio.isPlaying else { return }
+        stopReplay()
+        var events: [(t: Double, p: Int, v: Int, isOn: Bool)] = []
+        for n in take.notes {
+            events.append((n.on, n.p, n.v, true))
+            events.append((max(n.off, n.on + 0.05), n.p, n.v, false))
+        }
+        replayEvents = events.sorted { $0.t < $1.t }
+        replayIdx = 0
+        replayBegan = Date()
+        isReplaying = true
+    }
+
+    func stopReplay() {
+        guard isReplaying else { return }
+        isReplaying = false
+        for p in replaySounding { previewNoteOff(p) }
+        replaySounding = []
+        replayEvents = []
+    }
+
+    /// Driven from the shared 50 Hz tick: fire due replay events.
+    fileprivate func replayTick() {
+        guard isReplaying else { return }
+        guard !audio.isPlaying else { stopReplay(); return }   // playback trumps replay
+        let rate = max(0.05, tempoPct / 100)                    // wall → musical seconds
+        let t = Date().timeIntervalSince(replayBegan) * rate
+        while replayIdx < replayEvents.count && replayEvents[replayIdx].t <= t {
+            let e = replayEvents[replayIdx]
+            if e.isOn { previewNoteOn(e.p); replaySounding.insert(e.p) }
+            else { previewNoteOff(e.p); replaySounding.remove(e.p) }
+            replayIdx += 1
+        }
+        if replayIdx >= replayEvents.count { stopReplay() }
+    }
+
+    /// Capture a played note-on (velocity from CoreMIDI) while a take is running.
+    private func captureNoteOn(_ pitch: Int, velocity: Int) {
+        guard capturing, audio.isPlaying, audio.isRunning else { return }
+        takeOpen[pitch] = (on: audio.currentTime, v: velocity)
+    }
+
+    private func captureNoteOffs(_ removed: Set<Int>) {
+        guard capturing else { return }
+        let now = audio.currentTime
+        for p in removed {
+            if let open = takeOpen.removeValue(forKey: p) {
+                takeNotes.append(TakeNote(p: p, v: open.v, on: open.on - takeStart, off: now - takeStart))
+            }
+        }
+    }
+
+    // MARK: Practice time — active seconds, accumulated on the tick and flushed to
+    // the per-song time.json on stop/teardown. "Active" = playback running, or Wait
+    // mode with input in the last 30 s (so an idly-open app doesn't count).
+    @Published private(set) var practicedToday: Double = 0     // incl. unflushed seconds
+    private var unflushedSeconds: Double = 0
+    private var lastTickDate: Date?
+    private var lastWaitInputDate: Date?
+
+    private func accumulatePracticeTime() {
+        let now = Date()
+        defer { lastTickDate = now }
+        guard let last = lastTickDate else { return }
+        let dt = min(now.timeIntervalSince(last), 0.5)          // guard against app-sleep gaps
+        let waitActive = waitMode && (lastWaitInputDate.map { now.timeIntervalSince($0) < 30 } ?? false)
+        guard (audio.isPlaying && audio.isRunning) || waitActive else { return }
+        unflushedSeconds += dt
+        practicedToday += dt
+        if unflushedSeconds >= 30 { flushPracticeTime() }       // durable in 30 s chunks
+    }
+
+    private func flushPracticeTime() {
+        guard unflushedSeconds > 0 else { return }
+        PracticeTime.add(unflushedSeconds, to: song.folder)
+        unflushedSeconds = 0
+    }
+
+    deinit { if unflushedSeconds > 0 { PracticeTime.add(unflushedSeconds, to: song.folder) } }
+
     // MARK: Progress / trouble spots
     @Published private(set) var history: [PracticePass] = []   // this song's recorded passes
     @Published var showTroubleOnScore = true {                 // amber-tint trouble bars on the score
@@ -428,13 +561,16 @@ final class PracticeSession: ObservableObject {
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
+        midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
         guard !hasLoaded else { return }
         hasLoaded = true
         applyOutput()
         ingest()
         reloadHistory()
+        practicedToday = PracticeTime.load(from: song.folder)[PracticeTime.dayKey()] ?? 0
         flags = BarFlagStore.load(from: song.folder)
         savedSections = SavedSectionStore.load(from: song.folder)
+        bestTakes = TakeStore.load(from: song.folder)
         refreshFlagOverlay()
         loadingLayout = true                      // apply the remembered layout without re-saving it
         barsPerLine = song.meta.barsPerLine ?? 0
@@ -579,6 +715,7 @@ final class PracticeSession: ObservableObject {
         onPassRecorded?(pass)          // persist (disk + library stats)
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up
+        endTakeCapture(accuracy: r.accuracy)      // keep the take (persisted if it's a new best)
         applySpeedTrainer(accuracy: r.accuracy)   // ramp tempo / gate mastery for the next pass
     }
 
@@ -659,6 +796,7 @@ final class PracticeSession: ObservableObject {
     /// red on the keyboard while held).
     private func handleWaitInput(_ added: Set<Int>) {
         guard waitIndex < waitSteps.count else { return }
+        lastWaitInputDate = Date()          // Wait counts as active practice while you're playing
         waitPlayed.formUnion(added)
         let required = waitSteps[waitIndex].rh.union(waitSteps[waitIndex].lh)
         // Any note that isn't wanted at this step is a fumble — record the step's
@@ -677,10 +815,31 @@ final class PracticeSession: ObservableObject {
                 showWaitStep(waitIndex)
             } else {
                 lights.rh = []; lights.lh = []   // reached the end
+                recordWaitPass()                 // a completed walkthrough counts as practice history
             }
         } else {
             lights.rh = required.subtracting(waitPlayed)   // only the still-missing notes
         }
+    }
+
+    /// A completed Wait walkthrough is real practice signal: record it like a pass —
+    /// hits = clean steps, wrong = fumbled steps, and the fumbled bars feed the same
+    /// trouble-spot heatmap Grade misses do. (Only completions are recorded.)
+    private func recordWaitPass() {
+        let total = waitStepCount
+        guard total > 0 else { return }
+        let fumbles = fumbledSteps.count
+        let fumbleBars = Set(mistakes.map { barForBeat($0.beat) })
+        let pass = PracticePass(mode: "wait",
+                                sectionStart: sectionStart, sectionEnd: sectionEnd,
+                                measureCount: measureCount,
+                                tempoPct: tempoPct, handMode: handMode,
+                                total: total, hits: total - fumbles, missed: 0, wrong: fumbles,
+                                avgMs: 0, missedBars: Array(fumbleBars))
+        onPassRecorded?(pass)
+        history.append(pass)
+        refreshTroubleOverlay()
+        flushPracticeTime()
     }
 
     /// Apply the audio-output selection to both playback and the metronome:
@@ -753,6 +912,26 @@ final class PracticeSession: ObservableObject {
         sectionEnd = b
     }
 
+    /// "Drill me": pick today's spot — the worst current trouble bar, else the oldest
+    /// revisit flag, else a random bar — set a 2-bar loop on it, and say why.
+    @Published private(set) var drillReason: String?
+    func drillMe() {
+        let bar: Int
+        if let t = currentTroubleBars.first {
+            bar = t.bar
+            drillReason = "Bar \(bar) — you're still missing notes there (\(t.misses)×)"
+        } else if let f = flags.min(by: { $0.date < $1.date }) {
+            bar = f.bar
+            drillReason = "Bar \(bar) — flagged: \(f.note)"
+        } else {
+            bar = Int.random(in: 1...measureCount)
+            drillReason = "Bar \(bar) — random pick, keep it honest"
+        }
+        sectionStart = min(max(1, bar), measureCount)
+        sectionEnd = min(bar + 1, measureCount)      // a 2-bar window gives context
+        loopSection = true
+    }
+
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
     private func applyHands() {
         audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
@@ -783,6 +962,7 @@ final class PracticeSession: ObservableObject {
 
     /// A change in held MIDI notes: dispatch newly-pressed notes to the active mode.
     func midiNotesChanged(_ old: Set<Int>, _ new: Set<Int>) {
+        captureNoteOffs(old.subtracting(new))
         let added = new.subtracting(old)
         if added.isEmpty { return }
         if armed {                                   // sync start: your first note starts playback now
@@ -793,18 +973,24 @@ final class PracticeSession: ObservableObject {
         if gradeMode, audio.isRunning { handleGradeNoteOn(added) }   // isRunning is true right after startPlayback
     }
 
-    /// Playback started/stopped: in Grade mode a stop tallies the final (partial) pass.
+    /// Playback started/stopped: flush the time ledger; in Grade mode a stop tallies
+    /// the final pass (if it actually reached the end). The grade finalizer runs
+    /// FIRST so a completed pass's take closes with its accuracy; the nil-accuracy
+    /// close is the fallback for ungraded/abandoned stops.
     func playingChanged(_ was: Bool, _ now: Bool) {
-        guard was && !now && gradeMode else { return }
-        // Only count a pass that actually reached the section end. Completion already
-        // records it (idempotently); this catches the case where the sequencer ends on
-        // its own before the tick sees it. Stopping early abandons the partial pass —
-        // and says so, so the "missing" pass isn't a mystery.
-        if audio.currentTime + 0.15 >= sectionEndTime {
-            finalizeGradePass()
-        } else if !gradePassRecorded {
-            passAbandoned = true
+        guard was && !now else { return }
+        flushPracticeTime()
+        if gradeMode {
+            // Only count a pass that actually reached the section end. Completion
+            // already records it (idempotently); this catches the sequencer ending on
+            // its own before the tick sees it. Stopping early abandons the pass.
+            if audio.currentTime + 0.15 >= sectionEndTime {
+                finalizeGradePass()
+            } else if !gradePassRecorded {
+                passAbandoned = true
+            }
         }
+        endTakeCapture(accuracy: nil)
     }
 
     // MARK: - Transport (reset · step a bar · play)
@@ -893,6 +1079,7 @@ final class PracticeSession: ObservableObject {
             startGradePass()
         }
         if speedMode != .off { resetDrill() }        // a fresh Play restarts the drill from the current tempo
+        stopReplay()                                 // playback trumps a running take replay
         resetCursor()
         // Practice mode honours the playhead (step a bar, then play from there);
         // Grade always starts at the section start — a pass covers the whole section.
@@ -900,6 +1087,7 @@ final class PracticeSession: ObservableObject {
         audio.clickCeiling = sectionEndTime          // don't click the bar past the section (loop point)
         if metronomeStartsWithPlayback && !audio.metronomeOn { audio.metronomeOn = true }
         audio.play(countInBars: countIn)
+        beginTakeCapture()                           // record what you play this pass
     }
 
     func resetCursor() {
@@ -913,6 +1101,8 @@ final class PracticeSession: ObservableObject {
     /// Smooth mode interpolates a continuous beat (fluid glide); step mode jumps to
     /// the latest note's exact notated beat when it changes.
     func advanceCursorWithPlayback() {
+        accumulatePracticeTime()
+        replayTick()
         guard audio.isPlaying else {
             // In Wait mode the keyboard shows the required notes — don't clear them.
             if !waitMode {
@@ -933,6 +1123,7 @@ final class PracticeSession: ObservableObject {
         if endTime > 0 && t >= endTime {
             if loopSection {
                 if gradeMode { finalizeGradePass() }   // tally the pass (+ ramp/gate the speed trainer)
+                else { endTakeCapture(accuracy: nil) } // ungraded pass — keep the take anyway
                 flushPianoOutput()
                 lastDiscreteBeat = -1
                 if mastered {                          // drill complete — stop and celebrate
@@ -944,8 +1135,10 @@ final class PracticeSession: ObservableObject {
                 bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
                 lastSentBeat = sectionStartBeat
                 if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
+                beginTakeCapture()                  // fresh take per pass
             } else {
                 if gradeMode { finalizeGradePass() }   // record the completed pass, then stop
+                else { endTakeCapture(accuracy: nil) }
                 audio.stop()
             }
             return
