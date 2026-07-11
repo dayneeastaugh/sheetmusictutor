@@ -39,8 +39,11 @@ struct LibraryView: View {
     @Binding var selection: Song.ID?
     // Guided two-step import: pick the score (MusicXML/.mxl), then the MIDI. The old
     // single picker required multi-selecting both files at once — undiscoverable.
-    @State private var showScoreImporter = false
-    @State private var showMIDIImporter = false
+    // ONE .fileImporter drives both steps: SwiftUI gives a view a single file-importer
+    // presentation slot, so attaching two modifiers means the first never presents.
+    private enum ImportStep { case score, midi }
+    @State private var importStep: ImportStep = .score
+    @State private var showImporter = false
     @State private var pendingScoreURL: URL?
     @State private var importError: String?
     @State private var renameTarget: Song?
@@ -100,23 +103,30 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            Button { showScoreImporter = true } label: { Label("Add song", systemImage: "plus") }
+            Button {
+                importStep = .score
+                showImporter = true
+            } label: { Label("Add song", systemImage: "plus") }
         }
-        // Step 1: the score. Step 2 opens automatically after a valid pick.
-        .fileImporter(isPresented: $showScoreImporter,
-                      allowedContentTypes: scoreTypes,
+        // One importer, two steps: score first, then (re-presented) the MIDI.
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: importStep == .score ? scoreTypes : midiTypes,
                       allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                pendingScoreURL = url
-                showMIDIImporter = true
-            }
-        }
-        .fileImporter(isPresented: $showMIDIImporter,
-                      allowedContentTypes: midiTypes,
-                      allowsMultipleSelection: false) { result in
-            defer { pendingScoreURL = nil }
-            if case .success(let urls) = result, let midiURL = urls.first, let xmlURL = pendingScoreURL {
-                performImport(musicXML: xmlURL, midi: midiURL)
+            switch importStep {
+            case .score:
+                if case .success(let urls) = result, let url = urls.first {
+                    pendingScoreURL = url
+                    importStep = .midi
+                    // Re-present after the panel has fully dismissed.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showImporter = true }
+                }
+            case .midi:
+                let midiURL: URL? = { if case .success(let urls) = result { return urls.first }; return nil }()
+                if let midiURL, let xmlURL = pendingScoreURL {
+                    performImport(musicXML: xmlURL, midi: midiURL)
+                }
+                pendingScoreURL = nil
+                importStep = .score
             }
         }
         .alert("Import", isPresented: Binding(get: { importError != nil },
