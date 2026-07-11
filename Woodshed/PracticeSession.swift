@@ -27,6 +27,57 @@ final class KeyboardLights: ObservableObject {
     func clear() { set(rh: [], lh: []) }
 }
 
+/// Incremental lookup over the sorted playback schedules, so the 50 Hz tick does
+/// **amortized O(1)** work instead of re-scanning every note each tick (the old
+/// full-array filters were the main cause of trill-speed keyboard lag on the main
+/// thread). Indices only ever advance with time; a backwards jump (loop restart,
+/// seek) resets them automatically. Pure — no engine/UI refs — and unit-tested.
+struct TickTracker {
+    private(set) var scheduleIdx = -1          // last schedule entry with time <= t
+    private(set) var activeIdx: [Int] = []     // event indices sounding at t (onset <= t < onset+dur)
+    private(set) var winLo = 0                 // grade window: first event with onset >= t - tol
+    private(set) var winHi = 0                 // grade window: first event with onset >  t + tol
+    private var soundNext = 0                  // next event whose onset hasn't been reached
+    private var lastT = -Double.infinity
+
+    mutating func reset() {
+        scheduleIdx = -1; activeIdx = []; winLo = 0; winHi = 0; soundNext = 0
+        lastT = -.infinity
+    }
+
+    /// Advance all indices to playback time `t`. `schedule` must be sorted by time,
+    /// `events` by onsetSeconds (both are, by construction, in `PracticeSession`).
+    mutating func advance(to t: Double, tolerance: Double,
+                          schedule: [(time: Double, beat: Double)], events: [NoteEvent]) {
+        if t < lastT { reset() }               // loop restart / seek back
+        lastT = t
+        while scheduleIdx + 1 < schedule.count && schedule[scheduleIdx + 1].time <= t {
+            scheduleIdx += 1
+        }
+        while soundNext < events.count && events[soundNext].onsetSeconds <= t {
+            activeIdx.append(soundNext); soundNext += 1
+        }
+        activeIdx.removeAll { events[$0].onsetSeconds + events[$0].durationSeconds <= t }
+        while winLo < events.count && events[winLo].onsetSeconds < t - tolerance { winLo += 1 }
+        while winHi < events.count && events[winHi].onsetSeconds <= t + tolerance { winHi += 1 }
+    }
+
+    /// The interpolated notated beat at `t` (smooth cursor), from the current index.
+    func continuousBeat(at t: Double, schedule: [(time: Double, beat: Double)]) -> Double {
+        guard scheduleIdx >= 0 else { return schedule.first?.beat ?? 0 }
+        let a = schedule[scheduleIdx]
+        guard scheduleIdx + 1 < schedule.count else { return a.beat }
+        let b = schedule[scheduleIdx + 1]
+        let f = b.time > a.time ? min(max((t - a.time) / (b.time - a.time), 0), 1) : 0
+        return a.beat + f * (b.beat - a.beat)
+    }
+
+    /// The exact notated beat of the latest note whose onset has passed (step cursor).
+    func discreteBeat(schedule: [(time: Double, beat: Double)]) -> Double {
+        scheduleIdx >= 0 ? schedule[scheduleIdx].beat : (schedule.first?.beat ?? 0)
+    }
+}
+
 final class PracticeSession: ObservableObject {
     let song: Song
 
@@ -51,6 +102,8 @@ final class PracticeSession: ObservableObject {
     // and moves the OSMD cursor to the matching beat.
     private var schedule: [(time: Double, beat: Double)] = []
     private var scoreDuration: Double = 0
+    private var tracker = TickTracker()         // amortized-O(1) per-tick lookups (see above)
+    private var lastSentBeat = -1.0             // last beat pushed to the web cursor (skip no-ops)
     @Published var cursorSmooth = true          // smooth glide vs. discrete note-to-note
     @Published var colorHands = false {         // colour noteheads by hand (RH blue / LH red)
         didSet { bridge.setHandColors(colorHands) }
@@ -275,11 +328,19 @@ final class PracticeSession: ObservableObject {
         bridge.setFlaggedBars(flags.map { $0.bar })
     }
 
-    /// Wire up engine callbacks and fuse the score. Called from the view's `onAppear`.
+    private var hasLoaded = false   // onAppear fires on every re-appearance; load once
+
+    /// Wire up engine callbacks and fuse the score. Called from the view's `onAppear` —
+    /// which SwiftUI fires again whenever the view returns to the hierarchy (sidebar
+    /// toggle, window restore), so everything past the callback wiring is **idempotent**:
+    /// the score is ingested once, not re-parsed with a state reset on every appearance
+    /// (audit ARCH-07).
     func onAppear() {
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
+        guard !hasLoaded else { return }
+        hasLoaded = true
         applyOutput()
         ingest()
         reloadHistory()
@@ -688,6 +749,8 @@ final class PracticeSession: ObservableObject {
 
     func resetCursor() {
         lastDiscreteBeat = -1
+        lastSentBeat = -1
+        tracker.reset()
         cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "reset")
     }
 
@@ -723,6 +786,7 @@ final class PracticeSession: ObservableObject {
                 }
                 audio.loopBackToStart(countInPulses: loopCountInPulses)   // section start (+ optional count-in)
                 bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
+                lastSentBeat = sectionStartBeat
                 if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
             } else {
                 if gradeMode { finalizeGradePass() }   // record the completed pass, then stop
@@ -730,77 +794,59 @@ final class PracticeSession: ObservableObject {
             }
             return
         }
+
+        let events = score?.events ?? []
+        tracker.advance(to: t, tolerance: gradeTolerance, schedule: schedule, events: events)
+
         if cursorSmooth {
-            bridge.seek(continuousBeat(at: t))
+            let beat = tracker.continuousBeat(at: t, schedule: schedule)
+            if abs(beat - lastSentBeat) > 0.0005 { lastSentBeat = beat; bridge.seek(beat) }
         } else {
-            let target = discreteBeat(at: t)
+            let target = tracker.discreteBeat(schedule: schedule)
             if target != lastDiscreteBeat { lastDiscreteBeat = target; bridge.seek(target) }
         }
 
         if gradeMode { advanceGradeMisses(t) }   // ring missed notes as the cursor passes them
 
-        let events = score?.events ?? []
         // Keyboard highlight. In Grade mode, show the notes playable *now* (within the
         // grading tolerance window) as blue so anything else you play flags red — live
         // feedback matching how the pass is scored. Otherwise show the exact sounding
-        // notes (RH blue / LH red when hand-colouring is on).
+        // notes (RH blue / LH red when hand-colouring is on). Both read only the
+        // tracker's small index windows — never the whole event list.
         if gradeMode {
             let rhOn = handMode != 2, lhOn = handMode != 1
-            let now = events.filter { abs($0.onsetSeconds - t) <= gradeTolerance && (($0.hand == .left) ? lhOn : rhOn) }
-            let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))
-            let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
-            let newRH = colorHands ? rh : rh.union(lh)
-            let newLH = colorHands ? lh : []
-            if newRH != lights.rh { lights.rh = newRH }
-            if newLH != lights.lh { lights.lh = newLH }
+            var rh = Set<Int>(), lh = Set<Int>()
+            for i in tracker.winLo..<tracker.winHi {
+                let e = events[i]
+                if e.hand == .left { if lhOn { lh.insert(e.pitch) } }
+                else if rhOn { rh.insert(e.pitch) }
+            }
+            lights.set(rh: colorHands ? rh : rh.union(lh), lh: colorHands ? lh : [])
         } else if showScoreNotes {
-            let now = events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
-            let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))   // right + unknown
-            let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
-            let newRH = colorHands ? rh : rh.union(lh)
-            let newLH = colorHands ? lh : []
-            if newRH != lights.rh { lights.rh = newRH }
-            if newLH != lights.lh { lights.lh = newLH }
+            var rh = Set<Int>(), lh = Set<Int>()
+            for i in tracker.activeIdx {
+                let e = events[i]
+                if e.hand == .left { lh.insert(e.pitch) } else { rh.insert(e.pitch) }   // right + unknown
+            }
+            lights.set(rh: colorHands ? rh : rh.union(lh), lh: colorHands ? lh : [])
         } else {
-            if !lights.rh.isEmpty { lights.rh = [] }
-            if !lights.lh.isEmpty { lights.lh = [] }
+            lights.clear()
         }
 
         // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.
         if outputMode != 0 {
             let rhOn = handMode != 2, lhOn = handMode != 1
-            let target = Set(events.filter { e in
-                e.onsetSeconds <= t && t < e.onsetSeconds + e.durationSeconds
-                    && (e.hand == .right ? rhOn : (e.hand == .left ? lhOn : true))
-            }.map(\.pitch))
+            var target = Set<Int>()
+            for i in tracker.activeIdx {
+                let e = events[i]
+                if e.hand == .right ? rhOn : (e.hand == .left ? lhOn : true) { target.insert(e.pitch) }
+            }
             for n in target.subtracting(pianoSounding) { midi.sendNoteOn(n) }
             for n in pianoSounding.subtracting(target) { midi.sendNoteOff(n) }
             pianoSounding = target
         } else if !pianoSounding.isEmpty {
             flushPianoOutput()
         }
-    }
-
-    /// The exact notated beat of the latest note whose onset time has passed.
-    private func discreteBeat(at t: Double) -> Double {
-        var target = schedule.first?.beat ?? 0
-        for e in schedule where e.time <= t { target = e.beat }
-        return target
-    }
-
-    /// Interpolate the notated beat at playback time `t` from the (time → beat)
-    /// schedule, giving a smoothly-advancing position between note onsets.
-    private func continuousBeat(at t: Double) -> Double {
-        guard let first = schedule.first else { return 0 }
-        if t <= first.time { return first.beat }
-        var i = 0
-        while i + 1 < schedule.count && schedule[i + 1].time <= t { i += 1 }
-        if i + 1 < schedule.count {
-            let a = schedule[i], b = schedule[i + 1]
-            let f = b.time > a.time ? (t - a.time) / (b.time - a.time) : 0
-            return a.beat + f * (b.beat - a.beat)
-        }
-        return schedule[i].beat
     }
 
     // MARK: - Ingestion
@@ -823,6 +869,7 @@ final class PracticeSession: ObservableObject {
 
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
+            tracker.reset()
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
             sectionStart = 1
             sectionEnd = fused.measureStartBeats.count      // whole piece by default

@@ -210,6 +210,87 @@ struct PracticeHistoryTests {
     }
 }
 
+// MARK: - Tick tracker (the 50 Hz playback loop's incremental lookups)
+
+@Suite("Tick tracker")
+struct TickTrackerTests {
+
+    /// A deterministic pseudo-score: n notes, varied onsets/durations/pitches, sorted
+    /// by onset (the invariant `PracticeSession` guarantees).
+    private func makeEvents(_ n: Int) -> [NoteEvent] {
+        var seed: UInt64 = 7
+        func rnd(_ m: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int(seed % UInt64(m))
+        }
+        var t = 0.0
+        return (0..<n).map { _ in
+            t += Double(rnd(40)) / 100.0                     // 0–0.4s apart
+            return NoteEvent(pitch: 40 + rnd(48), spelledName: "x", hand: rnd(2) == 0 ? .right : .left,
+                             voice: 1, notatedType: "quarter", onsetSeconds: t,
+                             durationSeconds: 0.05 + Double(rnd(60)) / 100.0,
+                             notatedBeat: t * 2, matchedXML: true, ornamentNotes: 0)
+        }
+    }
+
+    @Test("incremental results match a brute-force scan at every step")
+    func equivalence() {
+        let events = makeEvents(300)
+        let schedule = events.map { (time: $0.onsetSeconds, beat: $0.notatedBeat) }
+        let tol = 0.30
+        var tracker = TickTracker()
+        let end = (events.last?.onsetSeconds ?? 0) + 1
+        var t = 0.0
+        while t < end {
+            tracker.advance(to: t, tolerance: tol, schedule: schedule, events: events)
+
+            // Brute-force ground truth (the old per-tick full scans).
+            let active = Set(events.indices.filter {
+                events[$0].onsetSeconds <= t && t < events[$0].onsetSeconds + events[$0].durationSeconds
+            })
+            #expect(Set(tracker.activeIdx) == active, "active set at t=\(t)")
+
+            let window = Set(events.indices.filter { abs(events[$0].onsetSeconds - t) <= tol })
+            #expect(Set(tracker.winLo..<tracker.winHi).filter {
+                abs(events[$0].onsetSeconds - t) <= tol
+            }.count == window.count, "grade window at t=\(t)")
+
+            var discrete = schedule.first?.beat ?? 0
+            for e in schedule where e.time <= t { discrete = e.beat }
+            #expect(tracker.discreteBeat(schedule: schedule) == discrete, "discrete beat at t=\(t)")
+
+            t += 0.037   // deliberately not a divisor of the onset grid
+        }
+    }
+
+    @Test("a backwards jump (loop restart) resets and stays correct")
+    func loopRestart() {
+        let events = makeEvents(100)
+        let schedule = events.map { (time: $0.onsetSeconds, beat: $0.notatedBeat) }
+        var tracker = TickTracker()
+        tracker.advance(to: 10.0, tolerance: 0.3, schedule: schedule, events: events)
+        tracker.advance(to: 0.5, tolerance: 0.3, schedule: schedule, events: events)   // loop back
+        let active = Set(events.indices.filter {
+            events[$0].onsetSeconds <= 0.5 && 0.5 < events[$0].onsetSeconds + events[$0].durationSeconds
+        })
+        #expect(Set(tracker.activeIdx) == active)
+    }
+
+    @Test("continuous beat interpolates between anchors and clamps at the ends")
+    func interpolation() {
+        let schedule: [(time: Double, beat: Double)] = [(1.0, 0.0), (2.0, 4.0), (4.0, 8.0)]
+        var tracker = TickTracker()
+        tracker.advance(to: 0.5, tolerance: 0.3, schedule: schedule, events: [])
+        #expect(tracker.continuousBeat(at: 0.5, schedule: schedule) == 0.0)   // before first anchor
+        tracker.advance(to: 1.5, tolerance: 0.3, schedule: schedule, events: [])
+        #expect(tracker.continuousBeat(at: 1.5, schedule: schedule) == 2.0)   // halfway 0→4
+        tracker.advance(to: 3.0, tolerance: 0.3, schedule: schedule, events: [])
+        #expect(tracker.continuousBeat(at: 3.0, schedule: schedule) == 6.0)   // halfway 4→8
+        tracker.advance(to: 9.0, tolerance: 0.3, schedule: schedule, events: [])
+        #expect(tracker.continuousBeat(at: 9.0, schedule: schedule) == 8.0)   // past the end
+    }
+}
+
 // MARK: - Metadata back-compat (older metadata.json must keep decoding)
 
 @Suite("SongMeta compatibility")
