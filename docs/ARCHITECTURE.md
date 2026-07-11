@@ -97,6 +97,8 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   import (2 files → a per-song folder), delete, update; seeds the bundled fixtures on first launch.
   `recordPass(_:for:)` appends a pass to the song's history and bumps its derived stats in place;
   `resetProgress(for:)` wipes the history file + derived stats.
+- **`BarFlag` / `BarFlagStore`** — pure file IO for the per-song `flags.json` (manual revisit notes,
+  one per bar). Session-mirrored for the Flags sheet (`BarFlagsView`) + on-score ⚑ markers.
 - **`PracticeHistory` / `PracticePass`** — pure file IO: append/load a per-song append-only
   `history.jsonl`, plus `troubleBars` (all-time) and `currentTroubleBars` (**"clear as you improve"**:
   a bar counts only while the most recent pass covering it still missed notes). No UI, no engines —
@@ -158,6 +160,13 @@ command. See the JS bridge contract below.
 
 Wait and Grade are mutually exclusive.
 
+- **Speed trainer / mastery gating** — an auto-tempo drill layered on a **Grade + Loop** section.
+  `finalizeGradePass` feeds each pass's accuracy to `applySpeedTrainer`, whose decision is a **pure,
+  unit-tested** function (`drillAdvance`: mode + accuracy + streak + tempo → next state). "By reps"
+  advances every N passes; "by accuracy" only counts passes ≥ threshold (the gate). On advance the
+  tempo steps toward the target (`tempoPct` → `audio.setRate`); N clean passes at the target sets
+  `mastered`, and the tick's loop branch stops instead of looping.
+
 **Section practice** overlays all modes: a bar range (`sectionStart`/`sectionEnd`) maps via
 `FusedScore.measureStartBeats` + `secondsAtBeat` to a time range. `AudioEnginePlayer.startSeconds` sets
 where playback begins; the cursor tick loops back (`loopBackToStart`, which clears hanging sampler
@@ -184,10 +193,12 @@ changing either side requires changing both (`NotationWebView.swift` ↔ `Web/in
 | `window.setSelection(startBar, endBar)` / `clearSelection()` | Draw/clear the section highlight (bars, 1-based) |
 | `window.markMissed(pairs)` / `clearMissed()` | Ring missed notes via a cheap overlay (no re-render) — updated every practice pass |
 | `window.setTroubleBars(bars)` / `clearTroubleBars()` | Amber-tint whole bars you still keep missing (1-based); an overlay below the selection, redrawn on every render/resize |
+| `window.setFlaggedBars(bars)` | Draw a tappable ⚑ at each flagged bar (1-based); tapping posts `flag:<bar>` back |
 
-JS → Swift also posts `select:startBar:endBar` when the user drags a bar selection on the score
-(routed by `NotationBridge.post` to `onSelect`). Bar pixel rects are computed from OSMD measure
-bounding boxes (`AbsolutePosition × 10 × zoom`) after each render.
+JS → Swift also posts `select:startBar:endBar` when the user drags a bar selection on the score, and
+`flag:<bar>` when the user taps a ⚑ flag marker (routed by `NotationBridge.post` to `onSelect` /
+`onFlagTap`). Bar pixel rects are computed from OSMD measure bounding boxes
+(`AbsolutePosition × 10 × zoom`) after each render.
 
 JS → Swift: `window.webkit.messageHandlers.osmd.postMessage(status)` → `NotationBridge.post` →
 `@Published status`. The bridge builds anchor tables (beat→pixel) after each render so the cursor
@@ -204,7 +215,15 @@ collapse). The anchor table is stale after any relayout unless rebuilt — that 
 
 Pragmatic SwiftUI, lightweight MVVM (no TCA, no DI container). The practice screen has a real
 view-model — **`PracticeSession`** — that owns its state and its three services and re-broadcasts
-their `objectWillChange`, so `PracticeView` observes only the session. Elsewhere (`LibraryView`) the
+`audio` + `bridge` `objectWillChange`, so `PracticeView` observes only the session. **`midi` is
+deliberately *not* re-broadcast** — its `activeNotes` change on every key press, and re-rendering the
+whole screen per note made the on-screen keyboard lag on fast passages. Instead the keyboard is a
+subview (`KeyboardPanel`) that observes `MIDIInput` **directly**, and live-note input is fed to the
+matcher via a Combine subscription (`midi.$activeNotes`) inside the session — so a key press repaints
+only the keyboard, not the notation web view + control bar. For the same reason the **score-note
+highlight** (the notes lighting up during playback) lives in a separate `KeyboardLights` object, not
+as `@Published` on the session: it changes ~50 Hz during playback, and keeping it off the session
+means fast passages/trills repaint only the keyboard (and avoids thrashing the whole view graph). Elsewhere (`LibraryView`) the
 `ObservableObject` service is passed by reference directly. High-frequency cursor updates deliberately
 bypass `@Published` (via `NotationBridge`'s direct `evaluateJavaScript`) to avoid 50 Hz view
 invalidation. The matching/playback logic in `PracticeSession` imports no SwiftUI, so it is

@@ -13,6 +13,20 @@
 import Foundation
 import Combine
 
+/// The score-note highlight for the on-screen keyboard, in its own `ObservableObject`
+/// so ~50 Hz playback updates repaint only the keyboard — never the whole practice
+/// screen. `set` skips no-op writes so identical frames don't publish.
+final class KeyboardLights: ObservableObject {
+    @Published var rh: Set<Int> = []
+    @Published var lh: Set<Int> = []
+
+    func set(rh newRH: Set<Int>, lh newLH: Set<Int>) {
+        if newRH != rh { rh = newRH }
+        if newLH != lh { lh = newLH }
+    }
+    func clear() { set(rh: [], lh: []) }
+}
+
 final class PracticeSession: ObservableObject {
     let song: Song
 
@@ -45,6 +59,8 @@ final class PracticeSession: ObservableObject {
     }
     /// Persist the measures-per-system choice for this song. Set by the view.
     var onSaveBarsPerLine: ((Int) -> Void)?
+    /// Called when the user taps a flag marker on the score, so the view can edit it.
+    var onFlagTapped: ((Int) -> Void)?
     private var loadingLayout = false           // true while applying the saved value on open
 
     // MARK: Section practice — play/loop a bar range instead of the whole piece.
@@ -64,8 +80,76 @@ final class PracticeSession: ObservableObject {
     /// Beats (metronome pulses) in a bar, for the loop count-in choices (meter-aware).
     var pulsesPerBar: Int { max(1, score?.metronomeBarPattern.count ?? 4) }
 
+    // MARK: Speed trainer / mastery — an auto-tempo drill on a looped section (Grade mode).
+    // After each graded loop pass the tempo ramps toward the target; "by accuracy" only
+    // counts passes that clear the threshold (the mastery gate). Reaching the target with
+    // its clean passes marks the section mastered and stops the drill.
+    enum SpeedTrainerMode: Int, CaseIterable, Identifiable {
+        case off, byReps, byAccuracy
+        var id: Int { rawValue }
+        var title: String {
+            switch self { case .off: return "Off"; case .byReps: return "By reps"; case .byAccuracy: return "By accuracy" }
+        }
+    }
+    @Published var speedMode: SpeedTrainerMode = .off {
+        didSet {
+            if speedMode != .off {                 // it's a graded, looped drill — set that up
+                if !gradeMode { setGradeMode(true) }
+                loopSection = true
+            }
+            resetDrill()
+        }
+    }
+    @Published var speedTargetPct: Double = 100    // ramp up to here
+    @Published var speedStepPct: Double = 5        // tempo increment per advance
+    @Published var speedThreshold: Double = 0.9    // accuracy for a "clean" pass (byAccuracy)
+    @Published var speedPassesPerStep = 2          // passes needed to advance one step
+    @Published private(set) var passesAtThisTempo = 0
+    @Published private(set) var mastered = false
+
+    private func resetDrill() { passesAtThisTempo = 0; mastered = false }
+
+    /// After a graded loop pass, ramp the tempo toward the target per the trainer rule.
+    private func applySpeedTrainer(accuracy: Double) {
+        guard speedMode != .off, loopSection else { return }
+        let next = Self.drillAdvance(mode: speedMode, accuracy: accuracy, threshold: speedThreshold,
+                                     passesPerStep: speedPassesPerStep, passes: passesAtThisTempo,
+                                     tempoPct: tempoPct, target: speedTargetPct, step: speedStepPct, mastered: mastered)
+        passesAtThisTempo = next.passes
+        if next.tempoPct != tempoPct { tempoPct = next.tempoPct }   // didSet → audio.setRate; slider follows
+        mastered = next.mastered
+    }
+
+    /// Pure state transition for one graded pass — no engine/UI refs, so it's unit-testable.
+    /// "By reps" advances every N passes; "by accuracy" only counts passes ≥ threshold (a
+    /// below-threshold pass resets the streak — the mastery gate). N passes at the target
+    /// marks it mastered.
+    struct DrillState: Equatable { var passes: Int; var tempoPct: Double; var mastered: Bool }
+    static func drillAdvance(mode: SpeedTrainerMode, accuracy: Double, threshold: Double,
+                             passesPerStep: Int, passes: Int, tempoPct: Double,
+                             target: Double, step: Double, mastered: Bool) -> DrillState {
+        guard mode != .off, !mastered else { return DrillState(passes: passes, tempoPct: tempoPct, mastered: mastered) }
+        let clean = (mode == .byReps) ? true : accuracy >= threshold
+        var p = clean ? passes + 1 : 0
+        var tempo = tempoPct
+        var done = mastered
+        if p >= passesPerStep {
+            p = 0
+            if tempoPct < target { tempo = min(target, tempoPct + step) } else { done = true }
+        }
+        return DrillState(passes: p, tempoPct: tempo, mastered: done)
+    }
+
     // MARK: Transport / playback
     @Published var countInBars = 0             // 0 = off, else bars of count-in before Play
+    // Start behaviour
+    @Published var startOnFirstNote = false    // Play arms; your first note starts playback in sync
+    @Published private(set) var armed = false  // armed + waiting for your first note
+    // Metronome behaviour
+    @Published var metronomeStartsWithPlayback = false   // turn the metronome on when playback starts
+    @Published var metronomeStopsWithPlayback = false {  // silence the metronome when playback stops
+        didSet { audio.metronomeFreeRuns = !metronomeStopsWithPlayback }
+    }
     @Published var handMode = 0 {              // 0 = both, 1 = RH only, 2 = LH only
         didSet { applyHands() }
     }
@@ -77,8 +161,10 @@ final class PracticeSession: ObservableObject {
     }
 
     // MARK: Keyboard highlight
-    @Published var scoreLitRH: Set<Int> = []    // score notes sounding now — right hand
-    @Published var scoreLitLH: Set<Int> = []    // score notes sounding now — left hand
+    // The score-note highlight lives in its own object (not @Published on the session)
+    // so updating it every note during playback repaints ONLY the keyboard, not the
+    // whole practice screen — otherwise fast passages/trills lag and thrash the UI.
+    let lights = KeyboardLights()
     @Published var showScoreNotes = true        // light up score notes during playback
     private var pianoSounding: Set<Int> = []    // notes currently sent to the piano (MIDI out)
 
@@ -122,6 +208,9 @@ final class PracticeSession: ObservableObject {
     /// derived stats). Set by the view; keeps this class free of the library type.
     var onPassRecorded: ((PracticePass) -> Void)?
 
+    // MARK: Manual revisit flags (user notes pinned to bars)
+    @Published private(set) var flags: [BarFlag] = []
+
     // MARK: Progress / trouble spots
     @Published private(set) var history: [PracticePass] = []   // this song's recorded passes
     @Published var showTroubleOnScore = true {                 // amber-tint trouble bars on the score
@@ -131,14 +220,28 @@ final class PracticeSession: ObservableObject {
     var currentTroubleBars: [TroubleBar] { PracticeHistory.currentTroubleBars(history) }
 
     private var cancellables: Set<AnyCancellable> = []
+    private var lastActiveNotes: Set<Int> = []
 
     init(song: Song) {
         self.song = song
         // Nested ObservableObjects don't propagate, so re-broadcast the engines'
-        // changes as ours — the view observes only this session.
-        for obj in [audio.objectWillChange, midi.objectWillChange, bridge.objectWillChange] {
+        // changes as ours — the view observes only this session. NOTE: `midi` is
+        // deliberately excluded — its `activeNotes` change on every key press, and
+        // re-rendering the whole practice screen per note made the keyboard lag on
+        // fast passages. The keyboard observes `midi` directly; input is handled by
+        // the subscription below.
+        for obj in [audio.objectWillChange, bridge.objectWillChange] {
             obj.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
+        midi.$activeNotes
+            .dropFirst()
+            .sink { [weak self] new in
+                guard let self else { return }
+                let old = self.lastActiveNotes
+                self.lastActiveNotes = new
+                self.midiNotesChanged(old, new)
+            }
+            .store(in: &cancellables)
         // Apply per-song layout (saved bars-per-line) + the trouble overlay once the
         // notation reports it has rendered (the JS isn't there to receive it before then).
         bridge.$status
@@ -152,18 +255,49 @@ final class PracticeSession: ObservableObject {
     private func applyPersistedLayoutToNotation() {
         if barsPerLine != 0 { bridge.setMeasuresPerSystem(barsPerLine) }
         refreshTroubleOverlay()
+        refreshFlagOverlay()
+    }
+
+    private func refreshFlagOverlay() {
+        bridge.setFlaggedBars(flags.map { $0.bar })
     }
 
     /// Wire up engine callbacks and fuse the score. Called from the view's `onAppear`.
     func onAppear() {
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
+        bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
         applyOutput()
         ingest()
         reloadHistory()
+        flags = BarFlagStore.load(from: song.folder)
+        refreshFlagOverlay()
         loadingLayout = true                      // apply the remembered layout without re-saving it
         barsPerLine = song.meta.barsPerLine ?? 0
         loadingLayout = false
+    }
+
+    // MARK: - Manual revisit flags
+
+    /// A default bar to flag from a quick "flag this bar" action — the section start.
+    var currentBar: Int { sectionStart }
+
+    func flagNote(forBar bar: Int) -> String? { flags.first { $0.bar == bar }?.note }
+
+    /// Pin/replace a note on a bar. An empty note removes the flag.
+    func setFlag(bar: Int, note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        flags.removeAll { $0.bar == bar }
+        if !trimmed.isEmpty { flags.append(BarFlag(bar: bar, note: trimmed)) }
+        flags.sort { $0.bar < $1.bar }
+        BarFlagStore.save(flags, to: song.folder)
+        refreshFlagOverlay()
+    }
+
+    func removeFlag(bar: Int) {
+        flags.removeAll { $0.bar == bar }
+        BarFlagStore.save(flags, to: song.folder)
+        refreshFlagOverlay()
     }
 
     /// (Re)load this song's recorded history from disk and refresh the trouble overlay.
@@ -208,6 +342,7 @@ final class PracticeSession: ObservableObject {
 
     /// Toggle grade mode. Mutually exclusive with Wait mode.
     func setGradeMode(_ on: Bool) {
+        armed = false
         if on {
             if waitMode { setWaitMode(false) }
             gradeMode = true
@@ -288,6 +423,7 @@ final class PracticeSession: ObservableObject {
         onPassRecorded?(pass)          // persist (disk + library stats)
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up
+        applySpeedTrainer(accuracy: r.accuracy)   // ramp tempo / gate mastery for the next pass
     }
 
     /// The 1-based bar containing a notated beat (via the measure start-beat table).
@@ -303,6 +439,7 @@ final class PracticeSession: ObservableObject {
     /// Turn Wait mode on/off. On: stop playback, build the step list (per selected
     /// hands), and park on the first note. Off: clear and reset the cursor.
     func setWaitMode(_ on: Bool) {
+        armed = false
         waitMode = on
         if on {
             gradeMode = false; gradeResult = nil
@@ -314,7 +451,7 @@ final class PracticeSession: ObservableObject {
             if waitSteps.isEmpty { waitMode = false; return }
             showWaitStep(0)
         } else {
-            scoreLitRH = []; scoreLitLH = []
+            lights.rh = []; lights.lh = []
             // On exit, mark the fumbled notes red on the score for review.
             if !mistakes.isEmpty {
                 bridge.markMistakes(mistakes.map { (beat: $0.beat, pitch: $0.pitch) })
@@ -357,8 +494,8 @@ final class PracticeSession: ObservableObject {
         waitPlayed = []
         let s = waitSteps[i]
         bridge.seek(s.beat)
-        scoreLitRH = s.rh.union(s.lh)
-        scoreLitLH = []
+        lights.rh = s.rh.union(s.lh)
+        lights.lh = []
     }
 
     /// A note-on arrived: record it, update what's still missing, and advance once
@@ -380,10 +517,10 @@ final class PracticeSession: ObservableObject {
             if waitIndex < waitSteps.count {
                 showWaitStep(waitIndex)
             } else {
-                scoreLitRH = []; scoreLitLH = []   // reached the end
+                lights.rh = []; lights.lh = []   // reached the end
             }
         } else {
-            scoreLitRH = required.subtracting(waitPlayed)   // only the still-missing notes
+            lights.rh = required.subtracting(waitPlayed)   // only the still-missing notes
         }
     }
 
@@ -428,6 +565,7 @@ final class PracticeSession: ObservableObject {
     /// or preview the cursor there.
     private func onSectionChanged() {
         if audio.isPlaying { audio.clickCeiling = sectionEndTime }   // keep the loop click boundary current
+        if speedMode != .off { resetDrill() }                       // a new section restarts the drill
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count; waitIndex = 0
@@ -481,8 +619,12 @@ final class PracticeSession: ObservableObject {
     func midiNotesChanged(_ old: Set<Int>, _ new: Set<Int>) {
         let added = new.subtracting(old)
         if added.isEmpty { return }
+        if armed {                                   // sync start: your first note starts playback now
+            armed = false
+            startPlayback(countIn: 0)                // immediate — your note IS the downbeat
+        }
         if waitMode { handleWaitInput(added) }
-        if gradeMode, audio.isRunning { handleGradeNoteOn(added) }
+        if gradeMode, audio.isRunning { handleGradeNoteOn(added) }   // isRunning is true right after startPlayback
     }
 
     /// Playback started/stopped: in Grade mode a stop tallies the final (partial) pass.
@@ -503,16 +645,27 @@ final class PracticeSession: ObservableObject {
     func togglePlay() {
         if audio.isPlaying {
             audio.stop()
+        } else if armed {
+            armed = false                            // pressing Play again cancels the "waiting" state
+        } else if startOnFirstNote {
+            armed = true                             // wait for the first note; the tick idles meanwhile
         } else {
-            if gradeMode {   // fresh practice session: reset progress + start a pass
-                gradeResult = nil; gradeHistory = []
-                startGradePass()
-            }
-            resetCursor()
-            audio.startSeconds = sectionStartTime    // play from the section start
-            audio.clickCeiling = sectionEndTime      // don't click the bar past the section (loop point)
-            audio.play(countInBars: countInBars)
+            startPlayback(countIn: countInBars)
         }
+    }
+
+    /// Actually begin playback from the section start (used by Play and by sync-start).
+    private func startPlayback(countIn: Int) {
+        if gradeMode {   // fresh practice session: reset progress + start a pass
+            gradeResult = nil; gradeHistory = []
+            startGradePass()
+        }
+        if speedMode != .off { resetDrill() }        // a fresh Play restarts the drill from the current tempo
+        resetCursor()
+        audio.startSeconds = sectionStartTime        // play from the section start
+        audio.clickCeiling = sectionEndTime          // don't click the bar past the section (loop point)
+        if metronomeStartsWithPlayback && !audio.metronomeOn { audio.metronomeOn = true }
+        audio.play(countInBars: countIn)
     }
 
     func resetCursor() {
@@ -527,8 +680,8 @@ final class PracticeSession: ObservableObject {
         guard audio.isPlaying else {
             // In Wait mode the keyboard shows the required notes — don't clear them.
             if !waitMode {
-                if !scoreLitRH.isEmpty { scoreLitRH = [] }
-                if !scoreLitLH.isEmpty { scoreLitLH = [] }
+                if !lights.rh.isEmpty { lights.rh = [] }
+                if !lights.lh.isEmpty { lights.lh = [] }
             }
             flushPianoOutput()
             return
@@ -543,9 +696,13 @@ final class PracticeSession: ObservableObject {
         let endTime = sectionEndTime + (loopingWithCountIn ? -0.03 : 0.05)
         if endTime > 0 && t >= endTime {
             if loopSection {
-                if gradeMode { finalizeGradePass() }   // tally the pass into the progress history
+                if gradeMode { finalizeGradePass() }   // tally the pass (+ ramp/gate the speed trainer)
                 flushPianoOutput()
                 lastDiscreteBeat = -1
+                if mastered {                          // drill complete — stop and celebrate
+                    audio.stop()
+                    return
+                }
                 audio.loopBackToStart(countInPulses: loopCountInPulses)   // section start (+ optional count-in)
                 bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
                 if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
@@ -576,19 +733,19 @@ final class PracticeSession: ObservableObject {
             let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
             let newRH = colorHands ? rh : rh.union(lh)
             let newLH = colorHands ? lh : []
-            if newRH != scoreLitRH { scoreLitRH = newRH }
-            if newLH != scoreLitLH { scoreLitLH = newLH }
+            if newRH != lights.rh { lights.rh = newRH }
+            if newLH != lights.lh { lights.lh = newLH }
         } else if showScoreNotes {
             let now = events.filter { $0.onsetSeconds <= t && t < $0.onsetSeconds + $0.durationSeconds }
             let rh = Set(now.filter { $0.hand != .left }.map(\.pitch))   // right + unknown
             let lh = Set(now.filter { $0.hand == .left }.map(\.pitch))
             let newRH = colorHands ? rh : rh.union(lh)
             let newLH = colorHands ? lh : []
-            if newRH != scoreLitRH { scoreLitRH = newRH }
-            if newLH != scoreLitLH { scoreLitLH = newLH }
+            if newRH != lights.rh { lights.rh = newRH }
+            if newLH != lights.lh { lights.lh = newLH }
         } else {
-            if !scoreLitRH.isEmpty { scoreLitRH = [] }
-            if !scoreLitLH.isEmpty { scoreLitLH = [] }
+            if !lights.rh.isEmpty { lights.rh = [] }
+            if !lights.lh.isEmpty { lights.lh = [] }
         }
 
         // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.

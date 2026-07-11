@@ -101,6 +101,7 @@ The library is stored on disk as **self-contained per-song folders** (no databas
         score.mid          # the imported MIDI
         metadata.json      # SongMeta (Codable)
         history.jsonl      # one PracticePass per line (append-only; created on first pass)
+        flags.json         # [BarFlag] — manual revisit notes (rewritten on change)
 ```
 
 - **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,
@@ -116,6 +117,10 @@ The library is stored on disk as **self-contained per-song folders** (no databas
   `importSong(musicXML:midi:title:)` copies a pair into a new `<uuid>` folder; `delete`, `update`
   (rewrite metadata); `recordPass(_:for:)` appends a `PracticePass` to `history.jsonl` and updates the
   song's denormalised stats in place. On first launch (empty library) it seeds the two bundled fixtures.
+- **`BarFlag`** (Codable, `bar` + `note` + `date`; one per bar) / **`BarFlagStore`** (enum, pure file
+  IO: `load`/`save` the per-song `flags.json` array). Manual "revisit" notes pinned to bars — a small
+  mutable set rewritten on change (unlike the append-only history). The session mirrors them in memory
+  for the Flags sheet + the on-score ⚑ markers.
 - **`PracticeHistory`** (enum, pure file IO): `append` / `load` the JSON-lines history; `troubleBars`
   (all-time miss counts) and `currentTroubleBars` (**still-outstanding** — a bar counts only while the
   most recent covering pass still missed it, so it clears once played clean). `SongLibrary.recordPass`

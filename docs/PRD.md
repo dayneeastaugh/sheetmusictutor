@@ -33,8 +33,9 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 6. **Play along & grade** — "I play along at tempo; afterwards it tells me my accuracy and timing and
    marks what I missed." *(Built, first cut — 'Grade' mode.)*
 7. **Master & progress** *(not built)* — "It only advances tempo/section when I've played accurately;
-   it shows my trouble spots and history over time." *(Partly built: history, trend, and trouble
-   spots exist; mastery gating — auto-advancing only on accurate play — does not yet.)*
+   it shows my trouble spots and history over time." *(Built: history, trend, trouble spots, and
+   tempo mastery gating — the speed trainer only ramps the tempo when you play accurately. Not yet:
+   hands-separate → hands-together gating.)*
 
 ## 4. Functional requirements
 
@@ -50,9 +51,11 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   Swift-driven follow-cursor (smooth glide or note-to-note step); follow-scroll keeps the active +
   next line in view. Options: colour hands (RH blue / LH red), fixed bars-per-line (1–5 or auto).
 - **Playback** — AVAudioEngine + AVAudioUnitSampler; per-hand mute/solo (Both / R.H. / L.H.); tempo
-  **25–120%** with pitch preserved; output routing to **PC speakers / MIDI piano / both**.
+  **25–120%** with pitch preserved; output routing to **PC speakers / MIDI piano / both**. Optional
+  **sync start** — Play arms and playback begins the instant you play your first note.
 - **Metronome** — meter-aware clicks (eighths for x/8, quarters for x/4), three emphasis tiers,
-  count-in (0/1/2 bars), free-running mode, routable to speakers and/or piano.
+  count-in (0/1/2 bars), free-running mode, routable to speakers and/or piano. Options to **start it
+  with playback** and **stop it when playback stops** (click only while playing).
 - **MIDI input** — CoreMIDI, USB + Bluetooth, auto-reconnect; an on-screen 88-key keyboard that
   lights up what you play (green) and, during playback, the score's notes (blue/red).
 - **Matching — Wait mode** — advance only when the required note(s) are played; live blue/green/red
@@ -69,15 +72,23 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   shows the accuracy trend, best full run, last pass, a **trouble-spot heatmap** (bars ranked by
   missed notes, tap to drill that bar), and a recent-pass log. The library row shows last-practised +
   best. (Cross-song analytics and spaced repetition are still Planned.)
+- **Revisit flags** — pin a short note to a bar ("LH jump") to mark a spot to work on; flagged bars
+  show a tappable ⚑ on the score, and a Flags list adds/edits/deletes and drills to a bar. Stored per
+  song (`flags.json`).
+- **Speed trainer / mastery gating** — an auto-tempo drill on a looped section (Grade mode): after
+  each pass the tempo ramps toward a target by a step. Modes: **by reps** (advance every N passes) and
+  **by accuracy** (advance only after N *clean* passes ≥ a threshold — the mastery gate; a
+  below-threshold pass resets the streak). Reaching the target with its clean passes marks the section
+  **mastered** and stops. (Hands-separate → hands-together gating is still Planned.)
 
 ### Planned (from the roadmap, not yet built)
 - **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, search/sort,
   target-tempo shown in the list, `.mxl` (compressed) import. *(Last-practised + best now shown.)*
 - **Section refinements** — named/saved clips per piece, drag-across-notes selection, A/B markers.
   *(Per-loop count-in now built; drag-to-select on the score already exists.)*
-- **Speed trainer** — manual, auto-by-reps, and **auto-by-accuracy** tempo ramps.
 - **Rhythm tools** — rhythm-only playback, subdivision grid, tap-along trainer, count display.
-- **Mastery gating** — advance only on N clean passes; hands-separate → hands-together gating.
+- **Mastery gating — hands** — hands-separate → hands-together gating. *(Tempo mastery gating and the
+  speed trainer are built — see Implemented.)*
 - **Progress & analytics — cross-song** — per-piece tempo-over-time, library-wide heatmap, spaced
   repetition. *(Per-piece history/trend/trouble-spots are built — see Implemented.)*
 - **Persistence — cross-song store** — a DB (GRDB) if/when library-wide querying needs it; per-song
@@ -123,6 +134,6 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Grading tolerance** is a single fixed ±300 ms (musical). PRD wants it tempo-aware (tighter at
   speed, wider when slow) and early/late labelling. Confirm target behaviour.
 - **iPad** is a stated first-class platform but untested; the sound source differs (no system `.dls`).
-- **Mastery gating** — auto-advancing tempo/section only on N clean passes (and the accuracy-tied
-  speed ramp) is the remaining "tutor" piece. The per-pass history it needs is now recorded; the
-  gating logic + UI are not built.
+- **Mastery gating — hands** — tempo mastery gating (the accuracy-tied speed ramp) is built. The
+  remaining piece is a **hands-separate → hands-together** progression (drill R.H., then L.H., then
+  both, each gated on mastery). Confirm the desired flow.

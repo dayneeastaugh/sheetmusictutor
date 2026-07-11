@@ -36,20 +36,24 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
    modes, replacing the old scattered toggles) on the left; an audio-status caption and the
    `▶︎ Play / ◼ Stop` button (`.borderedProminent`, Space shortcut, disabled in Wait mode) on the right.
    On macOS a `navigationSubtitle` shows tempo · time-sig · key · note count.
-2. **Status line** — one caption that shows whatever's relevant: Wait progress (`n/N` + fumbles),
-   Grade pass result + accuracy trend, "Red = notes you fumbled" + **Clear marks**, the active
-   section range, or the web-bridge status.
+2. **Status line** — one caption that shows whatever's relevant: "Play a note to start…" (when armed
+   for sync start), Wait progress (`n/N` + fumbles), Grade pass result + accuracy trend, "Red = notes
+   you fumbled" + **Clear marks**, the active section range, or the web-bridge status. The Play button
+   shows **Waiting…** while armed.
 3. **Notation** — the `WKWebView` at `maxHeight: .infinity` (white, rounded 8 pt, hairline border).
    If the song fails to load, a `ContentUnavailableView` replaces it.
 4. **Control bar** — a **`FlowLayout`** (wraps on narrow widths) of labelled groups: **Hands**
    (segmented Both/R.H./L.H.), **Tempo** (% + slider 25–120), **Section** (from/to steppers, `🔁 Loop`,
-   `All`), a **Loop count-in** menu (Off / 1 beat … / Full bar — choices are meter-aware, capped at the
-   section's beats-per-bar), plus a **Metronome** toggle and an **Output** menu (Speakers / Piano / Both).
+   `All`), a **Loop count-in** menu (Off / 1 beat … / Full bar — meter-aware), a **Speed trainer** menu
+   (Off / By reps / By accuracy + target/step/threshold/passes), plus a **Metronome** toggle and an
+   **Output** menu (Speakers / Piano / Both).
 5. **Keyboard** — the 88-key `PianoKeyboardView` (**always visible**; 88 pt on Mac, 74 pt on iPad),
    with a legend + MIDI connection status beneath.
-6. **More menu** (toolbar `⋯`) — the less-used controls: Count-in, Smooth cursor, Highlight score
-   notes, **Show trouble spots on score**, Colour hands, Bars per line (**remembered per song** in
-   `metadata.json`), Step cursor forward, Reset cursor, **Show progress…**, and **Show diagnostics…**.
+6. **More menu** (toolbar `⋯`) — grouped into labelled sections: **Start** (Count-in, "Start on my
+   first note" = sync start), **Metronome** ("Start with playback", "Stop when playback stops"),
+   **Notation** (Smooth cursor, Highlight score notes, Show trouble spots, Colour hands, Bars per line
+   — remembered per song), **Cursor** (Step forward, Reset), and the sheets (**Flags…**,
+   **Show progress…**, **Show diagnostics…**).
 7. **Progress** (behind the More menu, in a sheet) — headline stats (passes, best full run, last
    pass), an accuracy **trend sparkline** (with a 95% target guide), a **"still need work"** list
    (bars you're currently missing, each a tap-to-drill button that focuses the section on that bar;
@@ -66,6 +70,7 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
 | Hand — left | `#C62828` (red) | LH noteheads (notation) & LH score notes (keyboard) |
 | Mistake / missed | `#D32F2F` (red) | Review marks on noteheads |
 | Trouble bar | `rgba(245,158,11,…)` (amber) | Bars you still keep missing, tinted on the score (below the blue section selection) |
+| Flag marker | `#8e44ad` (purple ⚑) | A manual revisit note pinned to a bar; a tappable marker at the bar's top-left |
 | You (input) | `Color.green` | Notes you're holding on the MIDI piano / mouse |
 | Wrong (Wait/Grade) | `Color.red` | A held note that isn't expected now |
 | Cursor | OSMD green highlight | The follow-cursor bar |
@@ -118,9 +123,21 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 - **A pass is recorded once, on completion** — reaching the section end (each loop, or the single
   play-through). Stopping early **abandons** the partial pass (it isn't recorded), so the history and
   trend only reflect passes you actually finished.
+- **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
+  ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
+  shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%
+  🎉" and the drill stops.
+- **Sync start:** with "Start on my first note" on, pressing Play **arms** (status: "Play a note to
+  start…", button reads "Waiting…") and playback begins the instant you play a note — your note is the
+  downbeat. Optionally the metronome starts with playback and/or stops when playback stops (so the
+  click runs only while you're playing).
 - **Loop count-in:** with Loop on, an optional count-in of N beats plays before **each** pass (the
   clock freezes at the section start, the metronome clicks the last N beats of the bar as a pickup,
   then playback resumes) — time to reposition your hands. N is meter-aware (Off up to a full bar).
+- **Revisit flags (manual):** pin a short note to a bar to remind yourself what to work on. Flagged
+  bars show a tappable purple **⚑** at the top-left on the score — tap it to edit/delete the note.
+  The **Flags…** sheet (More menu) lists them (bar + note), adds a flag for a chosen bar, and taps
+  through to drill that bar. Stored per song in `flags.json`.
 - **Trouble spots on the score:** the bars you still keep missing are tinted **amber** on the notation
   (toggle: More → "Show trouble spots on score"). The set is "clear as you improve" — a bar drops off
   once the most recent pass covering it is clean, and updates live after each pass. The Progress

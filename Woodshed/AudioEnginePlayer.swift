@@ -61,6 +61,8 @@ final class AudioEnginePlayer: ObservableObject {
     // Metronome click routing (mirrors the playback output selection).
     private var metronomeSpeakers = true
     private var metronomePiano = false
+    /// When false, the metronome only clicks during playback (no free-run when stopped).
+    var metronomeFreeRuns = true
     /// Set by the app to send a click to the piano over MIDI (called off the main thread).
     var pianoClick: ((ClickLevel) -> Void)?
 
@@ -109,7 +111,7 @@ final class AudioEnginePlayer: ObservableObject {
         self.clickGrid = clickGrid
         self.barPattern = barPattern
         self.pulseSeconds = pulseSeconds
-        if metronomeOn && !isPlaying { startFreeRun() }   // pick up the new tempo/meter
+        if metronomeOn && !isPlaying && metronomeFreeRuns { startFreeRun() }   // pick up the new tempo/meter
     }
 
     /// Toggle the metronome. While playing it locks to the music; while stopped it
@@ -117,7 +119,10 @@ final class AudioEnginePlayer: ObservableObject {
     func setMetronome(_ on: Bool) {
         metronomeOn = on
         stopMetroTimer()
-        if on { isPlaying ? startSynced() : startFreeRun() }
+        if on {
+            if isPlaying { startSynced() }
+            else if metronomeFreeRuns { startFreeRun() }
+        }
     }
 
     /// Playback-synced: fire grid clicks as the sequencer position reaches them.
@@ -301,7 +306,7 @@ final class AudioEnginePlayer: ObservableObject {
     func setRate(_ rate: Float) {
         playbackRate = max(0.05, rate)
         sequencer?.rate = playbackRate
-        if metronomeOn && !isPlaying { startFreeRun() }   // rescale the free-run interval
+        if metronomeOn && !isPlaying && metronomeFreeRuns { startFreeRun() }   // rescale the free-run interval
     }
 
     /// Real elapsed playback time in seconds (same time base as our parsed onsets).
@@ -391,6 +396,6 @@ final class AudioEnginePlayer: ObservableObject {
         allSamplerNotesOff()
         isPlaying = false
         isRunning = false
-        if metronomeOn { startFreeRun() }   // resume the free-run click when stopped
+        if metronomeOn && metronomeFreeRuns { startFreeRun() }   // resume free-run only if enabled
     }
 }

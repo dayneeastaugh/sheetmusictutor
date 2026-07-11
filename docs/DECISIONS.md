@@ -258,6 +258,59 @@ also tighten non-count-in section loops and the initial section Play), not count
 the downbeat from the count-in timer and skipping it in `startSynced` (tighter, but risks a double
 downbeat — revisit only if residual `seq.start()` latency is audible).
 
+### ADR-026 — Manual revisit flags: one note per bar, own file, tappable on the score
+**2026-07-10.** A user can pin a short note to a bar (`BarFlag`, `BarFlagStore`), stored per song in
+`flags.json` — a small array rewritten on change (not append-only like history). One flag per bar
+(re-flagging edits it). Flagged bars show a tappable purple ⚑ overlay on the score (`setFlaggedBars`
+→ `flag:<bar>` post → inline editor); a Flags sheet lists/adds/edits/deletes and drills to a bar.
+**Rationale:** "areas I still need to look at" is partly *judgement*, not just missed-note stats, so a
+manual complement to the auto trouble spots. A rewritten JSON array fits a small mutable set;
+one-per-bar keeps the model and the on-score marker simple. Tappable markers put editing where you
+read, and the sheet keeps every action reachable without the score gesture (Mac + iPad).
+**Rejected:** flags in `metadata.json` (unbounded growth in the file the library scans); multiple
+notes per bar (marker clutter + fiddlier editing — revisit if wanted); a distinct score gesture to
+*create* a flag on an unflagged bar (would collide with drag-select; adding is via the sheet instead).
+
+### ADR-027 — Keep MIDI input off the whole-screen re-render (keyboard perf)
+**2026-07-11.** `PracticeSession` re-broadcasts only `audio` + `bridge` `objectWillChange`, not
+`midi`. The on-screen keyboard is its own subview observing `MIDIInput` directly; live input reaches
+the matcher via a `midi.$activeNotes` Combine subscription in the session (not a view `.onChange`).
+**Rationale:** forwarding `midi` made the entire practice screen (notation `WKWebView` + control bar)
+re-render on every note-on/off; fast passages saturated the main thread and the keyboard visibly
+skipped notes. Scoping the repaint to the keyboard fixes it. Grade-mode note handling touches only
+private tallies, so it doesn't re-render the screen either. **Same treatment for the score-note
+highlight** (`scoreLitRH/LH`): moved off the session into a separate `KeyboardLights` object, because
+it changes ~50 Hz during playback and was re-rendering the whole screen (trills/fast runs lagged, and
+the churn was a likely source of a stop-time crash).
+**Rejected:** throttling `activeNotes` (adds latency to feedback); moving the keyboard to a Canvas
+(bigger rewrite, not needed once the re-render was scoped).
+
+### ADR-028 — Sync start + metronome-follows-playback options
+**2026-07-11.** Three opt-in playback behaviours (in the More menu's Start/Metronome sections): "Start
+on my first note" (Play *arms*; the first MIDI note begins playback in sync, no count-in — your note
+is the downbeat), "Metronome start with playback", and "Metronome stop when playback stops"
+(`AudioEnginePlayer.metronomeFreeRuns = false` → the click sounds only while playing, no free-run).
+**Rationale:** supports a play-along workflow — arm, start playing, and the backing + click come in
+with you and stop when you stop. Kept as independent toggles (as requested) that compose into that
+flow; grouped logically rather than scattered.
+**Rejected:** a single "play-along mode" switch (less flexible; the pieces are individually useful);
+counting the arming note *into* a count-in (a sync start is meant to be immediate).
+
+### ADR-029 — Unify speed trainer + mastery gating as one auto-tempo drill
+**2026-07-11.** The "speed trainer" and "mastery gating" roadmap items are the *same* mechanism, so
+they're one feature: an auto-tempo drill on a Grade+Loop section. After each pass the tempo ramps
+toward a target; mode **by reps** advances every N passes, **by accuracy** only after N passes ≥ a
+threshold (the mastery gate). Reaching the target with clean passes marks it mastered and stops. The
+decision is a pure `drillAdvance` function (unit-tested); the session just applies its result.
+**Rationale:** "advance the tempo only when I've played accurately" (mastery gating) and "auto-by-
+accuracy tempo ramp" (speed trainer) describe one loop — splitting them would duplicate state and UI.
+A pure transition keeps the gating logic testable (PRD §9). Turning it on auto-enables Grade+Loop so
+it "just works."
+**Rejected:** separate speed-trainer and mastery-gating controls (redundant); advancing/mastering per
+*section* automatically (kept to tempo for the first cut — section/hands progression is the next
+step). **Open:** hands-separate → hands-together gating; whether mastery should also auto-advance to
+the next section.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.

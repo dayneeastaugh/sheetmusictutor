@@ -18,6 +18,9 @@ struct PracticeView: View {
     @StateObject private var session: PracticeSession
     @State private var showDiagnostics = false
     @State private var showProgress = false
+    @State private var showFlags = false
+    @State private var flagEditorBar: Int?      // non-nil ⇒ inline flag editor open (from a score tap)
+    @State private var flagEditorNote = ""
 
     init(song: Song, library: SongLibrary) {
         self.song = song
@@ -54,16 +57,28 @@ struct PracticeView: View {
         .onAppear {
             session.onPassRecorded = { [library, song] pass in library.recordPass(pass, for: song) }
             session.onSaveBarsPerLine = { [library, song] n in library.setBarsPerLine(n, for: song) }
+            session.onFlagTapped = { bar in flagEditorBar = bar; flagEditorNote = session.flagNote(forBar: bar) ?? "" }
             session.onAppear()
         }
         .onReceive(tick) { _ in session.advanceCursorWithPlayback() }
-        .onChange(of: session.midi.activeNotes) { old, new in session.midiNotesChanged(old, new) }
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }
         .sheet(isPresented: $showProgress) {
             PracticeProgressView(song: song, passes: session.history,
                                  onDrillBar: { session.focusBar($0) },
                                  onReset: { library.resetProgress(for: song); session.reloadHistory() })
+        }
+        .sheet(isPresented: $showFlags) { BarFlagsView(session: session) }
+        .alert("Flag bar \(flagEditorBar ?? 0)", isPresented: Binding(get: { flagEditorBar != nil },
+                                                                      set: { if !$0 { flagEditorBar = nil } })) {
+            TextField("Note (e.g. LH jump)", text: $flagEditorNote)
+            Button("Save") { if let b = flagEditorBar { session.setFlag(bar: b, note: flagEditorNote) }; flagEditorBar = nil }
+            if let b = flagEditorBar, session.flagNote(forBar: b) != nil {
+                Button("Delete", role: .destructive) { if let b = flagEditorBar { session.removeFlag(bar: b) }; flagEditorBar = nil }
+            }
+            Button("Cancel", role: .cancel) { flagEditorBar = nil }
+        } message: {
+            Text("A short reminder of what to work on at this bar.")
         }
     }
 
@@ -91,8 +106,8 @@ struct PracticeView: View {
                 Text(session.audio.status).font(.caption).foregroundStyle(.orange)
             }
             Button { session.togglePlay() } label: {
-                Label(session.audio.isPlaying ? "Stop" : "Play",
-                      systemImage: session.audio.isPlaying ? "stop.fill" : "play.fill")
+                Label(session.armed ? "Waiting…" : (session.audio.isPlaying ? "Stop" : "Play"),
+                      systemImage: session.armed ? "clock" : (session.audio.isPlaying ? "stop.fill" : "play.fill"))
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.space, modifiers: [])
@@ -105,7 +120,21 @@ struct PracticeView: View {
     @ViewBuilder
     private var statusBar: some View {
         HStack(spacing: 10) {
-            if session.waitMode {
+            if session.armed {
+                Label("Play a note to start…", systemImage: "hand.point.up.left")
+                    .foregroundStyle(.blue)
+            } else if session.speedMode != .off {
+                if session.mastered {
+                    Label("Section mastered at \(Int(session.tempoPct))% 🎉", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    let unit = session.speedMode == .byAccuracy ? "clean" : "passes"
+                    Text("Speed trainer · \(Int(session.tempoPct))% → \(Int(session.speedTargetPct))% · "
+                         + "\(session.passesAtThisTempo)/\(session.speedPassesPerStep) \(unit)"
+                         + (session.gradeResult.map { " · last \(Int($0.accuracy * 100))%" } ?? ""))
+                        .foregroundStyle(.blue)
+                }
+            } else if session.waitMode {
                 Text((session.waitIndex < session.waitStepCount
                       ? "Play the blue notes (red = wrong) · \(session.waitIndex + 1)/\(session.waitStepCount)"
                       : "✓ Complete") + " · Fumbles: \(session.mistakeCount)")
@@ -201,6 +230,32 @@ struct PracticeView: View {
                 }
                 .pickerStyle(.menu).labelsHidden().fixedSize()
             }
+            // Speed trainer (auto-tempo drill on the looped section, in Grade mode)
+            Menu {
+                Picker("Speed trainer", selection: $session.speedMode) {
+                    ForEach(PracticeSession.SpeedTrainerMode.allCases) { Text($0.title).tag($0) }
+                }
+                if session.speedMode != .off {
+                    Picker("Target tempo", selection: $session.speedTargetPct) {
+                        ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
+                    }
+                    Picker("Step", selection: $session.speedStepPct) {
+                        ForEach([2, 5, 10], id: \.self) { Text("+\($0)%").tag(Double($0)) }
+                    }
+                    if session.speedMode == .byAccuracy {
+                        Picker("Clean pass ≥", selection: $session.speedThreshold) {
+                            ForEach([80, 85, 90, 95, 100], id: \.self) { Text("\($0)%").tag(Double($0) / 100) }
+                        }
+                    }
+                    Picker("Passes per step", selection: $session.speedPassesPerStep) {
+                        ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                }
+            } label: {
+                Label(session.speedMode == .off ? "Speed trainer" : "Speed: \(session.speedMode.title)",
+                      systemImage: "speedometer")
+            }
+            .fixedSize()
             // Metronome
             Toggle(isOn: Binding(get: { session.audio.metronomeOn }, set: { session.setMetronome($0) })) {
                 Label("Metronome", systemImage: "metronome")
@@ -219,26 +274,38 @@ struct PracticeView: View {
     /// The overflow menu — count-in, cursor, colour, bars/line, and the diagnostics.
     private var moreMenu: some View {
         Menu {
-            Picker("Count-in", selection: $session.countInBars) {
-                Text("No count-in").tag(0)
-                Text("1-bar count-in").tag(1)
-                Text("2-bar count-in").tag(2)
+            Section("Start") {
+                Picker("Count-in", selection: $session.countInBars) {
+                    Text("No count-in").tag(0)
+                    Text("1-bar count-in").tag(1)
+                    Text("2-bar count-in").tag(2)
+                }
+                Toggle("Start on my first note", isOn: $session.startOnFirstNote)
             }
-            Toggle("Smooth cursor", isOn: $session.cursorSmooth)
-            Toggle("Highlight score notes", isOn: $session.showScoreNotes)
-            Toggle("Show trouble spots on score", isOn: $session.showTroubleOnScore)
-            Toggle("Colour hands (RH blue / LH red)", isOn: $session.colorHands)
-            Picker("Bars per line", selection: $session.barsPerLine) {
-                Text("Auto").tag(0)
-                ForEach(1...5, id: \.self) { Text("\($0) per line").tag($0) }
+            Section("Metronome") {
+                Toggle("Start with playback", isOn: $session.metronomeStartsWithPlayback)
+                Toggle("Stop when playback stops", isOn: $session.metronomeStopsWithPlayback)
             }
-            Divider()
-            Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
-                .disabled(session.audio.isPlaying)
-            Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
-            Divider()
-            Button { showProgress = true } label: { Label("Show progress…", systemImage: "chart.line.uptrend.xyaxis") }
-            Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
+            Section("Notation") {
+                Toggle("Smooth cursor", isOn: $session.cursorSmooth)
+                Toggle("Highlight score notes", isOn: $session.showScoreNotes)
+                Toggle("Show trouble spots on score", isOn: $session.showTroubleOnScore)
+                Toggle("Colour hands (RH blue / LH red)", isOn: $session.colorHands)
+                Picker("Bars per line", selection: $session.barsPerLine) {
+                    Text("Auto").tag(0)
+                    ForEach(1...5, id: \.self) { Text("\($0) per line").tag($0) }
+                }
+            }
+            Section("Cursor") {
+                Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
+                    .disabled(session.audio.isPlaying)
+                Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
+            }
+            Section {
+                Button { showFlags = true } label: { Label("Flags…", systemImage: "flag") }
+                Button { showProgress = true } label: { Label("Show progress…", systemImage: "chart.line.uptrend.xyaxis") }
+                Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
+            }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
@@ -254,21 +321,7 @@ struct PracticeView: View {
     // MARK: - Keyboard
 
     private var keyboardArea: some View {
-        VStack(spacing: 4) {
-            PianoKeyboardView(litNotes: session.midi.activeNotes,
-                              scoreRH: (session.showScoreNotes || session.waitMode || session.gradeMode) ? session.scoreLitRH : [],
-                              scoreLH: (session.showScoreNotes || session.waitMode || session.gradeMode) ? session.scoreLitLH : [],
-                              flagWrong: session.waitMode || session.gradeMode,
-                              onPress: { session.previewNoteOn($0) },
-                              onRelease: { session.previewNoteOff($0) })
-                .frame(height: keyboardHeight)
-            HStack {
-                Text("Green = you · RH blue / LH red")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Spacer()
-                Text(session.midi.status).font(.caption2).foregroundStyle(.secondary)
-            }
-        }
+        KeyboardPanel(session: session, midi: session.midi, lights: session.lights, height: keyboardHeight)
     }
 
     // MARK: - Diagnostics (behind the More menu — score facts + reconciliation + events)
@@ -351,6 +404,36 @@ struct PracticeView: View {
         let majors = ["Cb","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E","B","F#","C#"]
         let idx = fifths + 7
         return (0..<majors.count).contains(idx) ? "\(majors[idx]) major" : "?"
+    }
+}
+
+/// The on-screen keyboard, split into its own view so it can observe `MIDIInput`
+/// **directly** — it repaints on each key press without re-rendering the whole
+/// practice screen, so fast passages don't lag. It also observes the session for the
+/// score-note highlight + mode flags.
+private struct KeyboardPanel: View {
+    @ObservedObject var session: PracticeSession
+    @ObservedObject var midi: MIDIInput
+    @ObservedObject var lights: KeyboardLights
+    var height: CGFloat
+
+    var body: some View {
+        let showScore = session.showScoreNotes || session.waitMode || session.gradeMode
+        VStack(spacing: 4) {
+            PianoKeyboardView(litNotes: midi.activeNotes,
+                              scoreRH: showScore ? lights.rh : [],
+                              scoreLH: showScore ? lights.lh : [],
+                              flagWrong: session.waitMode || session.gradeMode,
+                              onPress: { session.previewNoteOn($0) },
+                              onRelease: { session.previewNoteOff($0) })
+                .frame(height: height)
+            HStack {
+                Text("Green = you · RH blue / LH red")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text(midi.status).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
