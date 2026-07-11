@@ -51,6 +51,36 @@ struct LibraryView: View {
     @State private var importError: String?
     @State private var renameTarget: Song?
     @State private var renameText = ""
+    @State private var tagsTarget: Song?
+    @State private var tagsText = ""
+    @State private var searchText = ""
+    @State private var sortOrder: SortOrder = .title
+    @State private var showOverview = false
+
+    private enum SortOrder: String, CaseIterable, Identifiable {
+        case title = "Title", lastPracticed = "Last practised", best = "Best score"
+        var id: String { rawValue }
+    }
+
+    /// The library filtered by the search field (title + tags) and sorted.
+    private var visibleSongs: [Song] {
+        var songs = library.songs
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty {
+            songs = songs.filter { s in
+                s.title.lowercased().contains(q)
+                    || (s.meta.tags ?? []).contains { $0.lowercased().contains(q) }
+            }
+        }
+        switch sortOrder {
+        case .title:
+            return songs   // library storage order is already title-sorted
+        case .lastPracticed:
+            return songs.sorted { ($0.meta.lastPracticed ?? .distantPast) > ($1.meta.lastPracticed ?? .distantPast) }
+        case .best:
+            return songs.sorted { ($0.meta.bestAccuracy ?? -1) > ($1.meta.bestAccuracy ?? -1) }
+        }
+    }
 
     /// Step 1 file types: MusicXML, uncompressed or .mxl (MuseScore's default export).
     private var scoreTypes: [UTType] {
@@ -72,7 +102,7 @@ struct LibraryView: View {
                 Text("No songs yet. Tap + to import a MusicXML + MIDI pair.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(library.songs) { song in
+            ForEach(visibleSongs) { song in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.headline)
@@ -105,9 +135,18 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search titles and tags")
         .toolbar {
+            Button { showOverview = true } label: { Label("Practice overview", systemImage: "chart.bar.doc.horizontal") }
+                .help("Totals and what's most due across all songs")
+            Menu {
+                Picker("Sort by", selection: $sortOrder) {
+                    ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+                }
+            } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
             Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
         }
+        .sheet(isPresented: $showOverview) { PracticeOverviewView(library: library) }
         // The per-step guidance: says what to pick before the (context-free) file dialog.
         .alert(importPrompt == .score ? "Import a song — step 1 of 2" : "Step 2 of 2 — the MIDI",
                isPresented: Binding(get: { importPrompt != nil },
@@ -154,24 +193,47 @@ struct LibraryView: View {
             Button("Save") { saveRename() }
             Button("Cancel", role: .cancel) { renameTarget = nil }
         }
+        .alert("Tags", isPresented: Binding(get: { tagsTarget != nil },
+                                            set: { if !$0 { tagsTarget = nil } })) {
+            TextField("jazz, recital, hard", text: $tagsText)
+            Button("Save") { saveTags() }
+            Button("Cancel", role: .cancel) { tagsTarget = nil }
+        } message: { Text("Comma-separated labels — searchable from the library search field.") }
     }
 
     /// Row actions, shared by the ⋯ menu and the right-click/long-press context menu.
     @ViewBuilder
     private func songActions(_ song: Song) -> some View {
         Button("Rename…") { renameTarget = song; renameText = song.title }
+        Button("Edit tags…") { tagsTarget = song; tagsText = (song.meta.tags ?? []).joined(separator: ", ") }
         Button(song.meta.favourite ? "Remove favourite" : "Favourite") { toggleFavourite(song) }
         Button("Delete", role: .destructive) { library.delete(song) }
     }
 
-    /// Row subtitle: practice status once there's history, else the date added.
+    private func saveTags() {
+        guard let song = tagsTarget else { return }
+        var meta = song.meta
+        let tags = tagsText.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        meta.tags = tags.isEmpty ? nil : tags
+        library.update(meta, in: song.folder)
+        tagsTarget = nil
+    }
+
+    /// Row subtitle: practice status once there's history, else the date added; + tags.
     private func rowSubtitle(_ song: Song) -> String {
+        var s: String
         if let last = song.meta.lastPracticed {
-            var s = "Practiced \(last.formatted(date: .abbreviated, time: .omitted))"
+            s = "Practiced \(last.formatted(date: .abbreviated, time: .omitted))"
             if let best = song.meta.bestAccuracy { s += " · best \(Int(best * 100))%" }
-            return s
+        } else {
+            s = "Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))"
         }
-        return "Added \(song.meta.dateAdded.formatted(date: .abbreviated, time: .omitted))"
+        if let tags = song.meta.tags, !tags.isEmpty {
+            s += " · " + tags.map { "#\($0)" }.joined(separator: " ")
+        }
+        return s
     }
 
     private func toggleFavourite(_ song: Song) {

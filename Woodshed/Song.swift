@@ -22,6 +22,7 @@ struct SongMeta: Codable, Equatable {
     var lastPracticed: Date? = nil      // updated when a pass is recorded
     var bestAccuracy: Double? = nil     // best full-piece Grade accuracy (0…1), for the library row
     var barsPerLine: Int? = nil         // remembered measures-per-system (nil / 0 = auto layout)
+    var tags: [String]? = nil           // freeform labels ("jazz", "recital") — searchable
 }
 
 /// A library song = its metadata + the folder it lives in. File URLs are derived.
