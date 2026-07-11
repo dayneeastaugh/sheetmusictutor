@@ -16,8 +16,9 @@ each for what it's good at:
 - **MusicXML = identity / notation.** Spelling (C♯ vs D♭), hand/staff, voice, notated rhythm, ties,
   ornaments, per-measure meter — how it's *written*. Never compute playback timing from it.
 
-> Export `.musicxml` **uncompressed** (not `.mxl`). `.mxl` is a zip; unzipping in-app (esp. on iPad)
-> is avoidable plumbing. `.mxl` support is a later concern.
+> Both `.musicxml` (uncompressed) and **`.mxl`** (compressed — MuseScore's default) are accepted.
+> `.mxl` is a ZIP; `MXLArchive` extracts the score with a minimal, dependency-free, bounds-checked
+> reader (Compression framework for the DEFLATE) honouring `META-INF/container.xml`'s rootfile.
 
 ## Rule 1 — Align in musical beats from MIDI ticks, not seconds×BPM
 Convert each MIDI note's tick position to beats (`tick / ticksPerQuarter`). This is
@@ -89,8 +90,11 @@ downbeat on the barline through pickups and meter changes.
 ## Open Questions
 - **Repeats/voltas** are detected and warned about but not aligned (see Known limitation above) —
   implementing XML timeline unfolding is the biggest ingestion feature left.
-- Grace-note timing/handling isn't specially modelled — confirm whether the matcher needs it.
+- Grace notes are now parsed (`isGrace`, zero duration, don't advance the cursor) and match after
+  principals so they can't steal a principal's MIDI partner. Their *realized timing* is still not
+  modelled specially — fine for matching, revisit only if grading of graces themselves is wanted.
 - Multiple voices per staff beyond the tested files (e.g. divisi) are parsed (`voice`) but untested.
-- `.mxl` (compressed) import is not implemented; the contract is uncompressed `.musicxml`.
+  Multi-**part** scores are refused with a clear error (solo piano only).
 - Track→hand relies on MuseScore's one-track-per-staff export + an average-pitch fallback; a file
-  that merges hands into one track would need a different strategy.
+  that merges hands into one track would need a different strategy (single-track files currently
+  end up with `unknown` hands and won't fuse — surface via the ingest banner).

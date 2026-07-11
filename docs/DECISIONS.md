@@ -347,6 +347,28 @@ is idempotent (re-appearance no longer re-parses the score and resets practice s
 deferred; the deinit fixes remove the leak); moving the tick off the main thread (the work is now
 trivial; the complexity isn't warranted).
 
+### ADR-032 — Wave 2: pure GradeMatcher + signed timing, parser worklist, guided .mxl import
+**2026-07-11.** Third remediation wave (docs/audit/04-roadmap.md):
+(1) **`GradeMatcher`** — the Grade-mode engine extracted as a pure struct (PRD §9): expected notes +
+note-ons + clock in, hits/misses/wrongs out, with **signed** timing errors. The pass summary now says
+"rushing ~30ms" / "dragging ~30ms" / "on time" (the actionable half of timing feedback), tolerance is
+**tunable** (Strict ±150 / Normal ±300 / Relaxed ±450 ms, musical time), `signedMs` is persisted per
+pass (Optional — back-compat), and stopping early shows "Pass abandoned" instead of vanishing.
+(2) **Wait fumbles are honest**: one fumble per step regardless of chord size (review marks still
+show the attempted chord).
+(3) **Parser worklist**: overlapping same-pitch MIDI notes survive (per-key LIFO stack, not a flat
+map); multi-part MusicXML is refused with a clear message (the linear measure cursor would produce
+garbage beats for part 2); `<grace>` notes are parsed as such (zero duration, don't advance the
+cursor) and match **after** principals so they can't steal a principal's MIDI partner; the count-in
+pattern/pulse is now derived from the **section's** bar meter + tempo-map position, not the piece's
+first bar.
+(4) **Guided import**: two sequential pickers (score, then MIDI) replace the undiscoverable
+multi-select; **`.mxl` is accepted** — extracted by a minimal, dependency-free, bounds-checked ZIP
+reader (`MXLArchive`, Compression framework for raw DEFLATE; hermetically unit-tested against a
+hand-built archive).
+**Rejected:** a third-party ZIP dependency (zero-dependency stance; the needed subset is ~150
+lines); wall-clock grading tolerance (musical time matches the clock everything else uses).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.

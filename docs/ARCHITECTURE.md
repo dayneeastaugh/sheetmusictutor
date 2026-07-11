@@ -159,10 +159,11 @@ The tracker is pure and unit-tested against a brute-force scan.
 - **Wait mode** — `waitSteps` (one per notated beat with notes, per selected hands). The cursor parks
   on a step; `handleWaitInput` accumulates note-ons and advances when the required set is played
   (extras/wrong ignored, shown red). Fumbled steps are recorded and marked red for review on exit.
-- **Tempo/Grade mode** — plays at tempo; a **real-time windowed greedy matcher** (`handleGradeNoteOn`)
-  matches each key you press to the nearest same-pitch expected note within `gradeTolerance = 0.30 s`
-  (musical) → hit, else wrong/extra; `advanceGradeMisses` rings a note the moment its window closes
-  unmatched. `finalizeGradePass` tallies hit / missed / wrong + mean timing error per pass. Live
+- **Tempo/Grade mode** — plays at tempo; the matching is a **pure, unit-tested `GradeMatcher`
+  struct** (GradeMatcher.swift — expected notes + note-ons + clock in; hits/misses/wrongs +
+  **signed** timing errors out). The session owns one per pass and forwards events; tolerance is
+  tunable (`gradeTolerance`, musical seconds). `advanceGradeMisses` rings a note the moment its
+  window closes unmatched; `finalizeGradePass` tallies the pass incl. rushing/dragging. Live
   keyboard shows the tolerance window.
 
 Wait and Grade are mutually exclusive.
@@ -256,11 +257,10 @@ UI-decoupled; extracting the matcher into its own unit-tested pure module is the
 
 ## Open Questions
 
-- **Matching engine as a pure module:** Wait/Grade logic now lives in the `PracticeSession`
-  view-model (UI-decoupled — imports no SwiftUI), but still reaches the engines directly. Per PRD §9
-  the pure matching (expected events + note-ons + clock → hits/misses) could be lifted into a
-  standalone `struct` with no engine references, making it trivially unit-testable. Done: the
-  ~630-line view monolith was split into `PracticeSession` (logic) + `PracticeView` (presentation).
+- **Matching engine as a pure module: done for Grade** (`GradeMatcher`, unit-tested; PRD §9).
+  Wait-mode logic still lives in the session — extract a `WaitEngine` next if it grows. The
+  ~630-line view monolith was previously split into `PracticeSession` (logic) + `PracticeView`
+  (presentation); the session remains the orchestration hub (see audit ARCH-03).
 - **Tests exist but coverage is young:** `WoodshedTests` now covers parser robustness (fuzzed),
   golden reconciliation for both fixtures, the repeats guard, the drill transition, trouble-bar
   decay, and metadata back-compat. Still untested: the Wait/Grade matchers (extract first — see

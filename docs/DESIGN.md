@@ -19,8 +19,10 @@ empty detail shows a `ContentUnavailableView` prompt.
 
 ### Library (root)
 A `List` of songs (title + a subtitle: **last-practised + best %** once there's history, else
-date-added; ⭐ for favourites) and a **+** toolbar button to import a
-MusicXML + MIDI pair (`.fileImporter`). Per-row actions (Rename / Favourite / Delete) are on a
+date-added; ⭐ for favourites) and a **+** toolbar button that runs a **guided two-step import**:
+pick the score (`.musicxml`/`.xml`/**`.mxl`**), then the MIDI — no multi-select needed. The pair is
+validated by fusing it (unparseable → rejected with a clear error; unclean → imported with a
+warning). Per-row actions (Rename / Favourite / Delete) are on a
 visible **⋯ menu button** so they work by click on Mac and tap on iPad — **not** relying on
 swipe-to-delete (iPad-only). The same actions are also on the right-click / long-press context menu,
 with swipe-to-delete as an iPad extra.
@@ -55,6 +57,7 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
    with a legend + MIDI connection status beneath.
 6. **More menu** (toolbar `⋯`) — grouped into labelled sections: **Start** (Count-in, "Start on my
    first note" = sync start), **Metronome** ("Start with playback", "Stop when playback stops"),
+   **Grading** (timing tolerance: Strict ±150 / Normal ±300 / Relaxed ±450 ms),
    **Notation** (Smooth cursor, Highlight score notes, Show trouble spots, Colour hands, Bars per line
    — remembered per song), **Cursor** (Step forward, Reset), and the sheets (**Flags…**,
    **Show progress…**, **Show diagnostics…**).
@@ -123,7 +126,10 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   review marks appear on the score on exit and are removed with "Clear marks".
 - **Per-pass grading (Grade + Loop):** misses **ring red progressively** as the cursor passes each note
   you didn't play (open circle, doesn't fill the notehead); the rings **wipe at each loop restart**.
-  Each loop shows "Pass N: X% · Missed · Wrong · ±ms" and a "Progress 72→80→87%" accuracy trend.
+  Each loop shows "Pass N: X% · Missed · Wrong · ±ms · **rushing/dragging ~Nms**" (signed timing —
+  the actionable half of timing feedback) and a "Progress 72→80→87%" accuracy trend. Stopping early
+  shows "Pass abandoned — stopped before the end (not recorded)". Wait-mode **fumbles count steps,
+  not chord notes** — one slip on a 4-note chord is one fumble.
 - **A pass is recorded once, on completion** — reaching the section end (each loop, or the single
   play-through). Stopping early **abandons** the partial pass (it isn't recorded), so the history and
   trend only reflect passes you actually finished.

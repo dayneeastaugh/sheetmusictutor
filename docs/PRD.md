@@ -60,14 +60,18 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   lights up what you play (green) and, during playback, the score's notes (blue/red).
 - **Matching — Wait mode** — advance only when the required note(s) are played; live blue/green/red
   feedback; fumbles marked red on the score for review.
-- **Matching — Tempo/Grade mode** — play along at tempo; windowed greedy matcher scores hit / missed /
-  wrong + mean timing (±300 ms tolerance in musical time); missed notes marked red. With section
-  **Loop** on, each pass is graded and a per-pass **accuracy trend** is shown so you can see progress
-  as you drill a section; the notes you're still missing are ringed on the score, updated every pass.
+- **Matching — Tempo/Grade mode** — play along at tempo; a windowed greedy matcher (a pure,
+  unit-tested `GradeMatcher`) scores hit / missed / wrong, mean timing, and **signed** timing —
+  the summary says whether you're **rushing or dragging** and by how much. Tolerance is **tunable**
+  (Strict ±150 / Normal ±300 / Relaxed ±450 ms, in musical time); missed notes marked red. With
+  section **Loop** on, each pass is graded and a per-pass **accuracy trend** is shown; the notes
+  you're still missing are ringed on the score, updated every pass. Stopping mid-pass says "pass
+  abandoned" rather than silently dropping it.
 - **Section focus & looping** — select a bar range (from/to bar) and play or **loop** just that
   section; a "Whole piece" reset. Playback, cursor, metronome, and Wait/Grade are all scoped to the
-  section. An optional **per-loop count-in** (meter-aware, Off up to a full bar) clicks a pickup
-  before each pass so you can reposition. (Named/saved clips and drag-to-select are not yet built.)
+  section. An optional **per-loop count-in** clicks a pickup before each pass — meter- and
+  tempo-aware for the **section's own bar**, not just the piece's first. (Named/saved clips are not
+  yet built.)
 - **Progress tracking** — every Grade pass is persisted per song (`history.jsonl`). A Progress view
   shows the accuracy trend, best full run, last pass, a **trouble-spot heatmap** (bars ranked by
   missed notes, tap to drill that bar), and a recent-pass log. The library row shows last-practised +
@@ -83,7 +87,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 
 ### Planned (from the roadmap, not yet built)
 - **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), tags, search/sort,
-  target-tempo shown in the list, `.mxl` (compressed) import. *(Last-practised + best now shown.)*
+  target-tempo shown in the list. *(Last-practised + best now shown; `.mxl` import and a guided
+  two-step import flow are built.)*
 - **Section refinements** — named/saved clips per piece, drag-across-notes selection, A/B markers.
   *(Per-loop count-in now built; drag-to-select on the score already exists.)*
 - **Rhythm tools** — rhythm-only playback, subdivision grid, tap-along trainer, count display.
@@ -131,8 +136,10 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 
 - **Accessibility** (VoiceOver, Dynamic Type, colour-blind-safe hand colours — RH blue / LH red may be
   a problem for red-green deficiency) is unaddressed. Decide the bar for v1.
-- **Grading tolerance** is a single fixed ±300 ms (musical). PRD wants it tempo-aware (tighter at
-  speed, wider when slow) and early/late labelling. Confirm target behaviour.
+- **Grading tolerance** is now tunable (±150/300/450 ms) with early/late (rushing/dragging)
+  labelling. Because it's in *musical* time it already widens in wall-clock terms at slow tempo.
+  Remaining question: is an additional automatic tempo-tied curve wanted, or is the manual
+  setting enough?
 - **iPad** is a stated first-class platform but untested; the sound source differs (no system `.dls`).
 - **Mastery gating — hands** — tempo mastery gating (the accuracy-tied speed ramp) is built. The
   remaining piece is a **hands-separate → hands-together** progression (drill R.H., then L.H., then
