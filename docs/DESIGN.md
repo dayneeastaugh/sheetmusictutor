@@ -67,7 +67,11 @@ in the overflow menu).
 5. **Keyboard** — the 88-key `PianoKeyboardView` (88 pt on Mac, 74 pt on iPad), with a legend +
    MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
    one-line strip keeps the MIDI status + a restore button.
-6. **Inspector — Controls tab** — a grouped `Form`: **Playback** (Tempo slider, Hands, Output,
+6. **Inspector — Controls tab** — a grouped `Form`. Most of these controls are **global
+   preferences** that persist across launches and carry between songs (View toggles, output
+   routing, metronome/start behaviour, grading tolerance, speed-trainer config — see ADR-036);
+   the tempo, hand, section/loop, and whether a drill is running are per-practice context and start
+   fresh. Groups: **Playback** (Tempo slider, Hands, Output,
    metronome start/stop-with-playback behaviour — the on/off toggle itself is in the transport —
    **Rhythm only** = note-onset ticks + tap-along grading),
    **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved

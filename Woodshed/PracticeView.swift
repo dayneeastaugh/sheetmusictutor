@@ -23,7 +23,9 @@ struct PracticeView: View {
     @State private var showDiagnostics = false
     @State private var showInspector = true
     @State private var inspectorTab: InspectorTab = .controls
-    @State private var keyboardVisible = true
+    // Persisted globally (matches AppSettings.keyboardVisibleKey) so "Show keyboard"
+    // carries across song switches and app launches like the other view preferences.
+    @AppStorage("pref.keyboardVisible") private var keyboardVisible = true
     @State private var flagEditorBar: Int?      // non-nil ⇒ inline flag editor open (from a score tap)
     @State private var flagEditorNote = ""
     @State private var showSectionNamePrompt = false

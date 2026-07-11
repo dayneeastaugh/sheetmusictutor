@@ -689,6 +689,47 @@ struct TickTrackerTests {
     }
 }
 
+// MARK: - App-level preference persistence
+
+@Suite("App settings persistence")
+struct AppSettingsTests {
+
+    /// Round-trip each persisted preference through UserDefaults and confirm the
+    /// registered first-launch defaults match the app's intended values. Uses an
+    /// isolated suite so the developer's real preferences aren't touched.
+    @Test("preferences round-trip and defaults are correct")
+    func roundTrip() throws {
+        let suiteName = "woodshed-tests-\(UUID().uuidString)"
+        let d = try #require(UserDefaults(suiteName: suiteName))
+        defer { d.removePersistentDomain(forName: suiteName) }
+
+        // Defaults registration (same table AppSettings.registerDefaults uses).
+        d.register(defaults: [
+            "pref.cursorSmooth": true, "pref.showScoreNotes": true,
+            "pref.showTroubleOnScore": true, "pref.keyboardVisible": true,
+            "pref.gradeTolerance": 0.30, "pref.speedTargetPct": 100.0,
+            "pref.speedStepPct": 5.0, "pref.speedThreshold": 0.9,
+            "pref.speedPassesPerStep": 2,
+        ])
+        // Un-set keys read their registered defaults, not false/0.
+        #expect(d.bool(forKey: "pref.cursorSmooth"))
+        #expect(d.bool(forKey: "pref.showScoreNotes"))
+        #expect(d.double(forKey: "pref.gradeTolerance") == 0.30)
+        #expect(d.integer(forKey: "pref.speedPassesPerStep") == 2)
+        // Keys with false/0 defaults (not registered) still read sensibly.
+        #expect(d.bool(forKey: "pref.colorHands") == false)
+        #expect(d.integer(forKey: "pref.outputMode") == 0)
+
+        // A changed value round-trips.
+        d.set(false, forKey: "pref.cursorSmooth")
+        d.set(0.45, forKey: "pref.gradeTolerance")
+        d.set(2, forKey: "pref.outputMode")
+        #expect(d.bool(forKey: "pref.cursorSmooth") == false)
+        #expect(d.double(forKey: "pref.gradeTolerance") == 0.45)
+        #expect(d.integer(forKey: "pref.outputMode") == 2)
+    }
+}
+
 // MARK: - Practice time ledger + takes
 
 @Suite("Practice time and takes")

@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct WoodshedApp: App {
+    init() {
+        AppSettings.registerDefaults()   // first-launch values for the persisted preferences
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

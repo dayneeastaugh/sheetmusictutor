@@ -104,9 +104,16 @@ final class PracticeSession: ObservableObject {
     private var scoreDuration: Double = 0
     private var tracker = TickTracker()         // amortized-O(1) per-tick lookups (see above)
     private var lastSentBeat = -1.0             // last beat pushed to the web cursor (skip no-ops)
-    @Published var cursorSmooth = true          // smooth glide vs. discrete note-to-note
-    @Published var colorHands = false {         // colour noteheads by hand (RH blue / LH red)
-        didSet { bridge.setHandColors(colorHands) }
+    // These view/behaviour toggles are GLOBAL preferences (AppSettings): they persist
+    // across launches and carry across song switches. Read from AppSettings at init
+    // (inline initializers don't fire didSet, so no spurious write), written back on
+    // change. Engine/bridge side-effects that don't run at init are re-applied in
+    // `onAppear` / `applyPersistedLayoutToNotation`.
+    @Published var cursorSmooth = AppSettings.cursorSmooth {   // smooth glide vs. discrete note-to-note
+        didSet { AppSettings.cursorSmooth = cursorSmooth }
+    }
+    @Published var colorHands = AppSettings.colorHands {       // colour noteheads by hand (RH blue / LH orange)
+        didSet { bridge.setHandColors(colorHands); AppSettings.colorHands = colorHands }
     }
     @Published var barsPerLine = 0 {            // measures per line/system (0 = auto)
         didSet {
@@ -188,10 +195,18 @@ final class PracticeSession: ObservableObject {
             resetDrill()
         }
     }
-    @Published var speedTargetPct: Double = 100 {  // ramp up to here
-        didSet { if speedMode != .off { clampTempoToDrillTarget(); resetDrill() } }
+    // The speed-trainer's CONFIGURATION persists globally (target/step/threshold/
+    // passes/hands-progression are "my preferred drill setup"); whether a drill is
+    // actually RUNNING (`speedMode`) is per-practice context and does not persist.
+    @Published var speedTargetPct: Double = AppSettings.speedTargetPct {  // ramp up to here
+        didSet {
+            if speedMode != .off { clampTempoToDrillTarget(); resetDrill() }
+            AppSettings.speedTargetPct = speedTargetPct
+        }
     }
-    @Published var speedStepPct: Double = 5        // tempo increment per advance
+    @Published var speedStepPct: Double = AppSettings.speedStepPct {  // tempo increment per advance
+        didSet { AppSettings.speedStepPct = speedStepPct }
+    }
 
     // Hands progression (PRD: hands-separate → hands-together gating). When on, the
     // drill runs three STAGES — R.H. alone, L.H. alone, then both hands — each through
@@ -206,8 +221,11 @@ final class PracticeSession: ObservableObject {
         /// The next stage, or nil when the progression is complete. Pure — tested.
         var next: DrillStage? { DrillStage(rawValue: rawValue + 1) }
     }
-    @Published var handsProgression = false {
-        didSet { if speedMode != .off { resetDrill() } }
+    @Published var handsProgression = AppSettings.handsProgression {
+        didSet {
+            if speedMode != .off { resetDrill() }
+            AppSettings.handsProgression = handsProgression
+        }
     }
     @Published private(set) var drillStage: DrillStage = .both
     private var drillStartTempo: Double = 100      // each stage ramps from here
@@ -217,8 +235,12 @@ final class PracticeSession: ObservableObject {
     private func clampTempoToDrillTarget() {
         if tempoPct > speedTargetPct { tempoPct = speedTargetPct }
     }
-    @Published var speedThreshold: Double = 0.9    // accuracy for a "clean" pass (byAccuracy)
-    @Published var speedPassesPerStep = 2          // passes needed to advance one step
+    @Published var speedThreshold: Double = AppSettings.speedThreshold {  // accuracy for a "clean" pass (byAccuracy)
+        didSet { AppSettings.speedThreshold = speedThreshold }
+    }
+    @Published var speedPassesPerStep = AppSettings.speedPassesPerStep {  // passes needed to advance one step
+        didSet { AppSettings.speedPassesPerStep = speedPassesPerStep }
+    }
     @Published private(set) var passesAtThisTempo = 0
     @Published private(set) var mastered = false
 
@@ -272,14 +294,20 @@ final class PracticeSession: ObservableObject {
     }
 
     // MARK: Transport / playback
-    @Published var countInBars = 0             // 0 = off, else bars of count-in before Play
+    @Published var countInBars = AppSettings.countInBars {   // 0 = off, else bars of count-in before Play
+        didSet { AppSettings.countInBars = countInBars }
+    }
     // Start behaviour
-    @Published var startOnFirstNote = false    // Play arms; your first note starts playback in sync
+    @Published var startOnFirstNote = AppSettings.startOnFirstNote {   // your first note starts playback in sync
+        didSet { AppSettings.startOnFirstNote = startOnFirstNote }
+    }
     @Published private(set) var armed = false  // armed + waiting for your first note
     // Metronome behaviour
-    @Published var metronomeStartsWithPlayback = false   // turn the metronome on when playback starts
-    @Published var metronomeStopsWithPlayback = false {  // silence the metronome when playback stops
-        didSet { audio.metronomeFreeRuns = !metronomeStopsWithPlayback }
+    @Published var metronomeStartsWithPlayback = AppSettings.metronomeStartsWithPlayback {   // metronome on when playback starts
+        didSet { AppSettings.metronomeStartsWithPlayback = metronomeStartsWithPlayback }
+    }
+    @Published var metronomeStopsWithPlayback = AppSettings.metronomeStopsWithPlayback {  // silence the metronome when playback stops
+        didSet { audio.metronomeFreeRuns = !metronomeStopsWithPlayback; AppSettings.metronomeStopsWithPlayback = metronomeStopsWithPlayback }
     }
     @Published var handMode = 0 {              // 0 = both, 1 = RH only, 2 = LH only
         didSet { applyHands() }
@@ -287,8 +315,8 @@ final class PracticeSession: ObservableObject {
     @Published var tempoPct: Double = 100 {     // playback tempo percentage
         didSet { audio.setRate(Float(tempoPct) / 100) }
     }
-    @Published var outputMode = 0 {            // 0 = PC speakers, 1 = piano, 2 = both
-        didSet { applyOutput() }
+    @Published var outputMode = AppSettings.outputMode {   // 0 = PC speakers, 1 = piano, 2 = both
+        didSet { applyOutput(); AppSettings.outputMode = outputMode }
     }
     /// Rhythm-only mode: the piano is silent, every note onset ticks instead, and
     /// Grade becomes a tap-along — any key counts, only the timing is scored.
@@ -304,7 +332,9 @@ final class PracticeSession: ObservableObject {
     // so updating it every note during playback repaints ONLY the keyboard, not the
     // whole practice screen — otherwise fast passages/trills lag and thrash the UI.
     let lights = KeyboardLights()
-    @Published var showScoreNotes = true        // light up score notes during playback
+    @Published var showScoreNotes = AppSettings.showScoreNotes {   // light up score notes during playback
+        didSet { AppSettings.showScoreNotes = showScoreNotes }
+    }
     private var pianoSounding: Set<Int> = []    // notes currently sent to the piano (MIDI out)
 
     // MARK: Wait mode — step through the score, advancing only on the right notes.
@@ -329,7 +359,9 @@ final class PracticeSession: ObservableObject {
     @Published private(set) var passAbandoned = false // stopped mid-pass → not recorded (say so)
     /// Grading tolerance in **musical** seconds (window scales with the tempo slider,
     /// matching the clock everything else runs on). Tunable: strict/normal/relaxed.
-    @Published var gradeTolerance = 0.30
+    @Published var gradeTolerance = AppSettings.gradeTolerance {
+        didSet { AppSettings.gradeTolerance = gradeTolerance }
+    }
     // Real-time grading state for the current pass:
     private var matcher: GradeMatcher?           // the pure matching engine (GradeMatcher.swift)
     private var gradeMissed: Set<Mistake> = []   // notes already flagged missed (ringed) this pass
@@ -508,8 +540,8 @@ final class PracticeSession: ObservableObject {
 
     // MARK: Progress / trouble spots
     @Published private(set) var history: [PracticePass] = []   // this song's recorded passes
-    @Published var showTroubleOnScore = true {                 // amber-tint trouble bars on the score
-        didSet { refreshTroubleOverlay() }
+    @Published var showTroubleOnScore = AppSettings.showTroubleOnScore {   // amber-tint trouble bars on the score
+        didSet { refreshTroubleOverlay(); AppSettings.showTroubleOnScore = showTroubleOnScore }
     }
     /// Bars that still need work ("clear as you improve"), derived from `history`.
     var currentTroubleBars: [TroubleBar] { PracticeHistory.currentTroubleBars(history) }
@@ -575,7 +607,8 @@ final class PracticeSession: ObservableObject {
         midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
         guard !hasLoaded else { return }
         hasLoaded = true
-        applyOutput()
+        applyOutput()                                     // restore the persisted output routing
+        audio.metronomeFreeRuns = !metronomeStopsWithPlayback   // and the persisted metronome behaviour
         ingest()
         reloadHistory()
         practicedToday = PracticeTime.load(from: song.folder)[PracticeTime.dayKey()] ?? 0

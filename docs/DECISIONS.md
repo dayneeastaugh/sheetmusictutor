@@ -435,6 +435,28 @@ loops a 2-bar window, and says why. (6) **Drag-and-drop import** onto the librar
 **Deliberately not built:** Mac↔iPad library sync — it touches the PRD's no-cloud non-goal and
 awaits an explicit decision (folder export/import vs iCloud Drive).
 
+### ADR-036 — Global preferences vs per-song vs per-practice state
+**2026-07-11.** Settings now fall into three tiers, each with its own persistence:
+- **Global preferences** (`AppSettings`, UserDefaults, `pref.` keys): "how I like the app to
+  behave", independent of any song — cursor smooth, colour hands, highlight score notes, show
+  trouble spots, show keyboard, output routing, metronome starts/stops-with-playback, count-in
+  bars, start-on-first-note, grading tolerance, and the speed-trainer *configuration*
+  (target/step/threshold/passes/hands-progression). Persist across launches **and** carry across
+  song switches. Read into `PracticeSession`'s `@Published` properties at init (inline initializers
+  don't fire `didSet`, so no spurious write), written back from each `didSet`; `keyboardVisible`
+  uses SwiftUI `@AppStorage` on the same key. Engine side-effects that don't run at init
+  (`outputMode`→`applyOutput`, `metronomeStopsWithPlayback`→`metronomeFreeRuns`, `colorHands`→bridge)
+  are re-applied in `onAppear`/`applyPersistedLayoutToNotation`.
+- **Per-song** (`SongMeta` in `metadata.json`): bars-per-line, score zoom, tags, favourite,
+  best/last — travels with the song folder.
+- **Per-practice context** (transient, resets): tempo %, which hand, the active section + loop,
+  rhythm-only mode, and whether a speed drill is *running* (`speedMode`). Deliberately **not**
+  persisted — these are "what I'm working on right now", and restoring a stale tempo/section/drill
+  on open would be surprising, not helpful.
+**Rejected:** persisting everything (would resurrect a half-finished drill or an odd tempo on a
+fresh song); a settings *screen* (the inspector already exposes these where they're used — the only
+change is that they now stick).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

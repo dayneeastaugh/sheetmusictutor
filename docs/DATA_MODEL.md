@@ -137,6 +137,15 @@ analytics — that last one is the point at which a DB (GRDB) may replace the pe
 The `FusedScore`/`NoteEvent` model is **not** persisted — it's recomputed from the song's XML+MIDI by
 `Ingest.fuse` each time a song is opened.
 
+### App-wide preferences (`AppSettings`, UserDefaults)
+Global "how I like the app to behave" settings live in `UserDefaults` under `pref.` keys (`AppSettings.swift`),
+**not** in any song folder — they apply everywhere and persist across launches: view toggles (cursor
+smooth, colour hands, highlight notes, trouble spots, keyboard), output routing, metronome
+start/stop behaviour, count-in, start-on-first-note, grading tolerance, and speed-trainer config.
+`PracticeSession` reads them at init and writes back on change (`keyboardVisible` via `@AppStorage`).
+Per-*practice* context (tempo, hand, section/loop, running drill) is intentionally **not** persisted.
+See ADR-036 for the three-tier split (global pref / per-song meta / transient context).
+
 ## Migration considerations
 
 - Not applicable yet (no store). When GRDB lands, cached note events derived from `FusedScore` should
