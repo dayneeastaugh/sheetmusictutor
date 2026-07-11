@@ -31,6 +31,13 @@ final class MIDIInput: ObservableObject {
 
     init() { setup() }
 
+    deinit {
+        // Dispose the CoreMIDI client (which also disposes its ports/connections).
+        // Each PracticeSession owns a MIDIInput, so without this every song switch
+        // leaked a live client into the process (audit ARCH-04).
+        if client != 0 { MIDIClientDispose(client) }
+    }
+
     // MARK: - Setup
 
     private func setup() {

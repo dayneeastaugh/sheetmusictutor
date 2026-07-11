@@ -87,6 +87,14 @@ final class AudioEnginePlayer: ObservableObject {
         }
     }
 
+    deinit {
+        // Sessions own their engine, so tear it down deterministically on song switch
+        // rather than leaving a running engine to the whims of deallocation order.
+        metroTimer?.cancel()
+        sequencer?.stop()
+        engine.stop()
+    }
+
     /// A short decaying sine "tick" rendered into a buffer once, reused per click.
     private func makeClick(frequency: Double, amplitude: Float) -> AVAudioPCMBuffer {
         let sr = clickFormat.sampleRate
