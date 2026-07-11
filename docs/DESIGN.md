@@ -37,10 +37,15 @@ holds only the always-live surfaces; every set-and-forget control lives in the i
 **Controls** tab, and **Progress** and **Flags** are first-class inspector tabs (no longer buried
 in the overflow menu).
 
-1. **Header row** — a **mode segmented control** `Practice · Wait · Grade` (the three mutually-exclusive
-   modes, replacing the old scattered toggles) on the left; an audio-status caption and the
-   `▶︎ Play / ◼ Stop` button (`.borderedProminent`, Space shortcut, disabled in Wait mode) on the right.
-   On macOS a `navigationSubtitle` shows tempo · time-sig · key · note count.
+1. **Header row** — the **mode segmented control** `Practice · Wait · Grade` on the left; on the
+   right a **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
+   jumps there, in Grade mode restarting the pass; while stopped it resets the playhead + cursor),
+   `◀` / `▶` **one bar** (stopped: moves the *playhead* — where Play begins, cursor previews it;
+   playing: jumps the live position; disabled in Grade — it would corrupt the pass — and in Wait),
+   and the prominent icon-only `▶︎/◼` Play/Stop (Space; shows a clock while armed for sync start).
+   Loops always return to the *section* start regardless of the playhead. A status-line hint shows
+   "Play starts at bar N" when the playhead is off the section start. On macOS a `navigationSubtitle`
+   shows tempo · time-sig · key · note count.
 2. **Ingest-quality banner** (only when needed) — a persistent orange banner when the song's files
    didn't fuse cleanly (unmatched notes, or a repeats/structure mismatch), with a **Details** button
    opening the diagnostics sheet. Grading is never silently wrong. The same warning appears as an
@@ -69,8 +74,8 @@ in the overflow menu).
    Grade pass.
 8. **Inspector — Flags tab** — add a note for a bar, the flagged-bars list (tap to drill, ⋯ to
    edit/delete). The on-score ⚑ tap still opens the inline editor.
-9. **More menu** (toolbar `⋯`) — true utilities only: Step cursor forward, Reset cursor, and
-   **Show diagnostics…** (sheet: score summary, per-hand reconciliation table, first 24 events).
+9. **More menu** (toolbar `⋯`) — just **Show diagnostics…** (sheet: score summary, per-hand
+   reconciliation table, first 24 events). The old cursor items moved into the transport.
 
 ## Colour tokens (as used in code)
 

@@ -656,6 +656,7 @@ final class PracticeSession: ObservableObject {
             audio.startSeconds = sectionStartTime
         }
         applySectionCountIn()                                       // meter/tempo at the new section
+        playheadBar = sectionStart                                  // the playhead follows the section
         if speedMode != .off { resetDrill() }                       // a new section restarts the drill
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
@@ -732,11 +733,72 @@ final class PracticeSession: ObservableObject {
         }
     }
 
-    // MARK: - Playback + cursor sync
+    // MARK: - Transport (reset · step a bar · play)
+
+    /// Where Play begins (1-based bar). Stepping while stopped moves this; Reset and
+    /// section changes send it back to the section start. Grade mode ignores it (a
+    /// pass is always graded over the whole section).
+    @Published private(set) var playheadBar = 1
+
+    /// Bar stepping is meaningless mid-grade (it would corrupt the pass) and Wait
+    /// mode steps by notes already.
+    var canStepBars: Bool { score != nil && !waitMode && !gradeMode }
+
+    private func barStartBeat(_ bar: Int) -> Double {
+        guard let m = score?.measureStartBeats, bar - 1 < m.count, bar >= 1 else { return 0 }
+        return m[bar - 1]
+    }
+    private var playheadTime: Double { score?.secondsAtBeat(barStartBeat(playheadBar)) ?? 0 }
+
+    /// The 1-based bar the playback clock is currently in.
+    private func currentBar(at t: Double) -> Int {
+        guard let s = score else { return sectionStart }
+        var bar = sectionStart
+        for i in s.measureStartBeats.indices where s.secondsAtBeat(s.measureStartBeats[i]) <= t + 0.001 {
+            bar = i + 1
+        }
+        return bar
+    }
+
+    /// ⏮ Back to the section start. While playing: jump there (in Grade mode this
+    /// restarts the pass); while stopped: move the playhead + cursor there.
+    func transportReset() {
+        guard !waitMode else { return }
+        playheadBar = sectionStart
+        if audio.isPlaying {
+            flushPianoOutput()
+            lastDiscreteBeat = -1
+            audio.startSeconds = sectionStartTime
+            if gradeMode { startGradePass() }        // a reset mid-pass = start the pass over
+            audio.loopBackToStart()
+            bridge.seek(sectionStartBeat)
+            lastSentBeat = sectionStartBeat
+        } else {
+            resetCursor()
+            bridge.seek(sectionStartBeat)
+        }
+    }
+
+    /// ◀ / ▶ one bar, clamped to the section. Stopped: moves the playhead (and the
+    /// cursor as a preview). Playing: jumps the live playback position.
+    func stepBar(_ delta: Int) {
+        guard canStepBars, let s = score else { return }
+        if audio.isPlaying {
+            guard audio.isRunning else { return }    // not during a count-in
+            let target = min(max(currentBar(at: audio.currentTime) + delta, sectionStart), sectionEnd)
+            let t = s.secondsAtBeat(barStartBeat(target))
+            flushPianoOutput()
+            lastDiscreteBeat = -1
+            audio.seek(toSeconds: t)
+            bridge.seek(barStartBeat(target))
+            lastSentBeat = barStartBeat(target)
+        } else {
+            playheadBar = min(max(playheadBar + delta, sectionStart), sectionEnd)
+            bridge.seek(barStartBeat(playheadBar))
+        }
+    }
 
     func setMetronome(_ on: Bool) { audio.setMetronome(on) }
-
-    func stepCursor() { cursorCommand = .init(nonce: cursorCommand.nonce + 1, action: "next") }
 
     func togglePlay() {
         if audio.isPlaying {
@@ -758,7 +820,9 @@ final class PracticeSession: ObservableObject {
         }
         if speedMode != .off { resetDrill() }        // a fresh Play restarts the drill from the current tempo
         resetCursor()
-        audio.startSeconds = sectionStartTime        // play from the section start
+        // Practice mode honours the playhead (step a bar, then play from there);
+        // Grade always starts at the section start — a pass covers the whole section.
+        audio.startSeconds = gradeMode ? sectionStartTime : playheadTime
         audio.clickCeiling = sectionEndTime          // don't click the bar past the section (loop point)
         if metronomeStartsWithPlayback && !audio.metronomeOn { audio.metronomeOn = true }
         audio.play(countInBars: countIn)
@@ -801,7 +865,8 @@ final class PracticeSession: ObservableObject {
                     audio.stop()
                     return
                 }
-                audio.loopBackToStart(countInPulses: loopCountInPulses)   // section start (+ optional count-in)
+                audio.startSeconds = sectionStartTime  // loops always return to the SECTION start
+                audio.loopBackToStart(countInPulses: loopCountInPulses)   // (+ optional count-in)
                 bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
                 lastSentBeat = sectionStartBeat
                 if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass

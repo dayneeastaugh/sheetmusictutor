@@ -406,6 +406,15 @@ final class AudioEnginePlayer: ObservableObject {
         }
     }
 
+    /// Jump the live playback position (transport bar-stepping). Clears hanging
+    /// sampler notes and re-syncs the metronome to the new position.
+    func seek(toSeconds t: Double) {
+        guard isPlaying, isRunning, let seq = sequencer else { return }
+        seq.currentPositionInSeconds = max(0, t)
+        allSamplerNotesOff()
+        if metronomeOn { startSynced(referenceTime: t) }
+    }
+
     /// Resume the sequencer at the section start after a per-loop count-in.
     private func resumeAfterLoopCountIn() {
         guard isPlaying, let seq = sequencer else { return }   // may have been stopped mid count-in

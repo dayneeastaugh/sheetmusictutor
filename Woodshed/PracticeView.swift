@@ -116,14 +116,49 @@ struct PracticeView: View {
             if !session.audio.status.isEmpty {
                 Text(session.audio.status).font(.caption).foregroundStyle(.orange)
             }
+            transport
+        }
+    }
+
+    /// The transport cluster: ⏮ reset · ◀ bar · ▶︎ Play (prominent) · bar ▶.
+    /// Bar-stepping is disabled in Grade (it would corrupt the pass) and Wait
+    /// (which steps by notes); everything is disabled in Wait except its own flow.
+    private var transport: some View {
+        HStack(spacing: 2) {
+            transportButton("backward.end.fill", help: "Back to the start of the section") {
+                session.transportReset()
+            }
+            .disabled(session.waitMode)
+            transportButton("backward.frame.fill", help: "Back one bar") { session.stepBar(-1) }
+                .disabled(!session.canStepBars)
             Button { session.togglePlay() } label: {
-                Label(session.armed ? "Waiting…" : (session.audio.isPlaying ? "Stop" : "Play"),
-                      systemImage: session.armed ? "clock" : (session.audio.isPlaying ? "stop.fill" : "play.fill"))
+                Image(systemName: session.armed ? "clock.fill"
+                                                : (session.audio.isPlaying ? "stop.fill" : "play.fill"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 46, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.space, modifiers: [])
             .disabled(session.waitMode)   // Wait mode is driven by your keys, not transport
+            .help(session.armed ? "Waiting for your first note — press to cancel"
+                                : (session.audio.isPlaying ? "Stop (Space)" : "Play (Space)"))
+            transportButton("forward.frame.fill", help: "Forward one bar") { session.stepBar(1) }
+                .disabled(!session.canStepBars)
         }
+        .padding(4)
+        .background(Capsule().fill(.quaternary.opacity(0.6)))
+    }
+
+    private func transportButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .imageScale(.medium)
+                .frame(width: 32, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 
     // MARK: - Ingest-quality banner (never grade silently against a wrong model)
@@ -183,6 +218,9 @@ struct PracticeView: View {
                 Text("Red = notes you fumbled").foregroundStyle(Color(red: 0.83, green: 0.18, blue: 0.18))
                 Button("Clear marks") { session.clearMistakeMarks() }
                     .buttonStyle(.borderless)
+            } else if !session.audio.isPlaying && session.playheadBar != session.sectionStart {
+                Text("▶ Play starts at bar \(session.playheadBar) · ⏮ to go back to bar \(session.sectionStart)")
+                    .foregroundStyle(.secondary)
             } else if !session.isFullPiece {
                 Text("Section: bars \(session.sectionStart)–\(session.sectionEnd) of \(session.measureCount)")
                     .foregroundStyle(.secondary)
@@ -330,13 +368,9 @@ struct PracticeView: View {
         .formStyle(.grouped)
     }
 
-    /// The overflow menu — true utilities only (the controls live in the inspector).
+    /// The overflow menu — true utilities only (transport + controls live elsewhere).
     private var moreMenu: some View {
         Menu {
-            Button { session.stepCursor() } label: { Label("Step cursor forward", systemImage: "forward.frame") }
-                .disabled(session.audio.isPlaying)
-            Button { session.resetCursor() } label: { Label("Reset cursor", systemImage: "arrow.uturn.left") }
-            Divider()
             Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
