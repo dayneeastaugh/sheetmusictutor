@@ -82,6 +82,11 @@ struct LibraryView: View {
                     Button("Delete", role: .destructive) { library.delete(song) }
                 }
             }
+            if library.unreadableFolderCount > 0 {
+                Label("\(library.unreadableFolderCount) song folder(s) couldn't be read",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
         }
         .navigationTitle("Library")
         .toolbar {
@@ -140,6 +145,10 @@ struct LibraryView: View {
     }
 
     /// Pick out the MusicXML and MIDI from the chosen files and import them.
+    /// The imported pair is validated by actually fusing it: a pair that can't be
+    /// parsed is rejected (and removed) with a clear error, and a pair that parses
+    /// but doesn't reconcile cleanly is imported with an up-front warning — never
+    /// silently, so practice is never graded against a wrong model unannounced.
     private func handleImport(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result else { return }
         let xml = urls.first { ["musicxml", "xml"].contains($0.pathExtension.lowercased()) }
@@ -148,7 +157,21 @@ struct LibraryView: View {
             importError = "Select one MusicXML (.musicxml/.xml) file and one MIDI (.mid) file together."
             return
         }
-        do { try library.importSong(musicXML: xml, midi: mid) }
-        catch { importError = "Couldn't import: \(error.localizedDescription)" }
+        do {
+            let song = try library.importSong(musicXML: xml, midi: mid)
+            // Validate the copied pair by fusing it (same path the practice screen uses).
+            do {
+                let fused = try Ingest.fuse(midiData: try Data(contentsOf: song.midiURL),
+                                            musicXMLData: try Data(contentsOf: song.musicXMLURL))
+                if let warning = PracticeSession.warningText(for: fused) {
+                    importError = "Imported “\(song.title)” with a warning:\n\n\(warning)"
+                }
+            } catch {
+                library.delete(song)   // unusable pair — don't leave it in the library
+                importError = "Couldn't import: the files aren't a readable MusicXML + MIDI pair (\(error))."
+            }
+        } catch {
+            importError = "Couldn't import: \(error.localizedDescription)"
+        }
     }
 }

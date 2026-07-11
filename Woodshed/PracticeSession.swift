@@ -41,6 +41,10 @@ final class PracticeSession: ObservableObject {
     @Published var errorText: String?
     @Published var xmlBase64 = ""
     @Published var cursorCommand = CursorCommand()
+    /// Data-quality warning from ingestion (structure mismatch or unclean
+    /// reconciliation) — shown as a persistent banner so grading is never
+    /// silently wrong. nil = clean import.
+    @Published private(set) var ingestWarning: String?
 
     // MARK: Cursor-sync state
     // A schedule of (playback time → notated beat). The tick reads the audio clock
@@ -96,12 +100,21 @@ final class PracticeSession: ObservableObject {
             if speedMode != .off {                 // it's a graded, looped drill — set that up
                 if !gradeMode { setGradeMode(true) }
                 loopSection = true
+                clampTempoToDrillTarget()          // a target at/below the current tempo would "master" instantly
             }
             resetDrill()
         }
     }
-    @Published var speedTargetPct: Double = 100    // ramp up to here
+    @Published var speedTargetPct: Double = 100 {  // ramp up to here
+        didSet { if speedMode != .off { clampTempoToDrillTarget(); resetDrill() } }
+    }
     @Published var speedStepPct: Double = 5        // tempo increment per advance
+
+    /// The drill must have somewhere to ramp: if the current tempo is already at or
+    /// above the target, drop to the target so mastery there is earned, not instant.
+    private func clampTempoToDrillTarget() {
+        if tempoPct > speedTargetPct { tempoPct = speedTargetPct }
+    }
     @Published var speedThreshold: Double = 0.9    // accuracy for a "clean" pass (byAccuracy)
     @Published var speedPassesPerStep = 2          // passes needed to advance one step
     @Published private(set) var passesAtThisTempo = 0
@@ -564,7 +577,12 @@ final class PracticeSession: ObservableObject {
     /// React to a section change: update the on-score highlight, rebuild Wait steps,
     /// or preview the cursor there.
     private func onSectionChanged() {
-        if audio.isPlaying { audio.clickCeiling = sectionEndTime }   // keep the loop click boundary current
+        if audio.isPlaying {
+            // Keep BOTH loop boundaries current — updating only the end left the loop
+            // jumping back to the previous section's start (a confusing hybrid loop).
+            audio.clickCeiling = sectionEndTime
+            audio.startSeconds = sectionStartTime
+        }
         if speedMode != .off { resetDrill() }                       // a new section restarts the drill
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
@@ -801,6 +819,7 @@ final class PracticeSession: ObservableObject {
             xmlBase64 = xmlData.base64EncodedString()   // handed to OSMD for rendering
             let fused = try Ingest.fuse(midiData: midiData, musicXMLData: xmlData)
             score = fused
+            ingestWarning = Self.warningText(for: fused)
 
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
@@ -826,5 +845,14 @@ final class PracticeSession: ObservableObject {
     private func beatSchedule(_ events: [NoteEvent]) -> [(time: Double, beat: Double)] {
         events.map { (time: $0.onsetSeconds, beat: $0.notatedBeat) }
               .sorted { $0.time < $1.time }
+    }
+
+    /// The banner text for a fused score, or nil when the import is clean.
+    /// Structure problems (repeats) trump the per-note tally.
+    static func warningText(for fused: FusedScore) -> String? {
+        if let s = fused.structureWarning { return s }
+        let unmatched = fused.reconciliations.reduce(0) { $0 + $1.unmatchedMIDI.count + $1.unmatchedXML.count }
+        guard unmatched > 0 else { return nil }
+        return "\(unmatched) note\(unmatched == 1 ? "" : "s") couldn't be matched between the score and the MIDI — grading may be off in places."
     }
 }

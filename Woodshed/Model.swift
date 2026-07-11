@@ -138,6 +138,11 @@ struct FusedScore {
     var totalBeats: Double                 // notated length of the whole piece, in quarter beats
     var secondsAtBeat: (Double) -> Double  // convert any notated beat to playback seconds (tempo map)
     var reconciliations: [Reconciliation]
+    // Non-nil when the two files' timelines don't line up structurally (e.g. the
+    // MIDI is longer than the written score because repeats were unfolded on export
+    // — Woodshed can't align those yet). Surfaced prominently in the UI so grading
+    // is never silently wrong. See docs/INGESTION.md.
+    var structureWarning: String? = nil
 }
 
 // MARK: - Pitch spelling helper

@@ -144,6 +144,19 @@ enum Ingest {
         let barPattern = (0..<max(1, fm.num)).map { clickLevel(pulseIndex: $0, num: fm.num, den: fm.den) }
         let pulseSeconds = (4.0 / Double(fm.den)) * (60.0 / tempo)
 
+        // Structural sanity: the MIDI is exported *unfolded* (repeats expanded) while
+        // the MusicXML beat timeline is *written/folded*. If the MIDI runs on well past
+        // the written score, the alignment above is meaningless past that point — warn
+        // loudly rather than grade against a wrong model.
+        let xmlTotalBeats = xml.measures.last.map { $0.startBeat + $0.lengthBeats } ?? 0
+        let lastMidiBeat = midi.notes.map(\.onsetBeats).max() ?? 0
+        let barBeats = Double(fm.num) * 4.0 / Double(fm.den)
+        let structureWarning: String? = timelinesMismatch(xmlTotalBeats: xmlTotalBeats,
+                                                          lastMidiBeat: lastMidiBeat,
+                                                          barBeats: barBeats)
+            ? "The MIDI is much longer than the written score (repeats?). Woodshed can't align repeated sections yet — the cursor and grading will be wrong after the first repeat."
+            : nil
+
         return FusedScore(tempoBPM: tempo,
                           timeSignature: xml.timeSignature ?? midi.timeSignature,
                           keyFifths: xml.keyFifths,
@@ -157,7 +170,15 @@ enum Ingest {
                           totalBeats: xml.measures.last.map { $0.startBeat + $0.lengthBeats }
                                       ?? (events.map { $0.notatedBeat }.max() ?? 0),
                           secondsAtBeat: midi.secondsAtBeat,
-                          reconciliations: reconciliations)
+                          reconciliations: reconciliations,
+                          structureWarning: structureWarning)
+    }
+
+    /// True when the MIDI timeline runs more than one bar past the written score —
+    /// the signature of unfolded repeats (or a mismatched file pair). Pure, testable.
+    static func timelinesMismatch(xmlTotalBeats: Double, lastMidiBeat: Double, barBeats: Double) -> Bool {
+        guard xmlTotalBeats > 0 else { return false }
+        return lastMidiBeat > xmlTotalBeats + max(barBeats, 1.0)
     }
 
     // MARK: - Tie merging

@@ -41,6 +41,7 @@ struct PracticeView: View {
     var body: some View {
         VStack(spacing: 10) {
             header
+            if let warning = session.ingestWarning { ingestBanner(warning) }
             statusBar
             notation
             controlBar
@@ -113,6 +114,21 @@ struct PracticeView: View {
             .keyboardShortcut(.space, modifiers: [])
             .disabled(session.waitMode)   // Wait mode is driven by your keys, not transport
         }
+    }
+
+    // MARK: - Ingest-quality banner (never grade silently against a wrong model)
+
+    private func ingestBanner(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(text).font(.caption)
+            Spacer()
+            Button("Details") { showDiagnostics = true }
+                .font(.caption).buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.orange.opacity(0.4)))
     }
 
     // MARK: - Status line (mode feedback + review marks)
