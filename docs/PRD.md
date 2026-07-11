@@ -49,7 +49,7 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   per-hand reconciliation so a bad parse surfaces. See [INGESTION.md](INGESTION.md).
 - **Notation display** — render in an embedded WKWebView via OpenSheetMusicDisplay, offline. A
   Swift-driven follow-cursor (smooth glide or note-to-note step); follow-scroll keeps the active +
-  next line in view. Options: colour hands (RH blue / LH red), fixed bars-per-line (1–5 or auto).
+  next line in view. Options: colour hands (RH blue / LH orange — colour-blind-safe), fixed bars-per-line (1–5 or auto).
 - **Playback** — AVAudioEngine + AVAudioUnitSampler; per-hand mute/solo (Both / R.H. / L.H.); tempo
   **25–120%** with pitch preserved; output routing to **PC speakers / MIDI piano / both**. Optional
   **sync start** — Play arms and playback begins the instant you play your first note.
@@ -57,7 +57,7 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   count-in (0/1/2 bars), free-running mode, routable to speakers and/or piano. Options to **start it
   with playback** and **stop it when playback stops** (click only while playing).
 - **MIDI input** — CoreMIDI, USB + Bluetooth, auto-reconnect; an on-screen 88-key keyboard that
-  lights up what you play (green) and, during playback, the score's notes (blue/red).
+  lights up what you play (green) and, during playback, the score's notes (RH blue / LH orange).
 - **Matching — Wait mode** — advance only when the required note(s) are played; live blue/green/red
   feedback; fumbles marked red on the score for review.
 - **Matching — Tempo/Grade mode** — play along at tempo; a windowed greedy matcher (a pure,
@@ -134,13 +134,15 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 
 ## Open Questions
 
-- **Accessibility** (VoiceOver, Dynamic Type, colour-blind-safe hand colours — RH blue / LH red may be
-  a problem for red-green deficiency) is unaddressed. Decide the bar for v1.
+- **Accessibility** — hand colours are now colour-blind-safe (RH blue / LH orange). Still open:
+  VoiceOver labels (keyboard keys, notation pane), Dynamic Type in the inspector, reduced motion.
+  Decide the bar for v1.
 - **Grading tolerance** is now tunable (±150/300/450 ms) with early/late (rushing/dragging)
   labelling. Because it's in *musical* time it already widens in wall-clock terms at slow tempo.
   Remaining question: is an additional automatic tempo-tied curve wanted, or is the manual
   setting enough?
-- **iPad** is a stated first-class platform but untested; the sound source differs (no system `.dls`).
+- **iPad** now has audio (bundled SoundFont + AVAudioSession) and touch drag-select, but has never
+  run on physical hardware — a device pass is the remaining gate.
 - **Mastery gating — hands** — tempo mastery gating (the accuracy-tied speed ramp) is built. The
   remaining piece is a **hands-separate → hands-together** progression (drill R.H., then L.H., then
   both, each gated on mastery). Confirm the desired flow.

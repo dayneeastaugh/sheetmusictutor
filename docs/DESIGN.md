@@ -1,10 +1,10 @@
 # Design — Woodshed
 
-A **first structural redesign** has landed: a `NavigationSplitView` shell, a notation-hero practice
-screen, and a wrapping control bar that adapts between Mac and iPad. It still uses stock SwiftUI
-controls with no bespoke type/spacing system — a full visual design pass (tokens, colour-blind-safe
-scheme, intentional Dark Mode) is still owed (see Open Questions). This doc records the conventions
-that exist.
+The app's structure: a `NavigationSplitView` shell (library sidebar + practice detail) and a
+practice screen organised as a **notation canvas + trailing inspector** (Controls / Progress /
+Flags). Hand colours are colour-blind-safe (blue/orange); the score surface is deliberately
+paper-white in both colour schemes while the chrome adapts. Still stock SwiftUI controls with no
+bespoke type/spacing token system (see Open Questions). This doc records the conventions that exist.
 
 ## Navigation structure
 
@@ -30,9 +30,12 @@ with swipe-to-delete as an iPad extra.
 > **Cross-platform rule:** every action must be reachable without swipe or hover. Prefer explicit
 > buttons/menus over gesture-only affordances so the same UI works on Mac and iPad.
 
-### Practice (`PracticeView`, top → bottom)
-The notation is the **hero** (fills the pane); everything else is thin chrome around it. No outer
-`ScrollView` — the screen fills the detail pane and the control bar wraps instead of scrolling.
+### Practice (`PracticeView`) — canvas + inspector
+The practice screen is a **notation canvas** with a trailing **inspector** (`.inspector`, which
+adapts natively on iPad to a collapsible column/sheet; a toolbar button toggles it). The canvas
+holds only the always-live surfaces; every set-and-forget control lives in the inspector's
+**Controls** tab, and **Progress** and **Flags** are first-class inspector tabs (no longer buried
+in the overflow menu).
 
 1. **Header row** — a **mode segmented control** `Practice · Wait · Grade` (the three mutually-exclusive
    modes, replacing the old scattered toggles) on the left; an audio-status caption and the
@@ -46,35 +49,35 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
    for sync start), Wait progress (`n/N` + fumbles), Grade pass result + accuracy trend, "Red = notes
    you fumbled" + **Clear marks**, the active section range, or the web-bridge status. The Play button
    shows **Waiting…** while armed.
-3. **Notation** — the `WKWebView` at `maxHeight: .infinity` (white, rounded 8 pt, hairline border).
-   If the song fails to load, a `ContentUnavailableView` replaces it.
-4. **Control bar** — a **`FlowLayout`** (wraps on narrow widths) of labelled groups: **Hands**
-   (segmented Both/R.H./L.H.), **Tempo** (% + slider 25–120), **Section** (from/to steppers, `🔁 Loop`,
-   `All`), a **Loop count-in** menu (Off / 1 beat … / Full bar — meter-aware), a **Speed trainer** menu
-   (Off / By reps / By accuracy + target/step/threshold/passes), plus a **Metronome** toggle and an
-   **Output** menu (Speakers / Piano / Both).
-5. **Keyboard** — the 88-key `PianoKeyboardView` (**always visible**; 88 pt on Mac, 74 pt on iPad),
-   with a legend + MIDI connection status beneath.
-6. **More menu** (toolbar `⋯`) — grouped into labelled sections: **Start** (Count-in, "Start on my
-   first note" = sync start), **Metronome** ("Start with playback", "Stop when playback stops"),
-   **Grading** (timing tolerance: Strict ±150 / Normal ±300 / Relaxed ±450 ms),
-   **Notation** (Smooth cursor, Highlight score notes, Show trouble spots, Colour hands, Bars per line
-   — remembered per song), **Cursor** (Step forward, Reset), and the sheets (**Flags…**,
-   **Show progress…**, **Show diagnostics…**).
-7. **Progress** (behind the More menu, in a sheet) — headline stats (passes, best full run, last
-   pass), an accuracy **trend sparkline** (with a 95% target guide), a **"still need work"** list
-   (bars you're currently missing, each a tap-to-drill button that focuses the section on that bar;
-   a bar clears once you play it cleanly), and a recent-pass log. A destructive **Reset** (toolbar,
-   with a confirm dialog) wipes the song's history. Empty state until the first Grade pass.
-8. **Diagnostics** (behind the More menu, in a sheet) — score summary, the per-hand reconciliation
-   table (✅/⚠️), and the first 24 note events. Monospaced. Off the main flow but one tap away.
+4. **Notation** — the `WKWebView` at `maxHeight: .infinity` (rounded 8 pt, hairline border). The
+   score surface is **deliberately paper-white in both light and dark mode** (like every major
+   notation app); the surrounding chrome adapts via stock system colours. If the song fails to
+   load, a `ContentUnavailableView` replaces it. If the web content process dies it reloads and
+   re-applies score + layout + overlays automatically.
+5. **Keyboard** — the 88-key `PianoKeyboardView` (88 pt on Mac, 74 pt on iPad), with a legend +
+   MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
+   one-line strip keeps the MIDI status + a restore button.
+6. **Inspector — Controls tab** — a grouped `Form`: **Playback** (Tempo slider, Hands, Output,
+   Metronome + start/stop-with-playback), **Focus** (Section from/to, Loop, Loop count-in
+   (meter-aware per section), Whole piece, Speed trainer + its settings), **Start** (Count-in,
+   "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **View**
+   (Bars per line — remembered per song, Smooth cursor, Highlight score notes, Trouble spots,
+   Colour hands, Show keyboard).
+7. **Inspector — Progress tab** — headline stats (passes, best full run, last), the accuracy
+   **trend sparkline** (95% guide), the **"still need work"** list (tap to drill; clears as you
+   improve), the recent-pass log, and **Reset progress** (confirmed). Empty state until the first
+   Grade pass.
+8. **Inspector — Flags tab** — add a note for a bar, the flagged-bars list (tap to drill, ⋯ to
+   edit/delete). The on-score ⚑ tap still opens the inline editor.
+9. **More menu** (toolbar `⋯`) — true utilities only: Step cursor forward, Reset cursor, and
+   **Show diagnostics…** (sheet: score summary, per-hand reconciliation table, first 24 events).
 
 ## Colour tokens (as used in code)
 
 | Token | Value | Meaning |
 |-------|-------|---------|
 | Hand — right | `#1565C0` (blue) | RH noteheads (notation) & RH score notes (keyboard) |
-| Hand — left | `#C62828` (red) | LH noteheads (notation) & LH score notes (keyboard) |
+| Hand — left | `#E65100` (orange) | LH noteheads (notation) & LH score notes (keyboard). **Blue/orange is the colour-blind-safe pair** — the old blue/red failed red-green deficiency, and hand identity is load-bearing |
 | Mistake / missed | `#D32F2F` (red) | Review marks on noteheads |
 | Trouble bar | `rgba(245,158,11,…)` (amber) | Bars you still keep missing, tinted on the score (below the blue section selection) |
 | Flag marker | `#8e44ad` (purple ⚑) | A manual revisit note pinned to a bar; a tappable marker at the bar's top-left |
@@ -84,8 +87,7 @@ The notation is the **hero** (fills the pane); everything else is thin chrome ar
 | Status – error | `.red` | Error captions |
 | Status – normal | `.secondary` / `.green` | Info / positive captions |
 
-White keys use ~0.6 opacity of the above; black keys use full. **Note:** RH-blue / LH-red is not
-colour-blind-safe (red-green) — flagged for the design pass.
+White keys use ~0.6 opacity of the above; black keys use full.
 
 ## Typography
 
@@ -95,13 +97,12 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 
 ## Spacing / layout rules
 
-- Practice root is a `VStack(spacing: 10)` that **fills** the detail pane (no `ScrollView`); the
+- Practice canvas is a `VStack(spacing: 8)` that **fills** the detail pane (no `ScrollView`); the
   notation takes `maxHeight: .infinity`.
-- The control bar is a **`FlowLayout`** (custom `Layout`) of control groups, so it sits in one row on
-  a wide Mac window and wraps to several rows on a narrow iPad one — no size-class branching.
-- A control **group** is an `HStack` with a hairline `RoundedRectangle` border (`corner 8`,
-  `secondary.opacity(0.25)`). Mode = `.pickerStyle(.segmented)`; Metronome/Loop = `.toggleStyle(.button)`;
-  Output/More = menus. Play = `.borderedProminent`.
+- The inspector is a `.inspector` column (min 250 / ideal 300 / max 400 pt) with a segmented tab
+  header; the Controls tab is a grouped `Form` — SwiftUI handles Mac/iPad presentation natively.
+- Mode = `.pickerStyle(.segmented)`; Play = `.borderedProminent`; inspector controls are stock Form
+  rows (`LabeledContent`, `Toggle`, `Picker`, `Stepper`).
 - Keyboard height: 88 pt (macOS) / 74 pt (iOS, via `#if os(iOS)`). Notation height is flexible.
 - No spacing/size token system yet; values are inline literals.
 
@@ -157,18 +158,19 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 ## Design conventions to preserve
 
 - The web layer is **display only** — never put logic, timing, or state decisions in `index.html`.
-- Hand colours are consistent across notation and keyboard (blue = RH, red = LH).
+- Hand colours are consistent across notation and keyboard (blue = RH, orange = LH — the colour-blind-safe pair).
 - Feedback is **encouraging** — wrong notes are shown, never block or scold.
 
 ## Open Questions
 
-- **No real *visual* design system yet.** The structure is redesigned (split view, notation-hero,
-  adaptive control bar) but there's still no defined type scale, spacing tokens, or component set —
-  and no intentional Dark Mode (the notation is forced white). That visual pass is the remaining work.
-- **Colour accessibility:** RH-blue / LH-red is still not colour-blind-safe (red-green). Supplement
-  with shape/label cues or swap the hue pair in the visual pass. (Deliberately deferred for now.)
-- **iPad validated only by compile, not on device.** The layout now adapts (sidebar collapses, the
-  control bar wraps, keyboard shorter), and both the macOS and iOS SDKs build — but it hasn't run on
-  real iPad hardware, and the sound source differs there (no system `.dls`; see TECH_STACK).
-- **Resolved:** the diagnostic dump moved behind the More menu → "Show diagnostics…" (a sheet), off
-  the main practice flow but one tap away for checking an import.
+- **No type/spacing token system.** Structure and IA are done (split view + inspector); the score is
+  deliberately paper-white in both colour schemes and hand colours are colour-blind-safe. Remaining
+  visual work: a defined type scale/spacing tokens if the stock look ever stops sufficing, and an
+  optional **dark score theme** (recolouring OSMD's output) if paper-white in dark mode bothers in
+  practice.
+- **Accessibility beyond colour:** VoiceOver labels for the keyboard/notation, Dynamic Type in the
+  inspector, reduced-motion for the follow-scroll — not yet addressed.
+- **iPad still needs a hardware pass.** Audio (bundled SoundFont + AVAudioSession) and touch
+  drag-select are now in place and the SDK builds, but nothing has run on a physical iPad. The
+  88-key keyboard's keys are inherently narrow at iPad widths — acceptable for feedback display,
+  cramped for touch playing.

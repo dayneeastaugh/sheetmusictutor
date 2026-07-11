@@ -45,7 +45,8 @@ assets.
 | Asset | Version | Location | Why | License note |
 |-------|---------|----------|-----|--------------|
 | **OpenSheetMusicDisplay (OSMD)** | **2.0.0** | `Woodshed/Web/opensheetmusicdisplay.min.js` (~1.26 MB, vendored/bundled) | Renders MusicXML to SVG notation inside the WKWebView. Chosen per PRD; Swift owns the data model, OSMD only draws + moves a cursor. Bundles VexFlow + JSZip + glyph fonts, so it renders **fully offline**. | Downloaded from the official jsDelivr release. Verify OSMD's BSD-style licence before distribution. |
-| **General MIDI sound bank** | macOS system | `/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls` (loaded at runtime, **not bundled**) | Sampled piano for playback via `AVAudioUnitSampler`. Zero app-size cost for the macOS spike. | System resource; **not available on iPadOS** — a bundled SoundFont/`.sf2` will be required there (see Open Questions). |
+| **General MIDI sound bank** | macOS system | `/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls` (loaded at runtime, **not bundled**) | Sampled piano on macOS via `AVAudioUnitSampler` (zero app-size cost; keeps the sound the app has always had). | System resource; iPadOS uses the bundled SoundFont below. |
+| **GeneralUser GS SoundFont** | 2.0.2 | `Woodshed/Sounds/GeneralUserGS.sf2` (~32 MB, bundled) | The iPad piano: iPadOS has no system `.dls`, so without this the iPad build was silent. Loaded on iOS (and as a macOS fallback if the system bank ever moves). | By S. Christian Collins; the GeneralUser GS licence permits free use and redistribution, incl. bundled in software. |
 
 ## Bundled sample content (test scores)
 
@@ -75,8 +76,9 @@ assets.
 
 ## Open Questions
 
-- **iPad sound source:** the macOS system `.dls` doesn't exist on iPadOS. Which SoundFont/`.sf2` do
-  we bundle, and at what size/quality? (PRD §12.2 is still open.)
+- **iPad sound source: resolved** — GeneralUser GS (~32 MB) is bundled and loaded on iOS, with an
+  `AVAudioSession` (.playback) configured. Still needs a listen on real hardware; swap the font only
+  if it sounds poor there.
 - **Sandbox:** disabled to unblock WKWebView in the spike. For distribution (esp. Mac App Store, if
   ever) we'd need it back on with correct entitlements. Is App Store distribution in scope? (PRD
   implies direct/Developer-ID distribution only.)

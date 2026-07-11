@@ -369,8 +369,33 @@ hand-built archive).
 **Rejected:** a third-party ZIP dependency (zero-dependency stance; the needed subset is ~150
 lines); wall-clock grading tolerance (musical time matches the clock everything else uses).
 
+### ADR-033 — Wave 3: inspector IA, iPad enablement, colour-blind-safe hands, paper-white score
+**2026-07-11.** Fourth remediation wave (docs/audit/04-roadmap.md):
+(1) **Practice screen = canvas + inspector.** The wrapping control bar and overloaded ⋯ menu are
+replaced by a native `.inspector` with three tabs — **Controls** (Playback/Focus/Start/Grading/View
+groups in a Form), **Progress**, and **Flags** (both promoted from buried sheets to first-class
+tabs). The canvas keeps only live surfaces: mode + Play, status, banner, score, collapsible keyboard.
+The ⋯ menu retains only cursor utilities + diagnostics. `.inspector` adapts natively on iPad.
+(2) **iPad enablement:** GeneralUser GS (~32 MB, redistribution-permitted) bundled and loaded on
+iOS (macOS keeps the system DLS — same sound as always); `AVAudioSession` (.playback) configured on
+iOS; **touch drag-select** added to the web layer (horizontal drag selects, vertical swipe still
+scrolls — verified in-browser with synthesized touch events).
+(3) **Colour-blind-safe hands:** LH red `#C62828` → orange `#E65100` across notation + keyboard —
+blue/orange is the standard safe pair; the old blue/red failed exactly red-green deficiency, and
+hand identity is load-bearing. Wrong/missed stays red (appears on *pressed* keys / review marks,
+a different context from LH score notes).
+(4) **The score stays paper-white in both colour schemes — deliberately** (as in every major
+notation app); the chrome adapts via stock system colours. A true dark score theme (recolouring
+OSMD output) is deferred until paper-in-dark-mode annoys in practice.
+(5) Web-process crash recovery: on content-process termination the page reloads and the score,
+layout, hand colours, selection, and overlays are re-applied automatically.
+**Rejected:** keeping Progress/Flags as sheets (the tutor features deserve first-class placement);
+a scrollable/zoomable iPad keyboard (narrow keys are acceptable for feedback display — revisit if
+touch *playing* on iPad matters); shipping a dark score theme now (visual risk for unproven need).
+
 ## Open Questions
-- Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution.
+- Revisit ADR-009 (sandbox) and ADR-010 (sound source) before any iPad build or distribution
+  (ADR-010's iPad half is resolved by the bundled SoundFont; the sandbox question remains).
 - ADR-018 defers the DB; revisit when session history / cross-song analytics are built.
 - Section loop has no silent reset gap and repositioning may briefly clip a sounding note; evaluate if
   it needs smoothing (ADR-016).

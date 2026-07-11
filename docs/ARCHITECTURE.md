@@ -117,13 +117,13 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   (`Ingest.fuse`), advances the follow-cursor from the audio clock, routes output, and implements
   **Wait mode**, **Tempo/Grade mode** matching, section practice, and review marks. UI-decoupled: it
   imports only `Foundation`/`Combine`, no SwiftUI.
-- **`PracticeView(song:library:)`** — a thin SwiftUI view that creates the session as a `@StateObject`
-  and binds controls to it. Holds only the 0.02 s cursor `Timer.publish` and the `onChange` wiring
-  (feeding MIDI input / play-state changes to the session); the rest is layout. Wires
+- **`PracticeView(song:library:)`** — a thin SwiftUI view: the notation **canvas** (mode + Play,
+  status, banner, score, collapsible keyboard) plus a trailing **`.inspector`** with three tabs —
+  Controls (grouped `Form`), Progress (`ProgressPanel`), Flags (`FlagsPanel`). Holds only the 0.02 s
+  cursor `Timer.publish` and the play-state `onChange`; the rest is layout. Wires
   `session.onPassRecorded` to `library.recordPass` so finished Grade passes persist.
-- **`PracticeProgressView`** — the per-song Progress sheet (More menu). Loads `history.jsonl` on
-  demand and renders the accuracy trend, best/last, trouble-spot heatmap (tap to drill a bar via
-  `session.focusBar`), and recent-pass log.
+- **`ProgressPanel`** — the per-song progress inspector tab: accuracy trend, best/last, trouble-spot
+  heatmap (tap to drill via `session.focusBar`), recent-pass log, reset.
 - **`PianoKeyboardView.swift`** — a stateless 88-key keyboard drawn with **`Canvas`** (one
   immediate-mode pass; the previous ~140-diffed-views version dropped frames at trill speeds).
   Key geometry is precomputed statically. Colours: green = you playing, blue = right-hand score /
