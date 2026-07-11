@@ -26,6 +26,7 @@ enum Ingest {
         var onsetBeats: Double
         var durationBeats: Double
         var hasOrnament: Bool
+        var isGrace: Bool
         var matched = false
     }
 
@@ -67,7 +68,11 @@ enum Ingest {
 
             // Greedy: for each XML sounding note, grab the nearest unmatched MIDI
             // note of the same pitch. A generous 1-beat window absorbs swing.
-            for i in soundingMut.indices {
+            // PRINCIPAL notes match first, grace notes second — a zero-duration grace
+            // at the same beat must never steal its principal's MIDI partner.
+            let matchOrder = soundingMut.indices.filter { !soundingMut[$0].isGrace }
+                           + soundingMut.indices.filter { soundingMut[$0].isGrace }
+            for i in matchOrder {
                 let s = soundingMut[i]
                 var bestJ = -1
                 var bestDelta = Double.greatestFiniteMagnitude
@@ -167,6 +172,7 @@ enum Ingest {
                           metronomePulseSeconds: pulseSeconds,
                           trackHands: midi.trackHands,
                           measureStartBeats: xml.measures.map { $0.startBeat },
+                          measureMeters: xml.measures.map { (num: $0.num, den: $0.den) },
                           totalBeats: xml.measures.last.map { $0.startBeat + $0.lengthBeats }
                                       ?? (events.map { $0.notatedBeat }.max() ?? 0),
                           secondsAtBeat: midi.secondsAtBeat,
@@ -212,7 +218,8 @@ enum Ingest {
                                          notatedType: n.notatedType ?? "?",
                                          onsetBeats: n.onsetBeats,
                                          durationBeats: n.durationBeats,
-                                         hasOrnament: n.hasOrnament))
+                                         hasOrnament: n.hasOrnament,
+                                         isGrace: n.isGrace))
                 if n.tieStart { openTie[pitch] = sounding.count - 1 }
             }
         }

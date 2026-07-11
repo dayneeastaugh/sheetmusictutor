@@ -64,6 +64,7 @@ struct XMLNote {
     var tieStart: Bool
     var tieStop: Bool
     var hasOrnament: Bool     // trill / turn / mordent etc — expands to many MIDI notes
+    var isGrace: Bool = false // grace note: no <duration>, realized as a short MIDI note
     var onsetBeats: Double
     var durationBeats: Double
     var measure: Int
@@ -135,6 +136,7 @@ struct FusedScore {
     var trackHands: [Hand]      // MIDI track → hand, for per-hand audio routing
     // Section-practice support: bar structure + a beat→seconds converter.
     var measureStartBeats: [Double]        // notated start beat of each measure (bar N-1 = index)
+    var measureMeters: [(num: Int, den: Int)] // each measure's meter (for section-aware count-ins)
     var totalBeats: Double                 // notated length of the whole piece, in quarter beats
     var secondsAtBeat: (Double) -> Double  // convert any notated beat to playback seconds (tempo map)
     var reconciliations: [Reconciliation]

@@ -55,7 +55,9 @@ enum MIDIParser {
             var runningStatus: UInt8 = 0
             // Open note-ons awaiting their note-off, keyed by pitch (channel folded
             // in via key = channel*128 + pitch to avoid cross-channel mismatches).
-            var openNotes: [Int: Int] = [:]   // key -> startTick
+            // A *stack* per key: overlapping same-pitch notes are legal (pedalled
+            // repeats, voice overlaps) — a flat map silently dropped the first one.
+            var openNotes: [Int: [Int]] = [:]   // key -> stack of startTicks (LIFO)
             var trackNotes: [RawNote] = []
 
             while reader.offset < trackEnd {
@@ -100,9 +102,10 @@ enum MIDIParser {
                         let velocity = Int(try reader.readUInt8())
                         let key = channel * 128 + pitch
                         if high == 0x90 && velocity > 0 {
-                            openNotes[key] = absoluteTick               // note starts
+                            openNotes[key, default: []].append(absoluteTick)   // note starts
                         } else {
-                            if let start = openNotes.removeValue(forKey: key) {
+                            if var stack = openNotes[key], let start = stack.popLast() {
+                                openNotes[key] = stack.isEmpty ? nil : stack
                                 trackNotes.append(RawNote(start: start, end: absoluteTick, pitch: pitch))
                             }
                         }

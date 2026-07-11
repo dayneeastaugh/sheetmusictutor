@@ -28,6 +28,10 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         guard parser.parse() else {
             throw parser.parserError ?? MusicXMLError.parseFailed
         }
+        // Multi-part scores (voice + piano, duets) aren't supported: the measure
+        // cursor runs linearly and a second <part>'s beats would silently land after
+        // the first part's total length — garbage positions. Refuse loudly instead.
+        guard p.partCount <= 1 else { throw MusicXMLError.multiPart(p.partCount) }
         p.finishMeasure()
         return MusicXMLScore(divisions: p.divisions,
                              tempoBPM: p.tempoBPM,
@@ -63,6 +67,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
     private var inPitch = false
     private var inBackup = false
     private var inForward = false
+    private(set) var partCount = 0   // <part> containers seen (only 1 is supported)
 
     // MARK: - The note currently being assembled
     private var step: String?
@@ -78,6 +83,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
     private var tieStart = false
     private var tieStop = false
     private var hasOrnament = false
+    private var isGrace = false
 
     // MARK: - XMLParserDelegate
 
@@ -100,6 +106,8 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
             measureMaxDivs = 0
             prevOnsetDivs = 0
             pendingMeasureStart = measureStartBeats  // start beat of the new measure
+        case "part":
+            partCount += 1
         case "note":
             inNote = true
             resetNote()
@@ -107,6 +115,8 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
             inPitch = true
         case "chord":
             isChord = true
+        case "grace":
+            if inNote { isGrace = true }   // no <duration>; realized as a short MIDI note
         case "rest":
             isRest = true
         case "backup":
@@ -187,6 +197,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         noteDurationDivs = 0
         tieStart = false; tieStop = false
         hasOrnament = false
+        isGrace = false
     }
 
     private func finalizeNote() {
@@ -215,7 +226,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
                              isChord: isChord, staff: noteStaff, voice: noteVoice,
                              notatedType: noteType, dots: noteDots,
                              tieStart: tieStart, tieStop: tieStop,
-                             hasOrnament: hasOrnament,
+                             hasOrnament: hasOrnament, isGrace: isGrace,
                              onsetBeats: onsetBeats, durationBeats: durationBeats,
                              measure: measureIndex))
     }
@@ -242,5 +253,12 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
 
 enum MusicXMLError: Error, CustomStringConvertible {
     case parseFailed
-    var description: String { "Failed to parse MusicXML." }
+    case multiPart(Int)
+    var description: String {
+        switch self {
+        case .parseFailed: return "Failed to parse MusicXML."
+        case .multiPart(let n):
+            return "This score has \(n) parts — Woodshed supports solo piano only. Export just the piano part from MuseScore."
+        }
+    }
 }

@@ -122,6 +122,18 @@ final class AudioEnginePlayer: ObservableObject {
         if metronomeOn && !isPlaying && metronomeFreeRuns { startFreeRun() }   // pick up the new tempo/meter
     }
 
+    /// The count-in's own bar pattern + pulse spacing. The piece-global `barPattern`
+    /// comes from the FIRST full bar, which is wrong for a section in a different
+    /// meter (or after tempo-map changes) — the session sets these per section.
+    private var countInPattern: [ClickLevel] = []
+    private var countInPulseSeconds: Double = 0
+    func setCountIn(pattern: [ClickLevel], pulseSeconds: Double) {
+        countInPattern = pattern
+        countInPulseSeconds = pulseSeconds
+    }
+    private var effectiveCountInPattern: [ClickLevel] { countInPattern.isEmpty ? barPattern : countInPattern }
+    private var effectiveCountInPulse: Double { countInPulseSeconds > 0 ? countInPulseSeconds : pulseSeconds }
+
     /// Toggle the metronome. While playing it locks to the music; while stopped it
     /// free-runs at the score tempo so you can practise without the recording.
     func setMetronome(_ on: Bool) {
@@ -176,13 +188,15 @@ final class AudioEnginePlayer: ObservableObject {
         timer.resume()
     }
 
-    /// Click N bars of the pattern, then call `completion` on the next downbeat.
+    /// Click N bars of the (section-aware) pattern, then call `completion` on the
+    /// next downbeat.
     private func startCountIn(bars: Int, completion: @escaping () -> Void) {
         stopMetroTimer()
-        guard bars > 0, !barPattern.isEmpty, pulseSeconds > 0 else { completion(); return }
-        let total = bars * barPattern.count
+        let pattern = effectiveCountInPattern, pulse = effectiveCountInPulse
+        guard bars > 0, !pattern.isEmpty, pulse > 0 else { completion(); return }
+        let total = bars * pattern.count
         var idx = 0
-        let interval = pulseSeconds / Double(playbackRate)   // count in at the chosen tempo
+        let interval = pulse / Double(playbackRate)   // count in at the chosen tempo
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -192,23 +206,24 @@ final class AudioEnginePlayer: ObservableObject {
                 DispatchQueue.main.async { completion() }
                 return
             }
-            self.click(self.barPattern[idx % self.barPattern.count])
+            self.click(pattern[idx % pattern.count])
             idx += 1
         }
         metroTimer = timer
         timer.resume()
     }
 
-    /// Click the last `pulses` beats of the bar (a pickup) at the current tempo, then
-    /// call `completion`. Used for the per-loop count-in. `pulses` is clamped to a bar.
+    /// Click the last `pulses` beats of the (section-aware) bar — a pickup — at the
+    /// current tempo, then call `completion`. Used for the per-loop count-in.
     private func startCountInPulses(pulses: Int, completion: @escaping () -> Void) {
         stopMetroTimer()
-        let barLen = barPattern.count
-        guard pulses > 0, barLen > 0, pulseSeconds > 0 else { completion(); return }
+        let pattern = effectiveCountInPattern, pulse = effectiveCountInPulse
+        let barLen = pattern.count
+        guard pulses > 0, barLen > 0, pulse > 0 else { completion(); return }
         let n = min(pulses, barLen)
         let startIdx = barLen - n                              // last n pulses → lead into the downbeat
         var idx = 0
-        let interval = pulseSeconds / Double(playbackRate)     // count in at the chosen tempo
+        let interval = pulse / Double(playbackRate)            // count in at the chosen tempo
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -218,7 +233,7 @@ final class AudioEnginePlayer: ObservableObject {
                 DispatchQueue.main.async { completion() }
                 return
             }
-            self.click(self.barPattern[(startIdx + idx) % barLen])
+            self.click(pattern[(startIdx + idx) % barLen])
             idx += 1
         }
         metroTimer = timer
