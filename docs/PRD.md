@@ -84,6 +84,7 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Revisit flags** — pin a short note to a bar ("LH jump") to mark a spot to work on; flagged bars
   show a tappable ⚑ on the score, and a Flags list adds/edits/deletes and drills to a bar. Stored per
   song (`flags.json`).
+- **Drill styles** — a **Drill** session type with two styles. **Ramp the tempo**: the guided auto-tempo drill below. **Add a bar at a time** (progressive): loop a passage that grows one bar at a time — you only advance once the **newest bar** is played ≥ threshold clean (graded on that bar alone, so it isn't hidden inside the whole passage's accuracy); builds from the section start to its end (or the piece end).
 - **Speed drill / mastery gating** — a guided auto-tempo drill on a looped section (Grade mode),
   set up in one **Speed drill** panel with a plain-English summary; the transport **▶ Play** starts it
   (in Drill mode Play drops to the **start tempo** and begins the ramp). The tempo ramps from start → **goal** by a **step**.

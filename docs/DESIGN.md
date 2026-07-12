@@ -46,8 +46,8 @@ holds only the always-live surfaces; every set-and-forget control lives in the i
 in the overflow menu).
 
 1. **Header row** — the **training-session-type** segmented control `Practice · Wait · Grade · Drill`
-   on the left (the four mutually-exclusive session types; **Drill** = Grade + a looped auto-tempo
-   ramp, a first-class type rather than a buried setting); on the
+   on the left (the four mutually-exclusive session types; **Drill** = Grade + a looped level-up —
+   either a tempo ramp or a bar-by-bar build-up, a first-class type not a buried setting); on the
    right an icon-only **metronome toggle** (`.toggleStyle(.button)`; tooltip carries the words —
    it's a live performance control, so it sits with the transport, not buried in settings) and a
    **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
@@ -82,9 +82,11 @@ in the overflow menu).
    Sections by type: **Hands & sound** (Hands, Output — all types); **Playback** (Tempo, metronome
    start/stop-with-playback — the on/off toggle is in the transport; **Rhythm only** in Practice/Grade;
    hidden in Wait); **Focus / Section to drill** (Section from/to, **Suggest a spot**, Loop
-   (Practice/Grade), Loop count-in (not Wait), Whole piece, **saved sections**); **Speed drill**
-   (Drill only — "Speed up" When-I-play-it-clean / Every-few-loops, **Start → Goal** tempo, Speed up
-   by, clean-threshold + passes, one-hand-at-a-time-then-together, and a plain-English summary); the
+   (Practice/Grade), Loop count-in (not Wait), Whole piece, **saved sections**); **Drill**
+   (Drill only — a **Drill style** picker: *Ramp the tempo* ("Speed up" When-I-play-it-clean /
+   Every-few-loops, **Start → Goal** tempo, Speed up by, clean-threshold + passes,
+   one-hand-at-a-time-then-together) or *Add a bar at a time* (progressive — grows the passage one
+   bar at a time, gated on the newest bar's accuracy alone), plus a plain-English summary); the
    drill is **started from the transport ▶ Play** at the top (in Drill mode Play drops to the start
    tempo and begins the ramp); **Start** (Count-in; "Start on my first note" except Drill; playback
    types only); **Grading** (timing tolerance — Grade/Drill); **Takes** (Grade/Drill — ▶ last take /

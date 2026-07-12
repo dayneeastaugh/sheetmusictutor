@@ -513,6 +513,19 @@ and the inspector showed every setting regardless of relevance. Two changes:
 **Rejected:** keeping Drill as a setting (it's core, deserves top-level placement); showing all
 settings always (clutter, and irrelevant controls imply they do something in that mode).
 
+### ADR-040 — Progressive ("add a bar at a time") drill style
+**2026-07-11.** The Drill session type gains a second **style** (a `DrillStyle` picker): the existing
+tempo **ramp**, and **progressive** — loop a passage that grows one bar at a time. You advance to the
+next bar only when the **newest bar** was played cleanly, graded on **that bar alone**
+(`barPlayedClean(_:)` over the matcher's expected notes for that bar) so a fumble on the new bar isn't
+hidden inside the whole passage's accuracy. It builds from the section start toward the selection's
+end (or the piece end), growing `sectionEnd` bar by bar — which reuses all the existing section
+machinery (loop bounds, grade scope, and the **blue highlight visibly expands** as you succeed).
+`practiceMode` treats `speedMode != .off || progressiveDrill` as Drill; started from the transport
+Play like the ramp. **Rejected:** a separate top-level session type for progressive (it's a drill
+variant, belongs under Drill); grading the newest bar as part of the whole-passage accuracy (the
+user's explicit ask — the new bar must be proven on its own).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

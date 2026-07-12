@@ -218,6 +218,16 @@ struct PracticeView: View {
             if session.armed {
                 Label("Play a note to start…", systemImage: "hand.point.up.left")
                     .foregroundStyle(.blue)
+            } else if session.progressiveDrill {
+                if session.mastered {
+                    Label("Passage complete — every bar clean 🎉", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Text("Progressive drill · bars \(session.sectionStart)–\(session.sectionEnd)"
+                         + (session.gradeResult.map { " · last \(Int($0.accuracy * 100))%" } ?? "")
+                         + " · play the newest bar clean to add the next")
+                        .foregroundStyle(.blue)
+                }
             } else if session.speedMode != .off {
                 if session.mastered {
                     // The % is TEMPO, not a score. "Every few loops" (byReps) advances
@@ -446,37 +456,47 @@ struct PracticeView: View {
         .formStyle(.grouped)
     }
 
-    /// The Speed-drill setup (shown only in the Drill session type). No "Off" here —
-    /// you leave a drill by switching training-session type.
+    /// The drill setup (shown only in the Drill session type). No "off" here — you
+    /// leave a drill by switching training-session type.
     @ViewBuilder
     private var drillSection: some View {
-        Section("Speed drill") {
-            Picker("Speed up", selection: $session.speedMode) {
-                Text("When I play it clean").tag(PracticeSession.SpeedTrainerMode.byAccuracy)
-                Text("Every few loops").tag(PracticeSession.SpeedTrainerMode.byReps)
+        Section("Drill") {
+            Picker("Drill", selection: Binding(get: { session.drillStyle },
+                                               set: { session.drillStyle = $0 })) {
+                ForEach(PracticeSession.DrillStyle.allCases) { Text($0.title).tag($0) }
             }
-            Picker("Start tempo", selection: $session.speedStartPct) {
-                ForEach([40, 50, 60, 70, 80, 90], id: \.self) { Text("\($0)%").tag(Double($0)) }
-            }
-            Picker("Goal tempo", selection: $session.speedTargetPct) {
-                ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
-            }
-            Picker("Speed up by", selection: $session.speedStepPct) {
-                ForEach([2, 5, 10], id: \.self) { Text("+\($0)%").tag(Double($0)) }
-            }
-            if session.speedMode == .byAccuracy {
+            if session.progressiveDrill {
                 Picker("“Clean” means", selection: $session.speedThreshold) {
                     ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
                 }
-                Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
-                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
-                }
             } else {
-                Picker("Loops before speeding up", selection: $session.speedPassesPerStep) {
-                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                Picker("Speed up", selection: $session.speedMode) {
+                    Text("When I play it clean").tag(PracticeSession.SpeedTrainerMode.byAccuracy)
+                    Text("Every few loops").tag(PracticeSession.SpeedTrainerMode.byReps)
                 }
+                Picker("Start tempo", selection: $session.speedStartPct) {
+                    ForEach([40, 50, 60, 70, 80, 90], id: \.self) { Text("\($0)%").tag(Double($0)) }
+                }
+                Picker("Goal tempo", selection: $session.speedTargetPct) {
+                    ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
+                }
+                Picker("Speed up by", selection: $session.speedStepPct) {
+                    ForEach([2, 5, 10], id: \.self) { Text("+\($0)%").tag(Double($0)) }
+                }
+                if session.speedMode == .byAccuracy {
+                    Picker("“Clean” means", selection: $session.speedThreshold) {
+                        ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
+                    }
+                    Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
+                        ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                } else {
+                    Picker("Loops before speeding up", selection: $session.speedPassesPerStep) {
+                        ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                }
+                Toggle("One hand at a time, then together", isOn: $session.handsProgression)
             }
-            Toggle("One hand at a time, then together", isOn: $session.handsProgression)
             Text(session.drillSummary).font(.caption2).foregroundStyle(.secondary)
             Label(session.audio.isPlaying ? "Press ◼ Stop above to end the drill"
                                           : "Press ▶ Play above to start the drill",

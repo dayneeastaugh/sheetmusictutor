@@ -697,7 +697,7 @@ final class PracticeSession: ObservableObject {
             case .practice: return "Play along and follow the score"
             case .wait: return "Advance only when you play the right notes"
             case .grade: return "Play at tempo and get scored"
-            case .drill: return "Loop a section and ramp the tempo up as you improve"
+            case .drill: return "Loop a passage and level it up — ramp the tempo, or add a bar at a time"
             }
         }
     }
@@ -707,29 +707,53 @@ final class PracticeSession: ObservableObject {
     var practiceMode: PracticeMode {
         get {
             if waitMode { return .wait }
-            if speedMode != .off { return .drill }   // drill = grade + the speed trainer
+            if speedMode != .off || progressiveDrill { return .drill }   // either drill style
             if gradeMode { return .grade }
             return .practice
         }
         set {
             switch newValue {
             case .practice:
-                speedMode = .off
+                speedMode = .off; progressiveDrill = false
                 if waitMode { setWaitMode(false) }
                 if gradeMode { setGradeMode(false) }
             case .wait:
-                speedMode = .off
+                speedMode = .off; progressiveDrill = false
                 setWaitMode(true)              // also clears Grade
             case .grade:
-                speedMode = .off               // plain grade, no auto-ramp
+                speedMode = .off; progressiveDrill = false   // plain grade, no auto-ramp
                 setGradeMode(true)             // also clears Wait
             case .drill:
                 if waitMode { setWaitMode(false) }
                 if !gradeMode { setGradeMode(true) }
-                if speedMode == .off { speedMode = .byAccuracy }   // didSet enables loop + previews start tempo
+                loopSection = true
+                if speedMode == .off && !progressiveDrill { speedMode = .byAccuracy }   // default style
             }
         }
     }
+
+    /// The two drill styles: ramp the tempo, or add a bar at a time (progressive).
+    enum DrillStyle: Int, CaseIterable, Identifiable {
+        case speedRamp, progressive
+        var id: Int { rawValue }
+        var title: String { self == .speedRamp ? "Ramp the tempo" : "Add a bar at a time" }
+    }
+    var drillStyle: DrillStyle {
+        get { progressiveDrill ? .progressive : .speedRamp }
+        set {
+            if newValue == .progressive { speedMode = .off; progressiveDrill = true }
+            else { progressiveDrill = false; if speedMode == .off { speedMode = .byAccuracy } }
+        }
+    }
+
+    // Progressive drill: loop a passage that GROWS one bar at a time. You only advance
+    // to the next bar once the newest bar was played cleanly (graded on that bar alone,
+    // so it isn't hidden inside the whole passage's accuracy). Builds from the section
+    // start toward `progressiveTarget` (the selection's end, or the piece end).
+    @Published var progressiveDrill = false {
+        didSet { if progressiveDrill { loopSection = true; if !gradeMode { setGradeMode(true) } } }
+    }
+    private var progressiveTarget = 1
 
     // MARK: - Tempo (grade) mode
 
@@ -845,7 +869,11 @@ final class PracticeSession: ObservableObject {
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up
         endTakeCapture(accuracy: r.accuracy)      // keep the take (persisted if it's a new best)
-        applySpeedTrainer(accuracy: r.accuracy)   // ramp tempo / gate mastery for the next pass
+        if progressiveDrill {
+            applyProgressiveDrill(newestBarClean: barPlayedClean(sectionEnd))   // grade the newest bar alone
+        } else {
+            applySpeedTrainer(accuracy: r.accuracy)   // ramp tempo / gate mastery for the next pass
+        }
     }
 
     /// The 1-based bar containing a notated beat (via the measure start-beat table).
@@ -1069,20 +1097,55 @@ final class PracticeSession: ObservableObject {
         loopSection = true
     }
 
-    /// One-tap start for a speed drill: default the ramp mode if off, drop to the
-    /// start tempo, and begin the looped, graded ramp on the current section.
+    /// One-tap start for a drill (from the transport Play in Drill mode).
+    /// Speed-ramp: drop to the start tempo and begin the ramp. Progressive: shrink the
+    /// window to the first bar, remember the target, and begin building it up.
     func startDrill() {
         guard !waitMode else { return }
-        if speedMode == .off { speedMode = .byAccuracy }   // the intuitive default: ramp when clean
         if audio.isPlaying { audio.stop() }
         armed = false
-        tempoPct = drillStartTempoClamped
-        startPlayback(countIn: countInBars)                // resets the drill + begins the ramp
+        if progressiveDrill {
+            mastered = false
+            progressiveTarget = max(sectionStart, sectionEnd)   // build up to the selection's end (or piece end)
+            sectionEnd = sectionStart                           // start with just the first bar
+        } else {
+            if speedMode == .off { speedMode = .byAccuracy }    // the intuitive default: ramp when clean
+            tempoPct = drillStartTempoClamped
+        }
+        startPlayback(countIn: countInBars)
+    }
+
+    /// After a progressive-drill pass: grow the window by one bar if the NEWEST bar
+    /// (the current section end) was played cleanly on its own; else repeat. Reaching
+    /// the target with the last bar clean marks it mastered (stops the drill).
+    private func applyProgressiveDrill(newestBarClean: Bool) {
+        guard progressiveDrill, loopSection else { return }
+        guard newestBarClean else { return }        // stay on this window until the newest bar is clean
+        if sectionEnd < progressiveTarget {
+            sectionEnd += 1                          // add the next bar (didSet grows the highlight + loop)
+        } else {
+            mastered = true
+        }
+    }
+
+    /// Was the given bar (its expected notes for the graded hands) played cleanly this
+    /// pass? Empty bars count as clean. Used to gate the progressive drill on the
+    /// newest bar alone, so it isn't hidden inside the whole passage's accuracy.
+    private func barPlayedClean(_ bar: Int) -> Bool {
+        guard let matcher else { return false }
+        let notes = matcher.expected.filter { barForBeat($0.beat) == bar }
+        guard !notes.isEmpty else { return true }
+        return Double(notes.filter(\.matched).count) / Double(notes.count) >= speedThreshold
     }
 
     /// A plain-English description of what the drill will do, for the setup panel.
     var drillSummary: String {
         let range = isFullPiece ? "the whole piece" : "bars \(sectionStart)–\(sectionEnd)"
+        if progressiveDrill {
+            let clean = Int(speedThreshold * 100)
+            return "Starts at bar \(sectionStart) and adds one bar of \(range) each time you play the "
+                 + "newest bar \u{2265}\(clean)% clean, until the passage is complete."
+        }
         let start = Int(drillStartTempoClamped), goal = Int(speedTargetPct), step = Int(speedStepPct)
         let rule = speedMode == .byAccuracy
             ? "each time you play it \u{2265}\(Int(speedThreshold * 100))% clean"
