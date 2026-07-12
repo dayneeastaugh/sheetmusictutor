@@ -377,6 +377,25 @@ final class PracticeSession: ObservableObject {
     private var matcher: GradeMatcher?           // the pure matching engine (GradeMatcher.swift)
     private var gradeMissed: Set<Mistake> = []   // notes already flagged missed (ringed) this pass
     private var wrongMarks: [Mistake] = []       // wrong notes you played, shown on the score this pass
+    // "Keep mistakes from the previous loop" (Drill): carry the last loop's missed/wrong
+    // marks into the next loop as a heads-up. They refresh each loop, so a mistake stays
+    // while you keep making it and drops off the loop after you stop (self-cleaning).
+    @Published var keepDrillMistakes = false {
+        didSet { pushMistakeMarks() }   // show/hide the carried marks at once when toggled
+    }
+    private var carriedMissed: Set<Mistake> = []
+    private var carriedWrong: Set<Mistake> = []
+
+    /// Push the current missed + wrong marks to the score — this pass's live marks
+    /// merged with the carried-over ones (when "keep mistakes" is on). The single place
+    /// that draws these overlays, so live and carried marks always agree.
+    private func pushMistakeMarks() {
+        guard showTroubleOnScore else { return }
+        let missed = gradeMissed.union(keepDrillMistakes ? carriedMissed : [])
+        bridge.markMissed(missed.map { (beat: $0.beat, pitch: $0.pitch) })
+        let wrong = Set(wrongMarks).union(keepDrillMistakes ? carriedWrong : [])
+        bridge.markWrong(wrong.map { (beat: $0.beat, pitch: $0.pitch) })
+    }
     private var gradePassRecorded = false        // this pass already tallied? (avoid double-recording)
 
     struct GradeResult {
@@ -674,8 +693,7 @@ final class PracticeSession: ObservableObject {
             return
         }
         bridge.setTroubleBars(currentTroubleBars.map(\.bar))
-        bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) })
-        bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) })
+        pushMistakeMarks()   // live + carried missed/wrong marks
     }
 
     // MARK: - Practice mode (unified selector)
@@ -799,8 +817,7 @@ final class PracticeSession: ObservableObject {
         wrongMarks = []
         gradePassRecorded = false
         passAbandoned = false
-        bridge.markMissed([])
-        bridge.markWrong([])
+        pushMistakeMarks()   // clears the live marks; keeps the carried ones if "keep mistakes" is on
     }
 
     /// A note-on during a graded pass — forwarded to the matcher. Wrong notes are
@@ -816,7 +833,7 @@ final class PracticeSession: ObservableObject {
             if wrongMarks.count > 60 { wrongMarks.removeFirst() }   // cap the overlay
             changed = true
         }
-        if changed && showTroubleOnScore { bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) }) }
+        if changed { pushMistakeMarks() }
     }
 
     /// On each tick, ring any expected note whose window has now closed unmatched —
@@ -824,7 +841,7 @@ final class PracticeSession: ObservableObject {
     private func advanceGradeMisses(_ t: Double) {
         guard let newly = matcher?.closeWindows(upTo: t), !newly.isEmpty else { return }
         for m in newly { gradeMissed.insert(Mistake(beat: m.beat, pitch: m.pitch)) }
-        if showTroubleOnScore { bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) }) }
+        pushMistakeMarks()
     }
 
     /// A specific note that went wrong in the last pass, for the "what exactly went
@@ -1324,6 +1341,7 @@ final class PracticeSession: ObservableObject {
     private func startPlayback(countIn: Int) {
         if gradeMode {   // fresh practice session: reset progress + start a pass
             gradeResult = nil; gradeHistory = []
+            carriedMissed = []; carriedWrong = []   // a fresh run starts with no carried mistakes
             startGradePass()
         }
         if speedMode != .off { resetDrill() }        // a fresh Play restarts the drill from the current tempo
@@ -1382,7 +1400,12 @@ final class PracticeSession: ObservableObject {
                 audio.loopBackToStart(countInPulses: loopCountInPulses)   // (+ optional count-in)
                 bridge.seek(sectionStartBeat)   // show the cursor at the start during the count-in
                 lastSentBeat = sectionStartBeat
-                if gradeMode { startGradePass() }   // reset tallies + wipe rings for the next pass
+                if gradeMode {
+                    // Carry this pass's mistakes into the next loop as a heads-up
+                    // (self-cleaning — they refresh from the pass that just ended).
+                    if keepDrillMistakes { carriedMissed = gradeMissed; carriedWrong = Set(wrongMarks) }
+                    startGradePass()                // reset tallies + refresh the marks for the next pass
+                }
                 beginTakeCapture()                  // fresh take per pass
             } else {
                 if gradeMode { finalizeGradePass() }   // record the completed pass, then stop

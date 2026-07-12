@@ -497,6 +497,8 @@ struct PracticeView: View {
                 }
                 Toggle("One hand at a time, then together", isOn: $session.handsProgression)
             }
+            Toggle("Keep mistakes from last loop", isOn: $session.keepDrillMistakes)
+                .help("Carry the previous loop's missed/wrong marks into the next as a heads-up; they clear once you stop making them")
             Text(session.drillSummary).font(.caption2).foregroundStyle(.secondary)
             Label(session.audio.isPlaying ? "Press ◼ Stop above to end the drill"
                                           : "Press ▶ Play above to start the drill",

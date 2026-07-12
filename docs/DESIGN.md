@@ -94,7 +94,7 @@ in the overflow menu).
    (Drill only — a **Drill style** picker: *Ramp the tempo* ("Speed up" When-I-play-it-clean /
    Every-few-loops, **Start → Goal** tempo, Speed up by, clean-threshold + passes,
    one-hand-at-a-time-then-together) or *Add a bar at a time* (progressive — grows the passage one
-   bar at a time, gated on the newest bar's accuracy alone), plus a plain-English summary); the
+   bar at a time, gated on the newest bar's accuracy alone), a **Keep mistakes from last loop** toggle (carries the previous loop's missed/wrong marks into the next as a heads-up; they refresh each loop, so a mistake stays while you keep making it and drops off the loop after you stop), plus a plain-English summary); the
    drill is **started from the transport ▶ Play** at the top (in Drill mode Play drops to the start
    tempo and begins the ramp); **Start** (Count-in; "Start on my first note" except Drill; playback
    types only); **Grading** (timing tolerance — Grade/Drill); **Takes** (Grade/Drill — ▶ last take /
