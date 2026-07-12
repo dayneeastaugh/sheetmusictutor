@@ -149,6 +149,7 @@ final class MIDIInput: ObservableObject {
     }
 
     private func noteOn(_ note: Int, velocity: Int) {
+        DebugLog.shared.log("midi", "noteOn \(note) vel \(velocity)")
         DispatchQueue.main.async {
             self.activeNotes.insert(note)
             self.onNoteOn?(note, velocity)

@@ -827,11 +827,18 @@ final class PracticeSession: ObservableObject {
     private func handleGradeNoteOn(_ added: Set<Int>) {
         let t = audio.currentTime
         let beat = tracker.continuousBeat(at: t, schedule: schedule)
+        let running = audio.isRunning           // false during a count-in (clock parked)
         var changed = false
-        for p in added where !(matcher?.noteOn(p, at: t) ?? true) && !rhythmMode {
-            wrongMarks.append(Mistake(beat: beat, pitch: p))
-            if wrongMarks.count > 60 { wrongMarks.removeFirst() }   // cap the overlay
-            changed = true
+        for p in added {
+            let hit = matcher?.noteOn(p, at: t, recordWrong: running) ?? true
+            DebugLog.shared.log("grade", "note \(PracticeSession.noteName(p)) @beat \(String(format: "%.2f", beat)) t=\(String(format: "%.2f", t)) → \(hit ? "HIT" : "wrong")\(running ? "" : " (count-in)")")
+            // A wrong note is only *marked* during real playback — notes you play while
+            // the count-in is running (getting ready) aren't scored or drawn as wrong.
+            if !hit && running && !rhythmMode {
+                wrongMarks.append(Mistake(beat: beat, pitch: p))
+                if wrongMarks.count > 60 { wrongMarks.removeFirst() }   // cap the overlay
+                changed = true
+            }
         }
         if changed { pushMistakeMarks() }
     }
@@ -863,6 +870,7 @@ final class PracticeSession: ObservableObject {
         guard let matcher, matcher.expected.count > 0, !gradePassRecorded else { return }
         gradePassRecorded = true
         let t = matcher.tally()
+        DebugLog.shared.log("grade", "pass finalized bars \(sectionStart)–\(sectionEnd): \(t.hits)/\(t.total) hits = \(Int(t.accuracy * 100))%, wrong \(t.wrong)")
         let r = GradeResult(accuracy: t.accuracy, hits: t.hits, total: t.total, missed: t.missed,
                             extra: t.wrong, avgMs: t.avgAbsMs, signedMs: t.meanSignedMs)
         gradeResult = r
@@ -1137,10 +1145,15 @@ final class PracticeSession: ObservableObject {
     /// the target with the last bar clean marks it mastered (stops the drill).
     private func applyProgressiveDrill(newestBarClean: Bool) {
         guard progressiveDrill, loopSection else { return }
-        guard newestBarClean else { return }        // stay on this window until the newest bar is clean
+        guard newestBarClean else {
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) NOT clean → repeat")
+            return                                   // stay on this window until the newest bar is clean
+        }
         if sectionEnd < progressiveTarget {
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) clean → add bar \(sectionEnd + 1)")
             sectionEnd += 1                          // add the next bar (didSet grows the highlight + loop)
         } else {
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) clean → passage complete")
             mastered = true
         }
     }
@@ -1151,8 +1164,33 @@ final class PracticeSession: ObservableObject {
     private func barPlayedClean(_ bar: Int) -> Bool {
         guard let matcher else { return false }
         let notes = matcher.expected.filter { barForBeat($0.beat) == bar }
-        guard !notes.isEmpty else { return true }
-        return Double(notes.filter(\.matched).count) / Double(notes.count) >= speedThreshold
+        guard !notes.isEmpty else {
+            DebugLog.shared.log("drill", "bar \(bar): no expected notes → treated as clean")
+            return true
+        }
+        let matched = notes.filter(\.matched).count
+        let ratio = Double(matched) / Double(notes.count)
+        DebugLog.shared.log("drill", "bar \(bar): \(matched)/\(notes.count) matched = \(Int(ratio * 100))% vs threshold \(Int(speedThreshold * 100))%")
+        return ratio >= speedThreshold
+    }
+
+    /// Drill progress 0…1 for the prominent top bar (nil when not in a drill).
+    /// Progressive: how much of the passage is built. Speed: how far toward the goal.
+    var drillProgress: Double? {
+        if progressiveDrill {
+            let span = Double(max(1, progressiveTarget - sectionStart))
+            return min(1, max(0, Double(sectionEnd - sectionStart) / span))
+        }
+        if speedMode != .off {
+            let span = speedTargetPct - speedStartPct
+            return span > 0 ? min(1, max(0, (tempoPct - speedStartPct) / span)) : 1
+        }
+        return nil
+    }
+    /// A short label for the drill progress bar.
+    var drillProgressLabel: String {
+        if progressiveDrill { return "Bars \(sectionStart)–\(sectionEnd) of \(sectionStart)–\(progressiveTarget)" }
+        return "\(Int(tempoPct))% → \(Int(speedTargetPct))% tempo"
     }
 
     /// A plain-English description of what the drill will do, for the setup panel.

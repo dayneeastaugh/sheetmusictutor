@@ -15,11 +15,16 @@
 
 import SwiftUI
 import Combine
+#if os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 struct PracticeView: View {
     let song: Song
     @ObservedObject var library: SongLibrary
     @StateObject private var session: PracticeSession
+    @ObservedObject private var debugLog = DebugLog.shared
     @State private var showDiagnostics = false
     @State private var showInspector = true
     @State private var inspectorTab: InspectorTab = .controls
@@ -55,6 +60,7 @@ struct PracticeView: View {
     var body: some View {
         VStack(spacing: 8) {
             header
+            if session.practiceMode == .drill { drillProgressBar }
             if let warning = session.ingestWarning { ingestBanner(warning) }
             statusBar
             notation
@@ -193,6 +199,34 @@ struct PracticeView: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+    }
+
+    // MARK: - Drill progress (prominent, below the header)
+
+    @ViewBuilder
+    private var drillProgressBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: session.progressiveDrill ? "square.stack.3d.up" : "gauge.with.dots.needle.67percent")
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(session.progressiveDrill ? "Progressive drill" : "Speed drill").font(.caption).bold()
+                    Text(session.drillProgressLabel).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if session.mastered {
+                        Label("Complete", systemImage: "checkmark.seal.fill").font(.caption).foregroundStyle(.green)
+                    } else if let r = session.gradeResult {
+                        Text("last \(Int(r.accuracy * 100))%")
+                            .font(.caption).foregroundStyle(r.accuracy >= session.speedThreshold ? .green : .orange)
+                    }
+                }
+                ProgressView(value: session.mastered ? 1 : (session.drillProgress ?? 0))
+                    .tint(session.mastered ? .green : .accentColor)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.tint.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint.opacity(0.30)))
     }
 
     // MARK: - Ingest-quality banner (never grade silently against a wrong model)
@@ -567,6 +601,8 @@ struct PracticeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    debugLogSection
+                    Divider()
                     if let s = session.score {
                         summary(s)
                         Divider()
@@ -583,7 +619,50 @@ struct PracticeView: View {
             .navigationTitle("Diagnostics")
             .toolbar { Button("Done") { showDiagnostics = false } }
         }
-        .frame(minWidth: 480, minHeight: 520)
+        .frame(minWidth: 480, minHeight: 560)
+    }
+
+    @ViewBuilder
+    private var debugLogSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Diagnostic logging").font(.headline)
+            Toggle("Record a detailed log (MIDI input, grading, drills)", isOn: $debugLog.enabled)
+            Text("Off by default. Turn on, reproduce the issue, then Export the log — it's a single file you can send. The setting and the log survive restarts.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("Export log…") { exportDebugLog() }
+                    .disabled(debugLog.byteCount == 0)
+                Button("Clear log", role: .destructive) { debugLog.clear() }
+                    .disabled(debugLog.byteCount == 0)
+                Spacer()
+                Text(debugLog.byteCount > 0 ? "\(debugLog.byteCount) bytes" : "empty")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if debugLog.enabled && !debugLog.tail.isEmpty {
+                Text("Recent (live tail)").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+                ScrollView {
+                    Text(debugLog.tail.suffix(40).joined(separator: "\n"))
+                        .font(.system(.caption2, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(height: 120)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
+            }
+        }
+    }
+
+    private func exportDebugLog() {
+        guard let src = debugLog.exportURL() else { return }
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = src.lastPathComponent
+        panel.allowedContentTypes = [.plainText]
+        if panel.runModal() == .OK, let dst = panel.url {
+            try? FileManager.default.removeItem(at: dst)
+            try? FileManager.default.copyItem(at: src, to: dst)
+        }
+        #endif
     }
 
     @ViewBuilder

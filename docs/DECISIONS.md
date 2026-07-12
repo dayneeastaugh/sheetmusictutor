@@ -526,6 +526,22 @@ Play like the ramp. **Rejected:** a separate top-level session type for progress
 variant, belongs under Drill); grading the newest bar as part of the whole-passage accuracy (the
 user's explicit ask — the new bar must be proven on its own).
 
+### ADR-041 — Opt-in diagnostic logging + count-in grading fix + drill progress
+**2026-07-12.** From testing feedback:
+- **Diagnostic logging** (`DebugLog.shared`): an opt-in log (off by default; the on/off state and the
+  data both persist across restarts) appended to `Application Support/Segno/debug.log`, with a live
+  tail, **Clear**, and **Export** (a single file, ready for external testers to send back) in the
+  Diagnostics sheet. Instrumented: raw MIDI note-ons, per-note grade hit/wrong decisions (incl. the
+  count-in flag), pass finalize, and the progressive-drill gate. Cheap when off (`guard enabled`).
+  A single log file is the "container" for now; a zip can wrap multiple files later.
+- **Count-in grading fix:** notes played *during a count-in* (getting ready) were being scored and
+  drawn as **wrong**. `GradeMatcher.noteOn(recordWrong:)` now ignores a non-match while the clock is
+  parked (count-in), and wrong-note marks are only drawn once playback is actually running — while
+  still catching a genuine downbeat hit. (Also removes a false progressive advance where count-in
+  noodling on a 1-bar window counted as playing it.)
+- **Drill progress bar:** a prominent bar below the header during a Drill — the passage built so far
+  (progressive) or tempo toward the goal (speed ramp), plus the last pass's accuracy.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
