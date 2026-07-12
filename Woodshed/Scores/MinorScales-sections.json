@@ -1,0 +1,218 @@
+[
+  {
+    "id": "FA4D7034-560C-489E-A8BE-B4BEE30187AB",
+    "name": "A minor (natural)",
+    "start": 1,
+    "end": 4
+  },
+  {
+    "id": "EDD3ED03-4BF0-431B-93EC-456DEA65381E",
+    "name": "A minor (harmonic)",
+    "start": 5,
+    "end": 8
+  },
+  {
+    "id": "0D7E521D-2FCC-456F-8E7C-2308F456E991",
+    "name": "A minor (melodic)",
+    "start": 9,
+    "end": 12
+  },
+  {
+    "id": "52974DE6-08DC-4366-99C5-92CF8B38E91B",
+    "name": "E minor (natural)",
+    "start": 13,
+    "end": 16
+  },
+  {
+    "id": "3C27D0F0-8C77-473E-9A01-BECDCC5416F3",
+    "name": "E minor (harmonic)",
+    "start": 17,
+    "end": 20
+  },
+  {
+    "id": "A6EA602C-FECD-4D28-B2EC-AE3254DCF5D3",
+    "name": "E minor (melodic)",
+    "start": 21,
+    "end": 24
+  },
+  {
+    "id": "A8D4C2F5-3064-4101-9452-37257D1D7568",
+    "name": "D minor (natural)",
+    "start": 25,
+    "end": 28
+  },
+  {
+    "id": "2F30BFA8-1296-4E6F-9889-7C536DF5BFED",
+    "name": "D minor (harmonic)",
+    "start": 29,
+    "end": 32
+  },
+  {
+    "id": "EA705913-4584-4C60-9CB6-68555176BAAD",
+    "name": "D minor (melodic)",
+    "start": 33,
+    "end": 36
+  },
+  {
+    "id": "D2882E2F-8094-46DF-8BD9-E57F4913081E",
+    "name": "B minor (natural)",
+    "start": 37,
+    "end": 40
+  },
+  {
+    "id": "F66D4964-BA24-4B35-81D7-F2567A6202E7",
+    "name": "B minor (harmonic)",
+    "start": 41,
+    "end": 44
+  },
+  {
+    "id": "BA5CD1FF-BB3A-44C5-BEE1-C26196B60F5D",
+    "name": "B minor (melodic)",
+    "start": 45,
+    "end": 48
+  },
+  {
+    "id": "358451F1-226C-4F62-80D9-26E85772857F",
+    "name": "G minor (natural)",
+    "start": 49,
+    "end": 52
+  },
+  {
+    "id": "8BD1AC78-9BE2-4916-90F9-8F64C987A705",
+    "name": "G minor (harmonic)",
+    "start": 53,
+    "end": 56
+  },
+  {
+    "id": "288132FE-FBBF-4B92-B88F-14331E0DE085",
+    "name": "G minor (melodic)",
+    "start": 57,
+    "end": 60
+  },
+  {
+    "id": "7B660501-30A1-45B9-A9B9-A0FFFCB553A8",
+    "name": "F\u266f minor (natural)",
+    "start": 61,
+    "end": 64
+  },
+  {
+    "id": "39D031CA-102E-415A-B2C5-A0904FBD4DAB",
+    "name": "F\u266f minor (harmonic)",
+    "start": 65,
+    "end": 68
+  },
+  {
+    "id": "11EB3CE8-9225-432A-8588-232C7F24A2DB",
+    "name": "F\u266f minor (melodic)",
+    "start": 69,
+    "end": 72
+  },
+  {
+    "id": "B779A4A9-BE9F-4A86-A020-5A71502497EC",
+    "name": "C minor (natural)",
+    "start": 73,
+    "end": 76
+  },
+  {
+    "id": "9F48C9CB-E590-4B91-B266-26F03B44C254",
+    "name": "C minor (harmonic)",
+    "start": 77,
+    "end": 80
+  },
+  {
+    "id": "BEA9633C-9BF4-4F10-9510-B6FDAA122508",
+    "name": "C minor (melodic)",
+    "start": 81,
+    "end": 84
+  },
+  {
+    "id": "CFDB1855-4256-49F1-BDB5-43D54F4E3D67",
+    "name": "C\u266f minor (natural)",
+    "start": 85,
+    "end": 88
+  },
+  {
+    "id": "A498C81E-73AA-4600-8D8B-41D15236F7E5",
+    "name": "C\u266f minor (harmonic)",
+    "start": 89,
+    "end": 92
+  },
+  {
+    "id": "29BC2621-E6C5-480E-97C1-6187AE300FFE",
+    "name": "C\u266f minor (melodic)",
+    "start": 93,
+    "end": 96
+  },
+  {
+    "id": "E420111D-299C-497F-A7EA-C1B9DF233C4D",
+    "name": "F minor (natural)",
+    "start": 97,
+    "end": 100
+  },
+  {
+    "id": "5A7FC956-1A9D-43E3-922D-F4D860143AF0",
+    "name": "F minor (harmonic)",
+    "start": 101,
+    "end": 104
+  },
+  {
+    "id": "072C6D5A-22B8-41D6-B32A-B761AE9F9C5E",
+    "name": "F minor (melodic)",
+    "start": 105,
+    "end": 108
+  },
+  {
+    "id": "9B3D8D04-E372-4739-8458-37F52262D06D",
+    "name": "G\u266f minor (natural)",
+    "start": 109,
+    "end": 112
+  },
+  {
+    "id": "8BE8E568-E101-458C-9022-11E68449B107",
+    "name": "G\u266f minor (harmonic)",
+    "start": 113,
+    "end": 116
+  },
+  {
+    "id": "54D10ECA-717C-4438-9A78-5CDE86A55AA3",
+    "name": "G\u266f minor (melodic)",
+    "start": 117,
+    "end": 120
+  },
+  {
+    "id": "B197DCDD-18DE-4E83-A6FE-B2E9A2A4FB08",
+    "name": "B\u266d minor (natural)",
+    "start": 121,
+    "end": 124
+  },
+  {
+    "id": "4C7FD109-6AA5-468D-B0D0-9773727B27F5",
+    "name": "B\u266d minor (harmonic)",
+    "start": 125,
+    "end": 128
+  },
+  {
+    "id": "03C7147F-26F6-428C-9A55-3EB7B8A3C4FA",
+    "name": "B\u266d minor (melodic)",
+    "start": 129,
+    "end": 132
+  },
+  {
+    "id": "3B5E7C2C-F836-482D-9058-EE9832E7909A",
+    "name": "E\u266d minor (natural)",
+    "start": 133,
+    "end": 136
+  },
+  {
+    "id": "B5E5B7E5-0A53-44B4-B05E-6C1EB5B4A9B6",
+    "name": "E\u266d minor (harmonic)",
+    "start": 137,
+    "end": 140
+  },
+  {
+    "id": "3A611649-5165-41B8-AB98-7522316E692F",
+    "name": "E\u266d minor (melodic)",
+    "start": 141,
+    "end": 144
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "34F8A621-8327-47A5-820B-0B3B156E812E",
+    "name": "C major",
+    "start": 1,
+    "end": 4
+  },
+  {
+    "id": "8C360805-83E7-4790-8026-EA5F4A446493",
+    "name": "G major",
+    "start": 5,
+    "end": 8
+  },
+  {
+    "id": "119036E6-D5AC-4631-AF6E-219FCD7B2F5F",
+    "name": "F major",
+    "start": 9,
+    "end": 12
+  },
+  {
+    "id": "2A91B37A-16DA-4934-A2A4-35BBABFB4746",
+    "name": "D major",
+    "start": 13,
+    "end": 16
+  },
+  {
+    "id": "2E438394-9784-4719-A67D-1C290D129371",
+    "name": "B\u266d major",
+    "start": 17,
+    "end": 20
+  },
+  {
+    "id": "683DF0D4-400A-48F3-8BAF-D20E11561D67",
+    "name": "A major",
+    "start": 21,
+    "end": 24
+  },
+  {
+    "id": "4DDDE039-C2C6-4295-9C51-4CF19AC8902C",
+    "name": "E\u266d major",
+    "start": 25,
+    "end": 28
+  },
+  {
+    "id": "5F80E3A1-4171-4E8F-8F3A-9491472D746A",
+    "name": "E major",
+    "start": 29,
+    "end": 32
+  },
+  {
+    "id": "812DBC3C-5BCA-4799-BEFD-9A47AC929395",
+    "name": "A\u266d major",
+    "start": 33,
+    "end": 36
+  },
+  {
+    "id": "F889BC7F-B0FC-471D-B4F1-ABDCCF526206",
+    "name": "B major",
+    "start": 37,
+    "end": 40
+  },
+  {
+    "id": "C681A242-06E4-4DCC-BA21-04B02A75972F",
+    "name": "D\u266d major",
+    "start": 41,
+    "end": 44
+  },
+  {
+    "id": "9ACAABAC-51FD-4DCD-9E1D-FE0BCB2CFF2E",
+    "name": "F\u266f major",
+    "start": 45,
+    "end": 48
+  }
+]

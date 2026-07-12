@@ -109,7 +109,8 @@ The library is stored on disk as **self-contained per-song folders** (no databas
 
 - **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,
   `dateAdded`, `favourite`, `targetTempoPct?`, `lastPracticed?`, `bestAccuracy?` (best full-piece
-  Grade accuracy, for the library row), `barsPerLine?` (remembered measures-per-system; nil/0 = auto).
+  Grade accuracy, for the library row), `barsPerLine?` (remembered measures-per-system; nil/0 = auto),
+  `category?` (`SongCategory` = repertoire | technical; nil = repertoire — groups the library sidebar).
   The single place song-specific state lives; travels with the folder. Derived stats (`lastPracticed`,
   `bestAccuracy`) are denormalised here so the library list needn't read every `history.jsonl`.
   **New fields are `Optional`** so older `metadata.json` (written before the field) still decodes

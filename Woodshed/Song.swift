@@ -9,6 +9,13 @@
 
 import Foundation
 
+/// Which library group a song belongs to. Absent (nil) = repertoire — so existing
+/// metadata.json files (written before this field) decode as normal pieces.
+enum SongCategory: String, Codable, CaseIterable {
+    case repertoire, technical
+    var title: String { self == .technical ? "Technical practice" : "Repertoire" }
+}
+
 /// Persisted per-song metadata (written as metadata.json in the song's folder).
 /// Extend this over time with practice data — it's the single place song-specific
 /// state lives, and it travels with the song folder.
@@ -24,6 +31,7 @@ struct SongMeta: Codable, Equatable {
     var barsPerLine: Int? = nil         // remembered measures-per-system (nil / 0 = auto layout)
     var scoreZoom: Double? = nil        // remembered engraving scale (nil = 100%)
     var tags: [String]? = nil           // freeform labels ("jazz", "recital") — searchable
+    var category: SongCategory? = nil   // nil = repertoire; .technical groups under Technical practice
 }
 
 /// A library song = its metadata + the folder it lives in. File URLs are derived.
@@ -33,6 +41,7 @@ struct Song: Identifiable, Hashable {
 
     var id: UUID { meta.id }
     var title: String { meta.title }
+    var category: SongCategory { meta.category ?? .repertoire }
     var musicXMLURL: URL { folder.appendingPathComponent("score.musicxml") }
     var midiURL: URL { folder.appendingPathComponent("score.mid") }
     var metadataURL: URL { folder.appendingPathComponent("metadata.json") }

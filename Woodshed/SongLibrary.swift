@@ -42,6 +42,7 @@ final class SongLibrary: ObservableObject {
         }
         try? fm.createDirectory(at: scoresDir, withIntermediateDirectories: true)
         seedBundledFixturesIfEmpty()
+        seedTechnicalPracticeIfMissing()
         reload()
     }
 
@@ -165,6 +166,16 @@ final class SongLibrary: ObservableObject {
         try? writeMeta(meta, in: songs[idx].folder)
     }
 
+    /// Move a song between the Repertoire and Technical practice groups.
+    func setCategory(_ category: SongCategory, for song: Song) {
+        guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
+        var meta = songs[idx].meta
+        meta.category = category
+        songs[idx].meta = meta
+        try? writeMeta(meta, in: songs[idx].folder)
+        reload()
+    }
+
     /// Wipe a song's recorded practice history and the derived stats (for a fresh start).
     func resetProgress(for song: Song) {
         try? FileManager.default.removeItem(at: PracticeHistory.fileURL(in: song.folder))
@@ -201,6 +212,32 @@ final class SongLibrary: ObservableObject {
             guard let xml = bundleURL(name, "musicxml"), let mid = bundleURL(name, "mid") else { continue }
             _ = try? importSong(musicXML: xml, midi: mid, title: name)
         }
+    }
+
+    /// Seed the bundled technical-practice books (Major/Minor scale sets) once —
+    /// even into an existing library — carrying their category + pre-named per-scale
+    /// sections. Gated by a version flag so it doesn't return after the user deletes
+    /// them, and can be re-run for a future content version by bumping the key.
+    private func seedTechnicalPracticeIfMissing() {
+        let key = "seededTechnicalScalesV1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        for (base, title) in [("MajorScales", "Major Scales"), ("MinorScales", "Minor Scales")] {
+            guard let xml = bundleURL(base, "musicxml"), let mid = bundleURL(base, "mid") else { continue }
+            let id = UUID()
+            let folder = scoresDir.appendingPathComponent(id.uuidString, isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try copyIn(xml, to: folder.appendingPathComponent("score.musicxml"))
+                try copyIn(mid, to: folder.appendingPathComponent("score.mid"))
+                if let sections = bundleURL("\(base)-sections", "json") {
+                    try? copyIn(sections, to: SavedSectionStore.fileURL(in: folder))   // one section per scale
+                }
+                var meta = SongMeta(id: id, title: title, composer: nil, dateAdded: Date())
+                meta.category = .technical
+                try writeMeta(meta, in: folder)
+            } catch { continue }
+        }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     private func bundleURL(_ name: String, _ ext: String) -> URL? {

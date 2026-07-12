@@ -88,6 +88,38 @@ struct LibraryView: View {
         }
     }
 
+    private var visibleTechnical: [Song] { visibleSongs.filter { $0.category == .technical } }
+    private var visibleRepertoire: [Song] { visibleSongs.filter { $0.category != .technical } }
+
+    /// One library row (shared by both groups).
+    @ViewBuilder
+    private func songRow(_ song: Song) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title).font(.headline)
+                Text(rowSubtitle(song))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if song.meta.favourite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+            // Explicit per-row menu — works by click on Mac and tap on iPad
+            // (swipe-to-delete is iPad-only, so we don't rely on it).
+            Menu {
+                songActions(song)
+            } label: {
+                Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .buttonStyle(.borderless)
+        }
+        .tag(song.id)
+        .contextMenu { songActions(song) }
+        .swipeActions {
+            Button("Delete", role: .destructive) { library.delete(song) }
+        }
+    }
+
     /// Step 1 file types: MusicXML, uncompressed or .mxl (MuseScore's default export).
     private var scoreTypes: [UTType] {
         var t: [UTType] = [.xml]
@@ -108,30 +140,18 @@ struct LibraryView: View {
                 Text("No songs yet. Tap + to import a MusicXML + MIDI pair.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(visibleSongs) { song in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(song.title).font(.headline)
-                        Text(rowSubtitle(song))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if song.meta.favourite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
-                    // Explicit per-row menu — works by click on Mac and tap on iPad
-                    // (swipe-to-delete is iPad-only, so we don't rely on it).
-                    Menu {
-                        songActions(song)
-                    } label: {
-                        Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
-                    }
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .buttonStyle(.borderless)
+            // Group into Repertoire + Technical practice, but only show the headers
+            // once there's actually a technical set — otherwise it's a plain list.
+            if visibleTechnical.isEmpty {
+                ForEach(visibleRepertoire) { songRow($0) }
+            } else {
+                if !visibleRepertoire.isEmpty {
+                    Section("Repertoire") { ForEach(visibleRepertoire) { songRow($0) } }
                 }
-                .tag(song.id)
-                .contextMenu { songActions(song) }
-                .swipeActions {
-                    Button("Delete", role: .destructive) { library.delete(song) }
+                Section {
+                    ForEach(visibleTechnical) { songRow($0) }
+                } header: {
+                    Label("Technical practice", systemImage: "figure.strengthtraining.traditional")
                 }
             }
             if library.unreadableFolderCount > 0 {
@@ -219,6 +239,11 @@ struct LibraryView: View {
         Button("Rename…") { renameTarget = song; renameText = song.title }
         Button("Edit tags…") { tagsTarget = song; tagsText = (song.meta.tags ?? []).joined(separator: ", ") }
         Button(song.meta.favourite ? "Remove favourite" : "Favourite") { toggleFavourite(song) }
+        if song.category == .technical {
+            Button("Move to Repertoire") { library.setCategory(.repertoire, for: song) }
+        } else {
+            Button("Move to Technical Practice") { library.setCategory(.technical, for: song) }
+        }
         Button("Delete", role: .destructive) { library.delete(song) }
     }
 

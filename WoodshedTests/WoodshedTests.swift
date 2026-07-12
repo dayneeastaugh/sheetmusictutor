@@ -856,6 +856,31 @@ struct SongMetaCompat {
     }
 }
 
+// MARK: - Scale practice books (generated content must fuse cleanly)
+
+@Suite("Scale books")
+struct ScaleBookTests {
+    @Test("Major scales fuse cleanly, 1:1")
+    func majors() throws {
+        let fused = try Ingest.fuse(midiData: try fixtureData("MajorScales", "mid"),
+                                    musicXMLData: try fixtureData("MajorScales", "musicxml"))
+        #expect(fused.structureWarning == nil)
+        #expect(fused.events.count == 12 * 29 * 2)          // 12 scales × 29 notes × 2 hands
+        #expect(fused.reconciliations.allSatisfy { $0.isClean })
+        #expect(fused.measureStartBeats.count == 48)         // 12 scales × 4 bars
+    }
+
+    @Test("Minor scales (natural/harmonic/melodic) fuse cleanly, 1:1")
+    func minors() throws {
+        let fused = try Ingest.fuse(midiData: try fixtureData("MinorScales", "mid"),
+                                    musicXMLData: try fixtureData("MinorScales", "musicxml"))
+        #expect(fused.structureWarning == nil)
+        #expect(fused.events.count == 36 * 29 * 2)           // 12 keys × 3 forms × 29 × 2 hands
+        #expect(fused.reconciliations.allSatisfy { $0.isClean })
+        #expect(fused.measureStartBeats.count == 144)
+    }
+}
+
 // MARK: - PianoScheduler (edge-triggered MIDI-out, incl. ornaments/graces/pedal)
 
 @Suite("PianoScheduler")

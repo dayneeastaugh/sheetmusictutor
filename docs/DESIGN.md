@@ -33,10 +33,17 @@ practised / best), a **Practice overview** toolbar button (cross-song totals + s
 **guided two-step import** (a score + MIDI pair can also be **dragged from Finder** onto the list):
 pick the score (`.musicxml`/`.xml`/**`.mxl`**), then the MIDI — no multi-select needed. The pair is
 validated by fusing it (unparseable → rejected with a clear error; unclean → imported with a
-warning). Per-row actions (Rename / Favourite / Delete) are on a
+warning). Per-row actions (Rename / Favourite / **Move to Technical Practice** / Delete) are on a
 visible **⋯ menu button** so they work by click on Mac and tap on iPad — **not** relying on
 swipe-to-delete (iPad-only). The same actions are also on the right-click / long-press context menu,
 with swipe-to-delete as an iPad extra.
+
+Songs group into **Repertoire** and **Technical practice** sections (the headers appear only once a
+technical song exists; otherwise it's a plain list). The Technical group is seeded on first run with
+two **scale books** — *Major Scales* (12) and *Minor Scales* (12 keys × natural/harmonic/melodic = 36)
+— each a grand-staff, both-hands, 2-octave up-and-down exercise per key in difficulty order, with a
+**pre-named saved section per scale** (one tap to drill "C major"). Progress uses the normal per-song
+machinery (best %, last-practised, the trouble heatmap over the scales, drills). See ADR-043.
 
 > **Cross-platform rule:** every action must be reachable without swipe or hover. Prefer explicit
 > buttons/menus over gesture-only affordances so the same UI works on Mac and iPad.
