@@ -15,6 +15,8 @@ struct ProgressPanel: View {
     let passes: [PracticePass]
     /// Seconds practised today (live, incl. the current session's unflushed time).
     var practicedToday: Double = 0
+    /// The most recent pass broken down note-by-note (this session), for the summary.
+    var lastPassDetail: PracticeSession.PassDetail? = nil
     /// Focus the practice section on a bar (drill a trouble spot).
     let onDrillBar: (Int) -> Void
     /// Wipe this song's history (called after the user confirms).
@@ -36,6 +38,7 @@ struct ProgressPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     statRow
+                    lastPassSection
                     trendSection
                     troubleSection
                     recentSection
@@ -72,6 +75,49 @@ struct ProgressPanel: View {
             }
         }
         .onAppear { totalTime = PracticeTime.total(PracticeTime.load(from: song.folder)) }
+    }
+
+    // MARK: - Last pass, note by note ("exactly what went wrong")
+
+    @ViewBuilder
+    private var lastPassSection: some View {
+        if let d = lastPassDetail {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Last pass · \(Int(d.accuracy * 100))%").font(.subheadline).bold()
+                if d.missed.isEmpty && d.wrong.isEmpty {
+                    Label("Clean — no missed or wrong notes.", systemImage: "checkmark.seal")
+                        .font(.caption).foregroundStyle(.green)
+                } else {
+                    if !d.missed.isEmpty {
+                        faultRow("Missed", d.missed, tint: Color(red: 0.83, green: 0.18, blue: 0.18),
+                                 help: "expected notes you didn't play")
+                    }
+                    if !d.wrong.isEmpty {
+                        faultRow("Wrong", d.wrong, tint: .orange, help: "extra notes you played")
+                    }
+                }
+            }
+        }
+    }
+
+    /// One line per bar: "bar 5 · F♯5, A4" — groups the note faults by bar.
+    private func faultRow(_ title: String, _ faults: [PracticeSession.NoteFault], tint: Color, help: String) -> some View {
+        let byBar = Dictionary(grouping: faults, by: \.bar).sorted { $0.key < $1.key }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("\(title) (\(faults.count)) — \(help)").font(.caption2).foregroundStyle(.secondary)
+            ForEach(byBar, id: \.key) { bar, notes in
+                Button { onDrillBar(bar) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("Bar \(bar)").font(.caption).bold().foregroundStyle(tint)
+                            .frame(width: 48, alignment: .leading)
+                        Text(notes.map(\.name).joined(separator: ", ")).font(.caption)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Practise bar \(bar)")
+            }
+        }
     }
 
     private func stat(_ label: String, _ value: String) -> some View {

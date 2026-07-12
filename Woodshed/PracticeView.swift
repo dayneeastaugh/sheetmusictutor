@@ -209,12 +209,17 @@ struct PracticeView: View {
                     .foregroundStyle(.blue)
             } else if session.speedMode != .off {
                 if session.mastered {
-                    Label("Section mastered at \(Int(session.tempoPct))% 🎉", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
+                    // The % is TEMPO, not a score. "Every few loops" (byReps) advances
+                    // without checking accuracy, so it only reached the goal tempo — it
+                    // didn't prove mastery; say so honestly.
+                    let msg = session.speedMode == .byReps
+                        ? "Reached goal tempo — \(Int(session.tempoPct))% 🏁"
+                        : "Mastered! Clean at \(Int(session.tempoPct))% tempo 🎉"
+                    Label(msg, systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                 } else {
                     let unit = session.speedMode == .byAccuracy ? "clean" : "loops"
                     let stage = session.handsProgression ? "\(session.drillStage.title) · " : ""
-                    Text("Speed drill · \(stage)\(Int(session.tempoPct))% → \(Int(session.speedTargetPct))% · "
+                    Text("Speed drill · \(stage)\(Int(session.tempoPct))% → \(Int(session.speedTargetPct))% tempo · "
                          + "\(session.passesAtThisTempo)/\(session.speedPassesPerStep) \(unit)"
                          + (session.gradeResult.map { " · last \(Int($0.accuracy * 100))%" } ?? ""))
                         .foregroundStyle(.blue)
@@ -294,6 +299,7 @@ struct PracticeView: View {
             case .progress:
                 ProgressPanel(song: song, passes: session.history,
                               practicedToday: session.practicedToday,
+                              lastPassDetail: session.lastPassDetail,
                               onDrillBar: { session.focusBar($0) },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:

@@ -465,19 +465,39 @@
     }
 
     (function () {
-      var dragging = false, anchor = -1;
+      var dragging = false, anchor = -1, lastX = 0, lastY = 0, edgeTimer = null;
+
+      // Auto-scroll while dragging a selection past the top/bottom edge, so you can
+      // select bars that aren't on screen yet. Holding the pointer in the edge zone
+      // scrolls the score and keeps extending the selection to the newly-revealed bars.
+      function edgeScrollTick() {
+        if (!dragging) { stopEdgeScroll(); return; }
+        var host = document.getElementById("scrollHost"); if (!host) return;
+        var hr = host.getBoundingClientRect(), EDGE = 52, MAX = 20, dy = 0;
+        if (lastY < hr.top + EDGE)          dy = -MAX * Math.min(1, (hr.top + EDGE - lastY) / EDGE);
+        else if (lastY > hr.bottom - EDGE)  dy =  MAX * Math.min(1, (lastY - (hr.bottom - EDGE)) / EDGE);
+        if (dy === 0) return;
+        var max = host.scrollHeight - host.clientHeight;
+        var nt = Math.max(0, Math.min(max, host.scrollTop + dy));
+        if (nt !== host.scrollTop) { host.scrollTop = nt; moveDrag(lastX, lastY); }
+      }
+      function startEdgeScroll() { if (!edgeTimer) edgeTimer = setInterval(edgeScrollTick, 30); }
+      function stopEdgeScroll() { if (edgeTimer) { clearInterval(edgeTimer); edgeTimer = null; } }
+
       function beginDrag(x, y) {
         var m = measureAt(x, y); if (m < 0) return false;
-        dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; drawSelection();
+        dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; lastX = x; lastY = y;
+        drawSelection(); startEdgeScroll();
         return true;
       }
       function moveDrag(x, y) {
         if (!dragging) return;
+        lastX = x; lastY = y;
         var m = measureAt(x, y); if (m < 0) return;
         selStart = Math.min(anchor, m) + 1; selEnd = Math.max(anchor, m) + 1; drawSelection();
       }
       function endDrag() {
-        if (!dragging) return; dragging = false;
+        if (!dragging) return; dragging = false; stopEdgeScroll();
         post("select:" + selStart + ":" + selEnd);
       }
       function onMove(e) { moveDrag(e.clientX, e.clientY); }

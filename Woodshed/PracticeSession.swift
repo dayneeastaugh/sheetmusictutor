@@ -767,6 +767,19 @@ final class PracticeSession: ObservableObject {
         bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) })
     }
 
+    /// A specific note that went wrong in the last pass, for the "what exactly went
+    /// wrong" summary: its bar (1-based) and note name.
+    struct NoteFault: Identifiable, Hashable { let id = UUID(); let bar: Int; let name: String }
+    struct PassDetail { var accuracy: Double; var missed: [NoteFault]; var wrong: [NoteFault] }
+    /// The most recent completed pass, broken down note-by-note (this session only).
+    @Published private(set) var lastPassDetail: PassDetail?
+
+    /// MIDI pitch → note name (C♯5 etc.), matching the on-score wrong-note labels.
+    static func noteName(_ p: Int) -> String {
+        let names = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"]
+        return names[((p % 12) + 12) % 12] + String(p / 12 - 1)
+    }
+
     /// Tally the finished pass into the progress history and persist it. Idempotent:
     /// a pass is recorded at most once (completion), never again when playback stops.
     private func finalizeGradePass() {
@@ -777,6 +790,15 @@ final class PracticeSession: ObservableObject {
                             extra: t.wrong, avgMs: t.avgAbsMs, signedMs: t.meanSignedMs)
         gradeResult = r
         gradeHistory.append(r)
+
+        // Note-by-note breakdown of this pass (missed = expected but not played;
+        // wrong = played but not expected), sorted by bar, for the summary panel.
+        lastPassDetail = PassDetail(
+            accuracy: t.accuracy,
+            missed: matcher.unmatched().map { NoteFault(bar: barForBeat($0.beat), name: Self.noteName($0.pitch)) }
+                .sorted { $0.bar < $1.bar },
+            wrong: wrongMarks.map { NoteFault(bar: barForBeat($0.beat), name: Self.noteName($0.pitch)) }
+                .sorted { $0.bar < $1.bar })
 
         let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,
