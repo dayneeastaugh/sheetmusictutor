@@ -65,8 +65,14 @@ final class MIDIInput: ObservableObject {
     /// True if there's at least one MIDI destination (e.g. the piano) to play to.
     var hasDestination: Bool { MIDIGetNumberOfDestinations() > 0 }
 
-    func sendNoteOn(_ note: Int, velocity: Int = 90) { send([0x90, UInt8(note & 0x7F), UInt8(velocity & 0x7F)]) }
-    func sendNoteOff(_ note: Int) { send([0x80, UInt8(note & 0x7F), 0]) }
+    func sendNoteOn(_ note: Int, velocity: Int = 90) {
+        DebugLog.shared.log("out", "→piano ON  \(note)")
+        send([0x90, UInt8(note & 0x7F), UInt8(velocity & 0x7F)])
+    }
+    func sendNoteOff(_ note: Int) {
+        DebugLog.shared.log("out", "→piano OFF \(note)")
+        send([0x80, UInt8(note & 0x7F), 0])
+    }
 
     /// Metronome click on the piano via GM percussion (channel 10): wood-block hits,
     /// louder on the downbeat. Requires the instrument to support GM drums on ch. 10.
