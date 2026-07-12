@@ -116,13 +116,14 @@ struct PracticeView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Picker("Mode", selection: Binding(get: { session.practiceMode },
-                                              set: { session.practiceMode = $0 })) {
+            Picker("Training session", selection: Binding(get: { session.practiceMode },
+                                                           set: { session.practiceMode = $0 })) {
                 ForEach(PracticeSession.PracticeMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
             .fixedSize()
-            .help("Practice = play & follow · Wait = advance on the right notes · Grade = play at tempo, get scored")
+            .help("Training session type — " + PracticeSession.PracticeMode.allCases
+                    .map { "\($0.title): \($0.blurb)" }.joined(separator: " · "))
 
             Spacer()
 
@@ -312,16 +313,13 @@ struct PracticeView: View {
         .inspectorColumnWidth(min: 250, ideal: 300, max: 400)
     }
 
+    /// The current training-session type — drives which settings are shown.
+    private var mode: PracticeSession.PracticeMode { session.practiceMode }
+    private var isGraded: Bool { mode == .grade || mode == .drill }
+
     private var controlsTab: some View {
         Form {
-            Section("Playback") {
-                LabeledContent("Tempo") {
-                    HStack(spacing: 6) {
-                        Slider(value: $session.tempoPct, in: 25...120, step: 5)
-                        Text("\(Int(session.tempoPct))%")
-                            .font(.system(.caption, design: .monospaced)).frame(width: 38)
-                    }
-                }
+            Section("Hands & sound") {
                 Picker("Hands", selection: $session.handMode) {
                     Text("Both").tag(0); Text("R.H.").tag(1); Text("L.H.").tag(2)
                 }
@@ -329,13 +327,25 @@ struct PracticeView: View {
                 Picker("Output", selection: $session.outputMode) {
                     Text("Speakers").tag(0); Text("Piano").tag(1); Text("Both").tag(2)
                 }
-                // The metronome on/off toggle now lives in the transport (above the
-                // score); these are its behaviour settings.
-                Toggle("Metronome starts with playback", isOn: $session.metronomeStartsWithPlayback)
-                Toggle("Metronome stops with playback", isOn: $session.metronomeStopsWithPlayback)
-                Toggle("Rhythm only (ticks + tap along)", isOn: $session.rhythmMode)
             }
-            Section("Focus") {
+            if mode != .wait {
+                Section("Playback") {
+                    LabeledContent("Tempo") {
+                        HStack(spacing: 6) {
+                            Slider(value: $session.tempoPct, in: 25...120, step: 5)
+                            Text("\(Int(session.tempoPct))%")
+                                .font(.system(.caption, design: .monospaced)).frame(width: 38)
+                        }
+                    }
+                    // The metronome on/off toggle lives in the transport; these are its behaviour.
+                    Toggle("Metronome starts with playback", isOn: $session.metronomeStartsWithPlayback)
+                    Toggle("Metronome stops with playback", isOn: $session.metronomeStopsWithPlayback)
+                    if mode == .practice || mode == .grade {
+                        Toggle("Rhythm only (ticks + tap along)", isOn: $session.rhythmMode)
+                    }
+                }
+            }
+            Section(mode == .drill ? "Section to drill" : "Focus") {
                 Button { session.drillMe() } label: { Label("Suggest a spot", systemImage: "target") }
                     .help("Pick a section to work on: worst trouble bar, else oldest flag, else random — and loop it")
                 if let reason = session.drillReason {
@@ -350,17 +360,20 @@ struct PracticeView: View {
                             .fixedSize()
                     }
                 }
-                Toggle("Loop section", isOn: $session.loopSection)
-                Picker("Loop count-in", selection: $session.loopCountInPulses) {
-                    Text("Off").tag(0)
-                    ForEach(1...session.pulsesPerBar, id: \.self) { n in
-                        Text(n == session.pulsesPerBar ? "Full bar (\(n))" : (n == 1 ? "1 beat" : "\(n) beats")).tag(n)
+                if mode == .practice || mode == .grade {
+                    Toggle("Loop section", isOn: $session.loopSection)
+                }
+                if mode != .wait {
+                    Picker("Loop count-in", selection: $session.loopCountInPulses) {
+                        Text("Off").tag(0)
+                        ForEach(1...session.pulsesPerBar, id: \.self) { n in
+                            Text(n == session.pulsesPerBar ? "Full bar (\(n))" : (n == 1 ? "1 beat" : "\(n) beats")).tag(n)
+                        }
                     }
                 }
                 if !session.isFullPiece {
                     Button("Whole piece") { session.selectWholePiece() }
                 }
-                // Named sections: save the current range, re-apply or delete saved ones.
                 ForEach(session.savedSections) { s in
                     HStack {
                         Button("\(s.name)  (\(s.start)–\(s.end))") { session.applySavedSection(s) }
@@ -379,79 +392,26 @@ struct PracticeView: View {
                 } label: { Label("Save current section…", systemImage: "bookmark") }
                     .disabled(session.isFullPiece)
             }
-            Section("Speed drill") {
-                Text("Loop your section and speed it up automatically as you play it cleanly.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Picker("Speed up", selection: $session.speedMode) {
-                    Text("Off").tag(PracticeSession.SpeedTrainerMode.off)
-                    Text("When I play it clean").tag(PracticeSession.SpeedTrainerMode.byAccuracy)
-                    Text("Every few loops").tag(PracticeSession.SpeedTrainerMode.byReps)
-                }
-                if session.speedMode != .off {
-                    Picker("Start tempo", selection: $session.speedStartPct) {
-                        ForEach([40, 50, 60, 70, 80, 90], id: \.self) { Text("\($0)%").tag(Double($0)) }
+            if mode == .drill { drillSection }
+            if mode != .wait {
+                Section("Start") {
+                    Picker("Count-in", selection: $session.countInBars) {
+                        Text("Off").tag(0); Text("1 bar").tag(1); Text("2 bars").tag(2)
                     }
-                    Picker("Goal tempo", selection: $session.speedTargetPct) {
-                        ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
-                    }
-                    Picker("Speed up by", selection: $session.speedStepPct) {
-                        ForEach([2, 5, 10], id: \.self) { Text("+\($0)%").tag(Double($0)) }
-                    }
-                    if session.speedMode == .byAccuracy {
-                        Picker("“Clean” means", selection: $session.speedThreshold) {
-                            ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
-                        }
-                        Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
-                            ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
-                        }
-                    } else {
-                        Picker("Loops before speeding up", selection: $session.speedPassesPerStep) {
-                            ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
-                        }
-                    }
-                    Toggle("One hand at a time, then together", isOn: $session.handsProgression)
-                    Text(session.drillSummary).font(.caption2).foregroundStyle(.secondary)
-                    Button { session.startDrill() } label: {
-                        Label(session.audio.isPlaying ? "Restart drill" : "Start drill",
-                              systemImage: "play.circle.fill")
+                    if mode != .drill {
+                        Toggle("Start on my first note", isOn: $session.startOnFirstNote)
                     }
                 }
             }
-            Section("Start") {
-                Picker("Count-in", selection: $session.countInBars) {
-                    Text("Off").tag(0); Text("1 bar").tag(1); Text("2 bars").tag(2)
-                }
-                Toggle("Start on my first note", isOn: $session.startOnFirstNote)
-            }
-            Section("Grading") {
-                Picker("Timing tolerance", selection: $session.gradeTolerance) {
-                    Text("Strict (±150 ms)").tag(0.15)
-                    Text("Normal (±300 ms)").tag(0.30)
-                    Text("Relaxed (±450 ms)").tag(0.45)
-                }
-            }
-            Section("Takes") {
-                if session.isReplaying {
-                    Button { session.stopReplay() } label: { Label("Stop replay", systemImage: "stop.circle") }
-                } else {
-                    Button {
-                        if let t = session.lastTake { session.startReplay(t) }
-                    } label: {
-                        Label(session.lastTake.map { "Play last take (\($0.notes.count) notes)" }
-                              ?? "Play last take", systemImage: "play.circle")
+            if isGraded {
+                Section("Grading") {
+                    Picker("Timing tolerance", selection: $session.gradeTolerance) {
+                        Text("Strict (±150 ms)").tag(0.15)
+                        Text("Normal (±300 ms)").tag(0.30)
+                        Text("Relaxed (±450 ms)").tag(0.45)
                     }
-                    .disabled(session.lastTake == nil || session.audio.isPlaying)
-                    Button {
-                        if let t = session.bestTakeForCurrentSection { session.startReplay(t) }
-                    } label: {
-                        Label(session.bestTakeForCurrentSection.map {
-                                "Play best take (\(Int(($0.accuracy ?? 0) * 100))%)"
-                              } ?? "Play best take", systemImage: "star.circle")
-                    }
-                    .disabled(session.bestTakeForCurrentSection == nil || session.audio.isPlaying)
                 }
-                Text("Every pass records what you play. The best graded take per section is kept.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                takesSection
             }
             Section("View") {
                 Picker("Bars per line", selection: $session.barsPerLine) {
@@ -473,6 +433,73 @@ struct PracticeView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The Speed-drill setup (shown only in the Drill session type). No "Off" here —
+    /// you leave a drill by switching training-session type.
+    @ViewBuilder
+    private var drillSection: some View {
+        Section("Speed drill") {
+            Picker("Speed up", selection: $session.speedMode) {
+                Text("When I play it clean").tag(PracticeSession.SpeedTrainerMode.byAccuracy)
+                Text("Every few loops").tag(PracticeSession.SpeedTrainerMode.byReps)
+            }
+            Picker("Start tempo", selection: $session.speedStartPct) {
+                ForEach([40, 50, 60, 70, 80, 90], id: \.self) { Text("\($0)%").tag(Double($0)) }
+            }
+            Picker("Goal tempo", selection: $session.speedTargetPct) {
+                ForEach([60, 70, 80, 90, 100, 110, 120], id: \.self) { Text("\($0)%").tag(Double($0)) }
+            }
+            Picker("Speed up by", selection: $session.speedStepPct) {
+                ForEach([2, 5, 10], id: \.self) { Text("+\($0)%").tag(Double($0)) }
+            }
+            if session.speedMode == .byAccuracy {
+                Picker("“Clean” means", selection: $session.speedThreshold) {
+                    ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
+                }
+                Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
+                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                }
+            } else {
+                Picker("Loops before speeding up", selection: $session.speedPassesPerStep) {
+                    ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                }
+            }
+            Toggle("One hand at a time, then together", isOn: $session.handsProgression)
+            Text(session.drillSummary).font(.caption2).foregroundStyle(.secondary)
+            Button { session.startDrill() } label: {
+                Label(session.audio.isPlaying ? "Restart drill" : "Start drill",
+                      systemImage: "play.circle.fill")
+            }
+        }
+    }
+
+    /// Take replay (shown for graded session types).
+    @ViewBuilder
+    private var takesSection: some View {
+        Section("Takes") {
+            if session.isReplaying {
+                Button { session.stopReplay() } label: { Label("Stop replay", systemImage: "stop.circle") }
+            } else {
+                Button {
+                    if let t = session.lastTake { session.startReplay(t) }
+                } label: {
+                    Label(session.lastTake.map { "Play last take (\($0.notes.count) notes)" }
+                          ?? "Play last take", systemImage: "play.circle")
+                }
+                .disabled(session.lastTake == nil || session.audio.isPlaying)
+                Button {
+                    if let t = session.bestTakeForCurrentSection { session.startReplay(t) }
+                } label: {
+                    Label(session.bestTakeForCurrentSection.map {
+                            "Play best take (\(Int(($0.accuracy ?? 0) * 100))%)"
+                          } ?? "Play best take", systemImage: "star.circle")
+                }
+                .disabled(session.bestTakeForCurrentSection == nil || session.audio.isPlaying)
+            }
+            Text("Every pass records what you play. The best graded take per section is kept.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
     }
 
     /// The overflow menu — true utilities only (transport + controls live elsewhere).

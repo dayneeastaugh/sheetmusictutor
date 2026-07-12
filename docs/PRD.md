@@ -59,6 +59,9 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   with playback** and **stop it when playback stops** (click only while playing).
 - **MIDI input** — CoreMIDI, USB + Bluetooth, auto-reconnect; an on-screen 88-key keyboard that
   lights up what you play (green) and, during playback, the score's notes (RH blue / LH orange).
+- **Training session types** — one segmented control picks the session: **Practice** (play & follow),
+  **Wait** (advance on the right notes), **Grade** (play at tempo, scored), **Drill** (Grade + a
+  looped auto-tempo ramp). The Controls inspector shows only the settings relevant to the chosen type.
 - **Matching — Wait mode** — advance only when the required note(s) are played; live blue/green/red
   feedback; fumbles marked red on the score for review.
 - **Matching — Tempo/Grade mode** — play along at tempo; a windowed greedy matcher (a pure,

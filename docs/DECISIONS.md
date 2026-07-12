@@ -496,6 +496,23 @@ current tempo, so there was often no room to ramp and nothing to ramp *from*. Fi
   (a section), the Speed drill controls *how* (the ramp). Status line now reads "Speed drill · …".
 Underlying ramp logic (`drillAdvance`, mastery gate, hands progression) is unchanged.
 
+### ADR-039 — Drill is a training-session type; per-type settings
+**2026-07-11.** User feedback: the drill is core functionality but was buried in a side-menu section,
+and the inspector showed every setting regardless of relevance. Two changes:
+- **"Training session type"** is the nomenclature for the top segmented control, now with **four**
+  mutually-exclusive types: **Practice · Wait · Grade · Drill**. Drill = Grade + the looped
+  auto-tempo ramp (previously reachable only by toggling a "Speed drill" setting). `practiceMode`
+  derives from the flags (`waitMode` → Wait, `speedMode != .off` → Drill, `gradeMode` → Grade, else
+  Practice) and its setter enters/exits each cleanly (picking Drill turns on grade + loop + the
+  speed trainer; leaving it turns the trainer off).
+- The **Controls inspector filters by type** — each session shows only applicable settings (Wait
+  hides Tempo/Grading/Takes/Speed-drill; Grade hides Speed-drill; Drill adds the Speed-drill setup
+  and hides "start on my first note"; etc.). Sections: Hands & sound (all), Playback (not Wait),
+  Focus/Section-to-drill (all), Speed drill (Drill only, no "Off" — you leave a drill by switching
+  type), Start (not Wait), Grading + Takes (Grade/Drill), View (all).
+**Rejected:** keeping Drill as a setting (it's core, deserves top-level placement); showing all
+settings always (clutter, and irrelevant controls imply they do something in that mode).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

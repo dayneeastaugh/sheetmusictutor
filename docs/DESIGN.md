@@ -40,7 +40,9 @@ holds only the always-live surfaces; every set-and-forget control lives in the i
 **Controls** tab, and **Progress** and **Flags** are first-class inspector tabs (no longer buried
 in the overflow menu).
 
-1. **Header row** — the **mode segmented control** `Practice · Wait · Grade` on the left; on the
+1. **Header row** — the **training-session-type** segmented control `Practice · Wait · Grade · Drill`
+   on the left (the four mutually-exclusive session types; **Drill** = Grade + a looped auto-tempo
+   ramp, a first-class type rather than a buried setting); on the
    right an icon-only **metronome toggle** (`.toggleStyle(.button)`; tooltip carries the words —
    it's a live performance control, so it sits with the transport, not buried in settings) and a
    **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
@@ -67,25 +69,21 @@ in the overflow menu).
 5. **Keyboard** — the 88-key `PianoKeyboardView` (88 pt on Mac, 74 pt on iPad), with a legend +
    MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
    one-line strip keeps the MIDI status + a restore button.
-6. **Inspector — Controls tab** — a grouped `Form`. Most of these controls are **global
-   preferences** that persist across launches and carry between songs (View toggles, output
-   routing, metronome/start behaviour, grading tolerance, speed-trainer config — see ADR-036);
-   the tempo, hand, section/loop, and whether a drill is running are per-practice context and start
-   fresh. Groups: **Playback** (Tempo slider, Hands, Output,
-   metronome start/stop-with-playback behaviour — the on/off toggle itself is in the transport —
-   **Rhythm only** = note-onset ticks + tap-along grading, isolated to the selected Hands),
-   **Focus** (Section from/to, Loop, Loop count-in (meter-aware per section), Whole piece, **saved
-   sections** (named ranges: save current, one-tap recall, delete), **Suggest a spot** (picks a
-   section to work on — worst trouble bar, else oldest flag, else random — and loops a 2-bar
-   window, saying why)), **Speed drill** (a self-contained, guided auto-tempo ramp: "Speed up"
-   = Off / When I play it clean / Every few loops; **Start tempo** → **Goal tempo**, **Speed up
-   by**, the clean-threshold + passes-per-step, and **one hand at a time then together**; a
-   plain-English summary of exactly what it'll do, and a **Start drill** button that drops to the
-   start tempo and begins the looped graded ramp on the current section), **Start** (Count-in,
-   "Start on my first note"), **Grading** (timing tolerance Strict/Normal/Relaxed), **Takes**
-   (every pass records what you play from MIDI; ▶ last take / ▶ best graded take for the current
-   section, replayed at the current tempo through the chosen output), **View**
-   (Bars per line — the score **auto-shrinks** until the requested count actually fits (dense
+6. **Inspector — Controls tab** — a grouped `Form` that shows **only the settings relevant to the
+   current training-session type**, so each session presents just what it needs (ADR-039). Most of
+   these controls are **global preferences** that persist across launches and carry between songs
+   (View toggles, output routing, metronome/start behaviour, grading tolerance, speed-drill config —
+   ADR-036); the tempo, hand, section/loop, and whether a drill is running are per-practice context.
+   Sections by type: **Hands & sound** (Hands, Output — all types); **Playback** (Tempo, metronome
+   start/stop-with-playback — the on/off toggle is in the transport; **Rhythm only** in Practice/Grade;
+   hidden in Wait); **Focus / Section to drill** (Section from/to, **Suggest a spot**, Loop
+   (Practice/Grade), Loop count-in (not Wait), Whole piece, **saved sections**); **Speed drill**
+   (Drill only — "Speed up" When-I-play-it-clean / Every-few-loops, **Start → Goal** tempo, Speed up
+   by, clean-threshold + passes, one-hand-at-a-time-then-together, a plain-English summary, and a
+   **Start drill** button); **Start** (Count-in; "Start on my first note" except Drill; playback
+   types only); **Grading** (timing tolerance — Grade/Drill); **Takes** (Grade/Drill — ▶ last take /
+   ▶ best graded take, replayed at the current tempo through the chosen output); **View** (all types:
+   Bars per line — the score **auto-shrinks** until the requested count actually fits (dense
    music can't fit 4 wide bars at full size), floored at 40%; **Score size** 60–130% sets the
    *preferred/maximum* scale (the fit never grows past it) — both remembered per song; the status
    line reports the outcome, e.g. "4 bars/line · score size 53%" — Smooth cursor, Highlight score

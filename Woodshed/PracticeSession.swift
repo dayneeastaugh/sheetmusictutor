@@ -671,26 +671,53 @@ final class PracticeSession: ObservableObject {
 
     // MARK: - Practice mode (unified selector)
 
-    /// The three mutually-exclusive practice modes, surfaced as one segmented control.
+    /// The four mutually-exclusive **training session types**, surfaced as one
+    /// segmented control at the top of the practice screen. Drill is Grade + a looped
+    /// auto-tempo ramp — a first-class session type, not a buried setting.
     enum PracticeMode: Int, CaseIterable, Identifiable {
-        case practice, wait, grade
+        case practice, wait, grade, drill
         var id: Int { rawValue }
         var title: String {
-            switch self { case .practice: return "Practice"; case .wait: return "Wait"; case .grade: return "Grade" }
+            switch self {
+            case .practice: return "Practice"; case .wait: return "Wait"
+            case .grade: return "Grade"; case .drill: return "Drill"
+            }
+        }
+        var blurb: String {
+            switch self {
+            case .practice: return "Play along and follow the score"
+            case .wait: return "Advance only when you play the right notes"
+            case .grade: return "Play at tempo and get scored"
+            case .drill: return "Loop a section and ramp the tempo up as you improve"
+            }
         }
     }
 
-    /// Current mode derived from the two underlying flags; setting it routes through
-    /// the existing enter/exit logic (which keeps Wait and Grade mutually exclusive).
+    /// Current session type derived from the underlying flags; setting it routes
+    /// through the enter/exit logic (Wait / Grade / speed-drill are kept consistent).
     var practiceMode: PracticeMode {
-        get { waitMode ? .wait : (gradeMode ? .grade : .practice) }
+        get {
+            if waitMode { return .wait }
+            if speedMode != .off { return .drill }   // drill = grade + the speed trainer
+            if gradeMode { return .grade }
+            return .practice
+        }
         set {
             switch newValue {
             case .practice:
+                speedMode = .off
                 if waitMode { setWaitMode(false) }
                 if gradeMode { setGradeMode(false) }
-            case .wait:  setWaitMode(true)   // also clears Grade
-            case .grade: setGradeMode(true)  // also clears Wait
+            case .wait:
+                speedMode = .off
+                setWaitMode(true)              // also clears Grade
+            case .grade:
+                speedMode = .off               // plain grade, no auto-ramp
+                setGradeMode(true)             // also clears Wait
+            case .drill:
+                if waitMode { setWaitMode(false) }
+                if !gradeMode { setGradeMode(true) }
+                if speedMode == .off { speedMode = .byAccuracy }   // didSet enables loop + previews start tempo
             }
         }
     }
