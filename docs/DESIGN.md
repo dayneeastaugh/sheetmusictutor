@@ -17,6 +17,14 @@ empty detail shows a `ContentUnavailableView` prompt.
 
 ## Screen inventory
 
+### Help (`HelpView`, macOS)
+The macOS **Help menu → "Segno Help"** (⌘?) opens an in-app help **`Window`** — a topic list
+(Welcome, What you need, Adding a song, The practice screen, The four session types, Sections &
+looping, Drills, Seeing how you did, Your MIDI piano, Tips & shortcuts) beside plain-language,
+beginner-oriented content. We host help in-app (a `Window` scene + `CommandGroup(replacing: .help)`)
+rather than as an Apple Help Book — the Help Book format is fragile (indexing + plist registration;
+a misregistration is the literal "Help isn't available" error) and far less maintainable.
+
 ### Library (root)
 A `List` of songs (title + a subtitle: **last-practised + best % + #tags** once set, else
 date-added; ⭐ for favourites), a **search field** (titles + tags), a **sort menu** (title / last
