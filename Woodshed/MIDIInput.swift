@@ -31,13 +31,26 @@ final class MIDIInput: ObservableObject {
     private var outputPort = MIDIPortRef()
     private var connected = Set<MIDIEndpointRef>()
 
-    init() { setup() }
+    // Instance id + live count, to tell apart "many endpoints" from "leaked instances"
+    // in the diagnostic log (duplicated MIDI input points at one or the other).
+    private static var nextId = 0
+    private static var liveCount = 0
+    private let instanceId: Int
+
+    init() {
+        MIDIInput.nextId += 1; MIDIInput.liveCount += 1
+        instanceId = MIDIInput.nextId
+        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) created (\(MIDIInput.liveCount) live)")
+        setup()
+    }
 
     deinit {
         // Dispose the CoreMIDI client (which also disposes its ports/connections).
         // Each PracticeSession owns a MIDIInput, so without this every song switch
         // leaked a live client into the process (audit ARCH-04).
         if client != 0 { MIDIClientDispose(client) }
+        MIDIInput.liveCount -= 1
+        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) disposed (\(MIDIInput.liveCount) live)")
     }
 
     // MARK: - Setup
@@ -119,6 +132,7 @@ final class MIDIInput: ObservableObject {
             }
         }
         sources = names
+        DebugLog.shared.log("midi", "#\(instanceId) sources (\(names.count)): \(names.joined(separator: ", "))")
         status = names.isEmpty
             ? "No MIDI input detected — connect a piano (USB/Bluetooth)"
             : "Connected: \(names.joined(separator: ", "))"
@@ -160,7 +174,7 @@ final class MIDIInput: ObservableObject {
     }
 
     private func noteOn(_ note: Int, velocity: Int) {
-        DebugLog.shared.log("midi", "noteOn \(note) vel \(velocity)")
+        DebugLog.shared.log("midi", "#\(instanceId) noteOn \(note) vel \(velocity)")
         DispatchQueue.main.async {
             self.activeNotes.insert(note)
             self.onNoteOn?(note, velocity)
