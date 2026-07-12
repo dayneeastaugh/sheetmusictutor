@@ -452,13 +452,17 @@
     }
     window.setFlaggedBars = function (bars) { flaggedBars = bars || []; drawFlags(); };
 
-    function measureAt(clientX, clientY) {
+    // Which bar is at a point. `strict` returns -1 unless the point is actually inside
+    // a measure's box (used to decide select-vs-deselect on a click); non-strict falls
+    // back to the nearest bar in the row (used while dragging, so it's forgiving).
+    function measureAt(clientX, clientY, strict) {
       var cont = document.getElementById("osmdContainer"); if (!cont) return -1;
       var rr = cont.getBoundingClientRect();
       var px = clientX - rr.left, py = clientY - rr.top;
       var row = measRects.filter(function (r) { return py >= r.y && py <= r.y + r.h; });
       if (!row.length) return -1;
       for (var i = 0; i < row.length; i++) if (px >= row[i].x && px <= row[i].x + row[i].w) return row[i].m;
+      if (strict) return -1;   // clicked between/around bars → not a bar hit
       var best = -1, bd = 1e9;
       row.forEach(function (r) { var d = Math.abs(px - (r.x + r.w / 2)); if (d < bd) { bd = d; best = r.m; } });
       return best;
@@ -485,7 +489,7 @@
       function stopEdgeScroll() { if (edgeTimer) { clearInterval(edgeTimer); edgeTimer = null; } }
 
       function beginDrag(x, y) {
-        var m = measureAt(x, y); if (m < 0) return false;
+        var m = measureAt(x, y, true); if (m < 0) return false;   // strict: only start on a real bar
         dragging = true; anchor = m; selStart = m + 1; selEnd = m + 1; lastX = x; lastY = y;
         drawSelection(); startEdgeScroll();
         return true;

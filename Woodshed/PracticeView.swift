@@ -65,7 +65,7 @@ struct PracticeView: View {
         // focused (the web layer also handles Escape / whitespace-click). A modal, if
         // present, takes Escape first; this is a no-op when nothing is selected.
         .background(
-            Button("") { if !session.isFullPiece { session.selectWholePiece() } }
+            Button("") { if !session.isFullPiece { session.clearBarSelection() } }
                 .keyboardShortcut(.cancelAction)
                 .opacity(0).accessibilityHidden(true)
         )

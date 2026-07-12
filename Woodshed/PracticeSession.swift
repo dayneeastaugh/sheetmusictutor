@@ -615,7 +615,7 @@ final class PracticeSession: ObservableObject {
     func onAppear() {
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
-        bridge.onDeselect = { [weak self] in self?.selectWholePiece() }   // Escape / click in whitespace
+        bridge.onDeselect = { [weak self] in self?.clearBarSelection() }   // Escape / click in whitespace
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
         midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
         guard !hasLoaded else { return }
@@ -1032,6 +1032,14 @@ final class PracticeSession: ObservableObject {
     /// Reset the section to the whole piece.
     func selectWholePiece() {
         sectionStart = 1; sectionEnd = measureCount
+    }
+
+    /// Clear the bar selection (Escape / whitespace click). Reverts to the whole piece
+    /// and **forces** the on-score highlight off directly, so a stale highlight can
+    /// never be left behind by section-change side effects.
+    func clearBarSelection() {
+        sectionStart = 1; sectionEnd = measureCount
+        bridge.clearSelection()
     }
 
     /// Focus the section on a single bar (used to drill a trouble spot from Progress).
