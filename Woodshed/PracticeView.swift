@@ -244,6 +244,9 @@ struct PracticeView: View {
         if session.progressiveDrill {
             let w = session.progressiveWindow
             drillStat("Bars built", "\(w.built)/\(w.total)")
+            if session.speedPassesPerStep > 1 {
+                drillStat("Clean", "\(session.passesAtThisTempo)/\(session.speedPassesPerStep)")
+            }
         } else {
             drillStat("Tempo", "\(Int(session.tempoPct))%", tint: .accentColor)
             drillStat(session.speedMode == .byAccuracy ? "Clean passes" : "Loops",
@@ -537,6 +540,10 @@ struct PracticeView: View {
                 Picker("“Clean” means", selection: $session.speedThreshold) {
                     ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
                 }
+                Picker("Clean passes to add a bar", selection: $session.speedPassesPerStep) {
+                    ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .help("Play the newest bar clean this many times in a row before the next bar is added")
             } else {
                 Picker("Speed up", selection: $session.speedMode) {
                     Text("When I play it clean").tag(PracticeSession.SpeedTrainerMode.byAccuracy)
@@ -556,11 +563,11 @@ struct PracticeView: View {
                         ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
                     }
                     Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
-                        ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                        ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
                     }
                 } else {
                     Picker("Loops before speeding up", selection: $session.speedPassesPerStep) {
-                        ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
+                        ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
                     }
                 }
                 Toggle("One hand at a time, then together", isOn: $session.handsProgression)

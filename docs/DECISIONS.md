@@ -527,6 +527,9 @@ machinery (loop bounds, grade scope, and the **blue highlight visibly expands** 
 Play like the ramp. **Rejected:** a separate top-level session type for progressive (it's a drill
 variant, belongs under Drill); grading the newest bar as part of the whole-passage accuracy (the
 user's explicit ask — the new bar must be proven on its own).
+**Amended 2026-07-12:** advancing now requires the newest bar clean **N times in a row** (a miss
+resets the streak), not just once — *Clean passes to add a bar* (1–8, reuses `speedPassesPerStep`).
+One clean pass felt too easy to commit before extending. The speed-ramp pass counts widened to 1–8 too.
 
 ### ADR-041 — Opt-in diagnostic logging + count-in grading fix + drill progress
 **2026-07-12.** From testing feedback:

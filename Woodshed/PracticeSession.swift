@@ -1135,12 +1135,13 @@ final class PracticeSession: ObservableObject {
         armed = false
         if progressiveDrill {
             mastered = false
+            passesAtThisTempo = 0                                // clean-pass streak for the newest bar
             // Build up to the selection's end when a genuine multi-bar region is
             // selected; otherwise (a single bar, or no selection) build all the way
             // to the end of the piece — a 1-bar target would "complete" instantly.
             progressiveTarget = sectionEnd > sectionStart ? sectionEnd : measureCount
             sectionEnd = sectionStart                           // start with just the first bar
-            DebugLog.shared.log("drill", "progressive start: bar \(sectionStart), target \(progressiveTarget) (of \(measureCount))")
+            DebugLog.shared.log("drill", "progressive start: bar \(sectionStart), target \(progressiveTarget) (of \(measureCount)), \(speedPassesPerStep) clean pass(es) to add a bar")
         } else {
             if speedMode == .off { speedMode = .byAccuracy }    // the intuitive default: ramp when clean
             tempoPct = drillStartTempoClamped
@@ -1154,14 +1155,21 @@ final class PracticeSession: ObservableObject {
     private func applyProgressiveDrill(newestBarClean: Bool) {
         guard progressiveDrill, loopSection else { return }
         guard newestBarClean else {
-            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) NOT clean → repeat")
-            return                                   // stay on this window until the newest bar is clean
+            passesAtThisTempo = 0                     // a miss breaks the streak — passes must be consecutive
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) NOT clean → repeat (0/\(speedPassesPerStep))")
+            return                                    // stay on this window until it's committed
         }
+        passesAtThisTempo += 1
+        guard passesAtThisTempo >= max(1, speedPassesPerStep) else {
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) clean \(passesAtThisTempo)/\(speedPassesPerStep) → repeat")
+            return                                    // clean, but not committed enough times yet
+        }
+        passesAtThisTempo = 0                          // committed — the next bar starts its own streak
         if sectionEnd < progressiveTarget {
-            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) clean → add bar \(sectionEnd + 1)")
-            sectionEnd += 1                          // add the next bar (didSet grows the highlight + loop)
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) committed → add bar \(sectionEnd + 1)")
+            sectionEnd += 1                            // add the next bar (didSet grows the highlight + loop)
         } else {
-            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) clean → passage complete")
+            DebugLog.shared.log("drill", "progressive: bar \(sectionEnd) committed → passage complete")
             mastered = true
         }
     }
@@ -1205,8 +1213,10 @@ final class PracticeSession: ObservableObject {
         let range = isFullPiece ? "the whole piece" : "bars \(sectionStart)–\(sectionEnd)"
         if progressiveDrill {
             let clean = Int(speedThreshold * 100)
+            let n = max(1, speedPassesPerStep)
+            let times = n == 1 ? "once" : "\(n)× in a row"
             return "Starts at bar \(sectionStart) and adds one bar of \(range) each time you play the "
-                 + "newest bar \u{2265}\(clean)% clean, until the passage is complete."
+                 + "newest bar \u{2265}\(clean)% clean \(times), until the passage is complete."
         }
         let start = Int(drillStartTempoClamped), goal = Int(speedTargetPct), step = Int(speedStepPct)
         let rule = speedMode == .byAccuracy
