@@ -162,7 +162,7 @@ struct ProgressPanel: View {
                       systemImage: "checkmark.seal")
                     .font(.caption).foregroundStyle(.green)
             } else {
-                Text("Bars you keep missing — longest bar = most misses. Tap one to drill it. (Also shown as amber tint on the score — View ▸ Trouble spots.)")
+                Text("Bars you keep missing — longest bar = most misses. Tap one to drill it. (Also shown as amber tint on the score — View ▸ Problem marks.)")
                     .font(.caption2).foregroundStyle(.secondary)
                 let maxMiss = trouble.map(\.misses).max() ?? 1
                 ForEach(trouble) { t in

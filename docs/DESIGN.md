@@ -88,12 +88,11 @@ in the overflow menu).
    drill is **started from the transport ▶ Play** at the top (in Drill mode Play drops to the start
    tempo and begins the ramp); **Start** (Count-in; "Start on my first note" except Drill; playback
    types only); **Grading** (timing tolerance — Grade/Drill); **Takes** (Grade/Drill — ▶ last take /
-   ▶ best graded take, replayed at the current tempo through the chosen output); **View** (all types:
-   Bars per line — the score **auto-shrinks** until the requested count actually fits (dense
+   ▶ best graded take, replayed at the current tempo through the chosen output); **View** (all types: Bars per line — the score **auto-shrinks** until the requested count actually fits (dense
    music can't fit 4 wide bars at full size), floored at 40%; **Score size** 60–130% sets the
    *preferred/maximum* scale (the fit never grows past it) — both remembered per song; the status
    line reports the outcome, e.g. "4 bars/line · score size 53%" — Smooth cursor, Highlight score
-   notes, Trouble spots, Colour hands, Show keyboard).
+   notes, **Problem marks** (all grade marks — trouble bars, missed & wrong notes), Colour hands, Show keyboard).
 7. **Inspector — Progress tab** — headline stats (passes, best full run, last, **today's / total
    practice time**), the accuracy **trend sparkline** (95% guide), a **tempo trend** sparkline
    (100% guide — the PRD's "reaches target tempo faster" made visible), the **"still need work"**
@@ -186,10 +185,13 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   bars show a tappable purple **⚑** at the top-left on the score — tap it to edit/delete the note.
   The **Flags…** sheet (More menu) lists them (bar + note), adds a flag for a chosen bar, and taps
   through to drill that bar. Stored per song in `flags.json`.
-- **Trouble spots on the score:** the bars you still keep missing are tinted **amber** on the notation
-  (toggle: More → "Show trouble spots on score"). The set is "clear as you improve" — a bar drops off
-  once the most recent pass covering it is clean, and updates live after each pass. The Progress
-  sheet lists the same bars (tap to drill).
+- **Problem marks on the score** (toggle: View → "Problem marks on score", default on) — one switch
+  governs **all** grade-related score highlighting together: the **amber trouble bars** (bars you keep
+  missing — "clear as you improve", a bar drops off once the most recent covering pass is clean),
+  the **red missed-note rings**, and the **red wrong-note dots**. Turning it off clears every one of
+  them (and suppresses them live during a pass); turning it on restores them. The Progress tab lists
+  the trouble bars too (tap to drill). (Wait-mode fumble marks are separate — cleared via the status
+  line's **Clear marks**.)
 - **Keyboard shortcut:** Space = Play/Stop.
 
 ## Design conventions to preserve

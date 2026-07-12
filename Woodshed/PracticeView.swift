@@ -437,7 +437,8 @@ struct PracticeView: View {
                 }
                 Toggle("Smooth cursor", isOn: $session.cursorSmooth)
                 Toggle("Highlight score notes", isOn: $session.showScoreNotes)
-                Toggle("Trouble spots on score", isOn: $session.showTroubleOnScore)
+                Toggle("Problem marks on score", isOn: $session.showTroubleOnScore)
+                    .help("Show trouble bars (amber), missed notes, and wrong notes on the score")
                 Toggle("Colour hands", isOn: $session.colorHands)
                 Toggle("Show keyboard", isOn: $keyboardVisible)
             }

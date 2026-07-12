@@ -664,10 +664,18 @@ final class PracticeSession: ObservableObject {
         refreshTroubleOverlay()
     }
 
-    /// Push the current trouble bars to the score (or clear them if the toggle is off).
+    /// Push (or clear) **all** the grade-related problem marks on the score together —
+    /// amber trouble bars, red missed-note rings, and red wrong-note dots — governed by
+    /// the one "Problem marks on score" toggle (`showTroubleOnScore`). Toggling it off
+    /// therefore clears every problem highlight, not just the trouble bars.
     private func refreshTroubleOverlay() {
-        guard showTroubleOnScore else { bridge.clearTroubleBars(); return }
+        guard showTroubleOnScore else {
+            bridge.clearTroubleBars(); bridge.markMissed([]); bridge.markWrong([])
+            return
+        }
         bridge.setTroubleBars(currentTroubleBars.map(\.bar))
+        bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) })
+        bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) })
     }
 
     // MARK: - Practice mode (unified selector)
@@ -784,7 +792,7 @@ final class PracticeSession: ObservableObject {
             if wrongMarks.count > 60 { wrongMarks.removeFirst() }   // cap the overlay
             changed = true
         }
-        if changed { bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) }) }
+        if changed && showTroubleOnScore { bridge.markWrong(wrongMarks.map { (beat: $0.beat, pitch: $0.pitch) }) }
     }
 
     /// On each tick, ring any expected note whose window has now closed unmatched —
@@ -792,7 +800,7 @@ final class PracticeSession: ObservableObject {
     private func advanceGradeMisses(_ t: Double) {
         guard let newly = matcher?.closeWindows(upTo: t), !newly.isEmpty else { return }
         for m in newly { gradeMissed.insert(Mistake(beat: m.beat, pitch: m.pitch)) }
-        bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) })
+        if showTroubleOnScore { bridge.markMissed(gradeMissed.map { (beat: $0.beat, pitch: $0.pitch) }) }
     }
 
     /// A specific note that went wrong in the last pass, for the "what exactly went
