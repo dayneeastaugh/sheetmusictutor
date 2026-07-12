@@ -615,6 +615,7 @@ final class PracticeSession: ObservableObject {
     func onAppear() {
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
+        bridge.onDeselect = { [weak self] in self?.selectWholePiece() }   // Escape / click in whitespace
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
         midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
         guard !hasLoaded else { return }

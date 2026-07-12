@@ -61,6 +61,14 @@ struct PracticeView: View {
             keyboardArea
         }
         .padding(10)
+        // Escape clears any bar selection, even when the notation web view isn't
+        // focused (the web layer also handles Escape / whitespace-click). A modal, if
+        // present, takes Escape first; this is a no-op when nothing is selected.
+        .background(
+            Button("") { if !session.isFullPiece { session.selectWholePiece() } }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0).accessibilityHidden(true)
+        )
         .navigationTitle(song.title)
         #if os(macOS)
         .navigationSubtitle(subtitle)

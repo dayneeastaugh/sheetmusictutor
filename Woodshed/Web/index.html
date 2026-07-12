@@ -506,13 +506,23 @@
         document.removeEventListener("mouseup", onUp);
         endDrag();
       }
+      // Escape clears the selection (once, document-level).
+      if (!window._escAttached) {
+        window._escAttached = true;
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && selStart) post("deselect");
+        });
+      }
       window._attachSelection = function () {
         var cont = document.getElementById("osmdContainer");
         if (!cont || cont._selAttached) return;
         cont._selAttached = true;
         // Mouse (Mac / trackpad)
         cont.addEventListener("mousedown", function (e) {
-          if (!beginDrag(e.clientX, e.clientY)) return;
+          if (!beginDrag(e.clientX, e.clientY)) {
+            if (selStart) post("deselect");   // clicked in whitespace (no bar) → clear selection
+            return;
+          }
           document.addEventListener("mousemove", onMove);
           document.addEventListener("mouseup", onUp);
           e.preventDefault();

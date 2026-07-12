@@ -31,6 +31,8 @@ final class NotationBridge: ObservableObject {
     var onSelect: ((Int, Int) -> Void)?
     /// Called when the user taps a flag marker on the score: the bar (1-based).
     var onFlagTap: ((Int) -> Void)?
+    /// Called to clear the bar selection (Escape, or a click in the score's whitespace).
+    var onDeselect: (() -> Void)?
 
     func post(_ s: String) {
         if s.hasPrefix("select:") {
@@ -38,6 +40,10 @@ final class NotationBridge: ObservableObject {
             if parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) {
                 DispatchQueue.main.async { self.onSelect?(a, b) }
             }
+            return
+        }
+        if s == "deselect" {
+            DispatchQueue.main.async { self.onDeselect?() }
             return
         }
         if s.hasPrefix("flag:") {
