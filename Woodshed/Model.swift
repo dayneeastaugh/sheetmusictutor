@@ -41,6 +41,7 @@ struct MidiScore {
     var notes: [MidiNote]                // sorted by onset time
     var secondsAtBeat: (Double) -> Double // convert any quarter-beat position to seconds (tempo map)
     var trackHands: [Hand]               // hand assigned to each SMF track (for audio routing)
+    var pedalEvents: [(seconds: Double, down: Bool)] = []  // sustain-pedal (CC64) transitions
     var rightHandCount: Int { notes.filter { $0.hand == .right }.count }
     var leftHandCount: Int  { notes.filter { $0.hand == .left  }.count }
 }
@@ -140,6 +141,12 @@ struct FusedScore {
     var timeSignature: (num: Int, den: Int)?
     var keyFifths: Int
     var events: [NoteEvent]     // sorted by onset
+    // Realized ornament/trill/turn/mordent notes, absorbed out of `events` for a
+    // notation-centric grade but kept here so playback to the piano can *sound* them
+    // (hand-tagged; never graded or notated). Sorted by onset. See docs/INGESTION.md.
+    var playbackExtras: [NoteEvent] = []
+    // Sustain-pedal (CC64) transitions in playback seconds, for MIDI-out to the piano.
+    var pedalTimeline: [(time: Double, down: Bool)] = []
     // Metronome click grid: playback time (seconds) of each click + its emphasis.
     // Built from barlines + per-measure meter (drives the playback-synced metronome).
     var clickGrid: [(time: Double, level: ClickLevel)]

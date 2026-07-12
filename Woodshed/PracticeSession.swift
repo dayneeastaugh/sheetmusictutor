@@ -347,6 +347,8 @@ final class PracticeSession: ObservableObject {
         didSet { AppSettings.showScoreNotes = showScoreNotes }
     }
     private var pianoSounding: Set<Int> = []    // notes currently sent to the piano (MIDI out)
+    private var pedalSounding = false           // sustain pedal state we've sent to the piano
+    private var pianoSched = PianoScheduler()    // edge-triggered MIDI-out (ornaments/graces/pedal)
 
     // MARK: Wait mode — step through the score, advancing only on the right notes.
     @Published var waitMode = false
@@ -1035,7 +1037,9 @@ final class PracticeSession: ObservableObject {
     private func flushPianoOutput() {
         for n in pianoSounding { midi.sendNoteOff(n) }
         if !pianoSounding.isEmpty { midi.allNotesOff() }
+        if pedalSounding { midi.sendSustain(false); pedalSounding = false }
         pianoSounding = []
+        pianoSched.reset()   // re-find position (and re-apply a held pedal) on the next tick
     }
 
     // MARK: - Section practice
@@ -1498,16 +1502,20 @@ final class PracticeSession: ObservableObject {
         // Rhythm-only mode sends no notes anywhere — the tick is the whole point.
         if outputMode != 0 && !rhythmMode {
             let rhOn = handMode != 2, lhOn = handMode != 1
-            var target = Set<Int>()
-            for i in tracker.activeIdx {
-                let e = events[i]
-                if e.hand == .right ? rhOn : (e.hand == .left ? lhOn : true) { target.insert(e.pitch) }
+            // Edge-triggered so ornaments, grace notes and repeated pitches all sound
+            // (the old set-diff sampling dropped short/repeated notes). See ADR-042.
+            for cmd in pianoSched.advance(to: t, rhOn: rhOn, lhOn: lhOn) {
+                switch cmd {
+                case let .noteOn(p):  midi.sendNoteOn(p);  pianoSounding.insert(p)
+                case let .noteOff(p): midi.sendNoteOff(p); pianoSounding.remove(p)
+                case let .pedal(down): midi.sendSustain(down); pedalSounding = down
+                }
             }
-            for n in target.subtracting(pianoSounding) { midi.sendNoteOn(n) }
-            for n in pianoSounding.subtracting(target) { midi.sendNoteOff(n) }
-            pianoSounding = target
-        } else if !pianoSounding.isEmpty {
-            flushPianoOutput()
+        } else if !pianoSounding.isEmpty || pedalSounding {
+            flushPianoOutput()          // includes pianoSched.reset()
+        } else {
+            pianoSched.reset()          // piano output off — keep it parked at 'now' so
+                                        // re-enabling mid-playback doesn't fire a burst
         }
     }
 
@@ -1532,6 +1540,11 @@ final class PracticeSession: ObservableObject {
             // Prepare cursor-sync data + load the MIDI into the audio player.
             schedule = beatSchedule(fused.events)
             tracker.reset()
+            // Piano output plays the fused notes PLUS the realized ornament/grace notes
+            // that grading absorbs, and the sustain pedal — the full performance.
+            pianoSched.load(notes: (fused.events + fused.playbackExtras)
+                                .sorted { $0.onsetSeconds < $1.onsetSeconds },
+                            pedal: fused.pedalTimeline)
             scoreDuration = fused.events.map { $0.onsetSeconds + $0.durationSeconds }.max() ?? 0
             sectionStart = 1
             sectionEnd = fused.measureStartBeats.count      // whole piece by default

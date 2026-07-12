@@ -29,6 +29,8 @@ are absorbed into their parent event, not emitted as first-class notes.
 **Rationale:** matches how a player reads the score; the future matcher must match the written note
 leniently, never demand the realised flurry. Discovered via the Chopin (471 written vs 524 MIDI RH).
 **Rejected:** one event per MIDI note-on (would make ornaments look like errors and pollute matching).
+**Amended by ADR-042:** the absorbed notes are now *retained* for playback-only (`playbackExtras`) so
+the piano can sound them; grading/notation are unchanged.
 
 ### ADR-004 — OSMD in a WKWebView for notation; Swift owns model + clock
 **2026-07-08.** Render MusicXML via OpenSheetMusicDisplay inside `WKWebView`; the web layer is display
@@ -542,9 +544,33 @@ user's explicit ask — the new bar must be proven on its own).
 - **Drill progress bar:** a prominent bar below the header during a Drill — the passage built so far
   (progressive) or tempo toward the goal (speed ramp), plus the last pass's accuracy.
 
+### ADR-042 — Complete the connected-piano output: ornaments, graces, pedal (event-scheduled)
+**2026-07-12.** Diagnosed from the diagnostic-log `out` trace: turns, trills, grace notes, and the
+sustain pedal never reached the **connected piano**, though they sounded on the internal speakers.
+Cause — two different playback paths: the internal sampler plays the raw `.mid` via `AVAudioSequencer`
+(so it has everything), while the MIDI-out path *reconstructed* notes from `FusedScore.events` using a
+50 Hz "who's sounding now?" **set-diff**. That sampling (a) dropped any note shorter than a tick
+(graces, ornament realisations), (b) couldn't re-articulate a repeated pitch, and (c) sent no pedal —
+`MIDIParser` was discarding all CC (0xB0) messages.
+
+**Decision — bring the piano path up to parity, without disturbing the notation-centric grade:**
+- **Retain** the absorbed ornament MIDI notes in `FusedScore.playbackExtras` (hand-tagged,
+  playback-only — *not* graded or notated; ADR-003 stands for grading/identity).
+- **Capture** sustain (CC64) in `MIDIParser` → `MidiScore.pedalEvents` → `FusedScore.pedalTimeline`.
+- **Replace** the set-diff with `PianoScheduler`: a pure, unit-tested, edge-triggered player over
+  `events + playbackExtras` + pedal. It fires each note-on/off and pedal change at its exact time,
+  floors sub-tick notes to ~50 ms so the piano registers them, re-articulates repeated pitches,
+  respects hand mutes (including muting mid-sustain), and repositions cleanly on loop/seek without
+  replaying passed notes. `MIDIInput.sendSustain` sends CC64; the `out` log now records pedal too.
+
+**Rejected:** teeing the `AVAudioSequencer` to MIDI-out (it targets the internal samplers, no clean
+tap, and loses per-hand muting / section alignment). **Workaround while unfixed:** PC/Both output.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
+- `PianoScheduler` fires on the 50 Hz cursor tick (~20 ms jitter). Fine for melodies and moderate
+  ornaments; if fast trills clump, move to CoreMIDI timestamped sends. Revisit after real-piano testing.
 - **Two-device use:** library/history don't sync between Mac and iPad. Decide between manual
   song-folder export/import (AirDrop a zip) or an iCloud Drive library folder (amends the
   no-cloud non-goal) before long histories accumulate on both devices.

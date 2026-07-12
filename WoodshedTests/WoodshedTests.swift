@@ -855,3 +855,78 @@ struct SongMetaCompat {
         #expect(BarFlagStore.load(from: dir).first { $0.bar == 5 }?.note == "leap cleanly")
     }
 }
+
+// MARK: - PianoScheduler (edge-triggered MIDI-out, incl. ornaments/graces/pedal)
+
+@Suite("PianoScheduler")
+struct PianoSchedulerTests {
+
+    private func note(_ pitch: Int, at onset: Double, dur: Double, hand: Hand = .right) -> NoteEvent {
+        NoteEvent(pitch: pitch, spelledName: "", hand: hand, voice: 0, notatedType: "?",
+                  onsetSeconds: onset, durationSeconds: dur, notatedBeat: 0,
+                  matchedXML: true, ornamentNotes: 0)
+    }
+
+    @Test("fires note on then off across ticks")
+    func onThenOff() {
+        var s = PianoScheduler()
+        s.load(notes: [note(60, at: 0.10, dur: 0.30)], pedal: [], minDuration: 0.05)
+        #expect(s.advance(to: 0.05, rhOn: true, lhOn: true).isEmpty)          // before onset
+        #expect(s.advance(to: 0.12, rhOn: true, lhOn: true) == [.noteOn(60)]) // onset passed
+        #expect(s.advance(to: 0.30, rhOn: true, lhOn: true).isEmpty)          // still held
+        #expect(s.advance(to: 0.45, rhOn: true, lhOn: true) == [.noteOff(60)])// release passed
+    }
+
+    @Test("a sub-tick grace note is still sounded (on + off), not dropped")
+    func shortNoteSurvives() {
+        var s = PianoScheduler()
+        // 8ms note entirely between two 20ms ticks — the old set-diff missed this.
+        s.load(notes: [note(72, at: 0.101, dur: 0.008)], pedal: [], minDuration: 0.05)
+        _ = s.advance(to: 0.100, rhOn: true, lhOn: true)
+        let cmds = s.advance(to: 0.120, rhOn: true, lhOn: true)
+        #expect(cmds.contains(.noteOn(72)))
+    }
+
+    @Test("repeated same pitch re-articulates (off then on)")
+    func reArticulate() {
+        var s = PianoScheduler()
+        s.load(notes: [note(64, at: 0.00, dur: 0.20), note(64, at: 0.10, dur: 0.20)],
+               pedal: [], minDuration: 0.05)
+        _ = s.advance(to: 0.01, rhOn: true, lhOn: true)                        // first on
+        let cmds = s.advance(to: 0.11, rhOn: true, lhOn: true)                 // second strike
+        #expect(cmds == [.noteOff(64), .noteOn(64)])
+    }
+
+    @Test("muted hand is skipped, and muting mid-note releases it")
+    func handMuting() {
+        var s = PianoScheduler()
+        s.load(notes: [note(48, at: 0.00, dur: 0.50, hand: .left)], pedal: [], minDuration: 0.05)
+        #expect(s.advance(to: 0.01, rhOn: true, lhOn: false).isEmpty)          // LH muted → skipped
+        // Now a RH note that starts while sounding, then gets muted.
+        var s2 = PianoScheduler()
+        s2.load(notes: [note(67, at: 0.00, dur: 0.50, hand: .right)], pedal: [], minDuration: 0.05)
+        #expect(s2.advance(to: 0.01, rhOn: true, lhOn: true) == [.noteOn(67)])
+        #expect(s2.advance(to: 0.02, rhOn: false, lhOn: true) == [.noteOff(67)])
+    }
+
+    @Test("pedal transitions drive sustain and collapse redundant states")
+    func pedal() {
+        var s = PianoScheduler()
+        s.load(notes: [], pedal: [(0.10, true), (0.30, false)], minDuration: 0.05)
+        #expect(s.advance(to: 0.05, rhOn: true, lhOn: true).isEmpty)
+        #expect(s.advance(to: 0.15, rhOn: true, lhOn: true) == [.pedal(true)])
+        #expect(s.advance(to: 0.20, rhOn: true, lhOn: true).isEmpty)           // no change
+        #expect(s.advance(to: 0.35, rhOn: true, lhOn: true) == [.pedal(false)])
+    }
+
+    @Test("a backward jump repositions without replaying passed notes")
+    func loopReposition() {
+        var s = PianoScheduler()
+        s.load(notes: [note(60, at: 0.10, dur: 0.10), note(62, at: 1.00, dur: 0.10)],
+               pedal: [], minDuration: 0.05)
+        _ = s.advance(to: 0.50, rhOn: true, lhOn: true)   // played the first note
+        // Loop back to 0.05 — must NOT re-fire the 0.10 note until it's reached again.
+        #expect(s.advance(to: 0.05, rhOn: true, lhOn: true).isEmpty)
+        #expect(s.advance(to: 0.12, rhOn: true, lhOn: true) == [.noteOn(60)])
+    }
+}

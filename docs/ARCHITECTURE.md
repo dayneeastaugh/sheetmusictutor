@@ -143,7 +143,12 @@ command. See the JS bridge contract below.
    `sequencer.currentPositionInSeconds` (musical time) and:
    - moves the OSMD cursor via `bridge.seek(continuousBeat(at:t))` (interpolated notated beat),
    - lights the sounding notes on the keyboard,
-   - optionally sends the notes to the piano (MIDI out).
+   - optionally sends the notes to the piano (MIDI out) via **`PianoScheduler`** — an
+     edge-triggered player over `events + playbackExtras` + the pedal timeline. Unlike the
+     internal sampler (which plays the raw `.mid`), the piano path is reconstructed from the
+     model, so it must schedule each note-on/off and sustain (CC64) at its exact time; a
+     level-triggered set-diff dropped grace/ornament notes and never re-articulated repeats.
+     See ADR-042.
 4. Live keys arrive as `MIDIInput.activeNotes`; a Combine subscription in the session calls
    `PracticeSession.midiNotesChanged`, feeding the **matcher** for the active practice mode.
 

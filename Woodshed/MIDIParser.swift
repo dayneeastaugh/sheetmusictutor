@@ -44,6 +44,9 @@ enum MIDIParser {
         // Each note: (startTick, endTick, pitch).
         struct RawNote { var start: Int; var end: Int; var pitch: Int }
         var notesPerTrack: [[RawNote]] = []
+        // Sustain-pedal (CC64) changes across all tracks: (tick, down = value >= 64).
+        // Needed so playback to the connected piano can hold notes under the pedal.
+        var pedalRaw: [(tick: Int, down: Bool)] = []
 
         for _ in 0..<trackCount {
             guard try reader.readString(4) == "MTrk" else { throw MIDIError.malformed }
@@ -109,7 +112,11 @@ enum MIDIParser {
                                 trackNotes.append(RawNote(start: start, end: absoluteTick, pitch: pitch))
                             }
                         }
-                    case 0xA0, 0xB0, 0xE0:         // 2-byte messages we ignore
+                    case 0xB0:                     // Control change (2 bytes): keep CC64 (sustain)
+                        let controller = try reader.readUInt8()
+                        let value = try reader.readUInt8()
+                        if controller == 64 { pedalRaw.append((absoluteTick, value >= 64)) }
+                    case 0xA0, 0xE0:               // 2-byte messages we ignore
                         reader.skip(2)
                     case 0xC0, 0xD0:               // 1-byte messages we ignore
                         reader.skip(1)
@@ -160,12 +167,21 @@ enum MIDIParser {
             toSeconds(Int((beat * Double(ticksPerQuarter)).rounded()))
         }
 
+        // Pedal timeline in playback seconds, sorted and collapsed so only genuine
+        // down↔up transitions remain (MuseScore can emit repeated same-state CC64s).
+        var pedalEvents: [(seconds: Double, down: Bool)] = []
+        for p in pedalRaw.sorted(by: { $0.tick < $1.tick }) {
+            if pedalEvents.last?.down == p.down { continue }
+            pedalEvents.append((toSeconds(p.tick), p.down))
+        }
+
         return MidiScore(ticksPerQuarter: ticksPerQuarter,
                          tempoBPM: firstTempoBPM,
                          timeSignature: timeSignature,
                          notes: notes,
                          secondsAtBeat: secondsAtBeat,
-                         trackHands: handForTrack)
+                         trackHands: handForTrack,
+                         pedalEvents: pedalEvents)
     }
 
     // MARK: - Helpers

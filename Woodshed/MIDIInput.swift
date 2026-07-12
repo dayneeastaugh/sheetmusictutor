@@ -73,6 +73,11 @@ final class MIDIInput: ObservableObject {
         DebugLog.shared.log("out", "→piano OFF \(note)")
         send([0x80, UInt8(note & 0x7F), 0])
     }
+    /// Sustain pedal (CC64) on channel 1: value 127 = down, 0 = up.
+    func sendSustain(_ down: Bool) {
+        DebugLog.shared.log("out", "→piano PEDAL \(down ? "down" : "up")")
+        send([0xB0, 64, down ? 127 : 0])
+    }
 
     /// Metronome click on the piano via GM percussion (channel 10): wood-block hits,
     /// louder on the downbeat. Requires the instrument to support GM drums on ch. 10.

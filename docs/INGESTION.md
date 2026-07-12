@@ -39,6 +39,11 @@ rather than emitting them as first-class notes. *Why:* the Chopin RH has 471 wri
 MIDI note-ons; the 53-note gap is 11 ornaments. The **matcher must match the written note leniently**
 and treat the realised flurry as satisfied — never demand the exact alternations.
 
+The absorbed MIDI notes are, however, **retained for playback** in `FusedScore.playbackExtras`
+(hand-tagged, never graded or notated), so the connected piano can *sound* the ornament instead of
+just its principal note. Grading and notation stay notation-centric; only audio output sees the extras.
+See ADR-042.
+
 ## Rule 4 — Merge tied notes
 A tie in MusicXML is two `<note>` elements; in MIDI it is one sustained note-on. `Ingest.mergeTies`
 collapses tied XML notes into one sounding note so the per-hand XML count matches the MIDI note-on

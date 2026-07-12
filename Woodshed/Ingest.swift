@@ -127,6 +127,7 @@ enum Ingest {
         }
 
         var events: [NoteEvent] = []
+        var playbackExtras: [NoteEvent] = []   // realized ornament notes — sounded, never graded
         var reconciliations: [Reconciliation] = []
         var leftoverSlots: [Hand: [MidiSlot]] = [:]
         var leftoverSounding: [Hand: [Sounding]] = [:]
@@ -202,6 +203,15 @@ enum Ingest {
                     let end = slots[j].note.onsetSeconds + slots[j].note.durationSeconds
                     events[p.index].durationSeconds = max(events[p.index].durationSeconds,
                                                           end - events[p.index].onsetSeconds)
+                    // Keep the realized note for PLAYBACK only (it stays out of `events`, so
+                    // grading and notation remain notation-centric — see the absorb comment).
+                    let m = slots[j].note
+                    playbackExtras.append(NoteEvent(pitch: m.pitch, spelledName: defaultPitchName(m.pitch),
+                                                    hand: hand, voice: 0, notatedType: "?",
+                                                    onsetSeconds: m.onsetSeconds,
+                                                    durationSeconds: m.durationSeconds,
+                                                    notatedBeat: events[p.index].notatedBeat,
+                                                    matchedXML: false, ornamentNotes: 0))
                 }
             }
 
@@ -316,10 +326,14 @@ enum Ingest {
             return midi.secondsAtBeat(u)
         }
 
+        playbackExtras.sort { ($0.onsetSeconds, $0.pitch) < ($1.onsetSeconds, $1.pitch) }
+
         return FusedScore(tempoBPM: tempo,
                           timeSignature: xml.timeSignature ?? midi.timeSignature,
                           keyFifths: xml.keyFifths,
                           events: events,
+                          playbackExtras: playbackExtras,
+                          pedalTimeline: midi.pedalEvents.map { (time: $0.seconds, down: $0.down) },
                           clickGrid: buildClickGrid(measures: unfoldedMeasures,
                                                     secondsAtBeat: midi.secondsAtBeat),
                           metronomeBarPattern: barPattern,
