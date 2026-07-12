@@ -62,7 +62,9 @@ struct PracticeView: View {
             header
             if session.practiceMode == .drill { drillProgressBar }
             if let warning = session.ingestWarning { ingestBanner(warning) }
-            statusBar
+            // In a Drill the progress bar carries all the status, so we drop the
+            // status line entirely to give the score the maximum room.
+            if session.practiceMode != .drill { statusBar }
             notation
             keyboardArea
         }
@@ -205,28 +207,60 @@ struct PracticeView: View {
 
     @ViewBuilder
     private var drillProgressBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: session.progressiveDrill ? "square.stack.3d.up" : "gauge.with.dots.needle.67percent")
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(session.progressiveDrill ? "Progressive drill" : "Speed drill").font(.caption).bold()
-                    Text(session.drillProgressLabel).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    if session.mastered {
-                        Label("Complete", systemImage: "checkmark.seal.fill").font(.caption).foregroundStyle(.green)
-                    } else if let r = session.gradeResult {
-                        Text("last \(Int(r.accuracy * 100))%")
-                            .font(.caption).foregroundStyle(r.accuracy >= session.speedThreshold ? .green : .orange)
+        HStack(spacing: 14) {
+            // Left ~2/3 — the title + the progress bar itself.
+            HStack(spacing: 10) {
+                Image(systemName: session.progressiveDrill ? "square.stack.3d.up" : "gauge.with.dots.needle.67percent")
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(session.progressiveDrill ? "Progressive drill" : "Speed drill")
+                            .font(.caption).bold()
+                        if session.mastered {
+                            Label("complete", systemImage: "checkmark.seal.fill")
+                                .font(.caption).foregroundStyle(.green)
+                        }
                     }
+                    .lineLimit(1)
+                    ProgressView(value: session.mastered ? 1 : (session.drillProgress ?? 0))
+                        .tint(session.mastered ? .green : .accentColor)
                 }
-                ProgressView(value: session.mastered ? 1 : (session.drillProgress ?? 0))
-                    .tint(session.mastered ? .green : .accentColor)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider().frame(height: 34)
+
+            // Right ~1/3 — the numbers, called out prominently.
+            HStack(alignment: .center, spacing: 18) { drillStats }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 10).fill(.tint.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.tint.opacity(0.30)))
+    }
+
+    /// The at-a-glance numbers in the right third of the drill bar.
+    @ViewBuilder
+    private var drillStats: some View {
+        if session.progressiveDrill {
+            let w = session.progressiveWindow
+            drillStat("Bars built", "\(w.built)/\(w.total)")
+        } else {
+            drillStat("Tempo", "\(Int(session.tempoPct))%", tint: .accentColor)
+            drillStat(session.speedMode == .byAccuracy ? "Clean passes" : "Loops",
+                      "\(session.passesAtThisTempo)/\(session.speedPassesPerStep)")
+        }
+        if let r = session.gradeResult {
+            drillStat("Last pass", "\(Int(r.accuracy * 100))%",
+                      tint: r.accuracy >= session.speedThreshold ? .green : .orange)
+        }
+    }
+
+    private func drillStat(_ label: String, _ value: String, tint: Color = .primary) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(value).font(.title3).bold().monospacedDigit().foregroundStyle(tint)
+        }
+        .fixedSize()
     }
 
     // MARK: - Ingest-quality banner (never grade silently against a wrong model)

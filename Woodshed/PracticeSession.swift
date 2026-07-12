@@ -1187,10 +1187,9 @@ final class PracticeSession: ObservableObject {
         }
         return nil
     }
-    /// A short label for the drill progress bar.
-    var drillProgressLabel: String {
-        if progressiveDrill { return "Bars \(sectionStart)–\(sectionEnd) of \(sectionStart)–\(progressiveTarget)" }
-        return "\(Int(tempoPct))% → \(Int(speedTargetPct))% tempo"
+    /// Progressive drill: bars built so far, and the total to build (for the stats).
+    var progressiveWindow: (built: Int, total: Int) {
+        (max(1, sectionEnd - sectionStart + 1), max(1, progressiveTarget - sectionStart + 1))
     }
 
     /// A plain-English description of what the drill will do, for the setup panel.
