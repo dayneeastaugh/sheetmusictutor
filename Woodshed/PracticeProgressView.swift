@@ -154,16 +154,15 @@ struct ProgressPanel: View {
 
     // MARK: - Trouble spots
 
-    @ViewBuilder
     private var troubleSection: some View {
-        if trouble.isEmpty {
-            Label("Nothing outstanding — you've cleaned up every bar you'd missed.",
-                  systemImage: "checkmark.seal")
-                .font(.caption).foregroundStyle(.green)
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Still need work").font(.subheadline).bold()
-                Text("Bars you're still missing — tap to drill just that bar.")
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Trouble spots").font(.subheadline).bold()
+            if trouble.isEmpty {
+                Label("None outstanding — you've cleaned up every bar you'd missed.",
+                      systemImage: "checkmark.seal")
+                    .font(.caption).foregroundStyle(.green)
+            } else {
+                Text("Bars you keep missing — longest bar = most misses. Tap one to drill it. (Also shown as amber tint on the score — View ▸ Trouble spots.)")
                     .font(.caption2).foregroundStyle(.secondary)
                 let maxMiss = trouble.map(\.misses).max() ?? 1
                 ForEach(trouble) { t in

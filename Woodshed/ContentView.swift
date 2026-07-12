@@ -16,10 +16,14 @@ struct ContentView: View {
     // Selection is by song *id* (stable across rename/favourite edits, which mint a
     // new Song value with the same id) so editing metadata never drops the detail.
     @State private var selection: Song.ID?
+    // Track the sidebar's visibility so the library's toolbar buttons can hide when
+    // it's collapsed (they belong to the library, not the practice screen).
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     var body: some View {
-        NavigationSplitView {
-            LibraryView(library: library, selection: $selection)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            LibraryView(library: library, selection: $selection,
+                        sidebarCollapsed: columnVisibility == .detailOnly)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 300)
         } detail: {
             if let id = selection, let song = library.songs.first(where: { $0.id == id }) {
@@ -37,6 +41,8 @@ struct ContentView: View {
 struct LibraryView: View {
     @ObservedObject var library: SongLibrary
     @Binding var selection: Song.ID?
+    /// True when the sidebar is collapsed — hides this view's toolbar buttons.
+    var sidebarCollapsed: Bool = false
     // Guided two-step import: pick the score (MusicXML/.mxl), then the MIDI. The old
     // single picker required multi-selecting both files at once — undiscoverable.
     // Each file dialog is preceded by a short prompt saying what to pick (a bare
@@ -139,14 +145,18 @@ struct LibraryView: View {
         .dropDestination(for: URL.self) { urls, _ in handleDrop(urls) }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search titles and tags")
         .toolbar {
-            Button { showOverview = true } label: { Label("Practice overview", systemImage: "chart.bar.doc.horizontal") }
-                .help("Totals and what's most due across all songs")
-            Menu {
-                Picker("Sort by", selection: $sortOrder) {
-                    ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
-                }
-            } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
-            Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
+            // The library's own toolbar — hidden when the sidebar is collapsed, since
+            // these actions (overview, sort, add) belong to the library, not practice.
+            if !sidebarCollapsed {
+                Button { showOverview = true } label: { Label("Practice overview", systemImage: "chart.bar.doc.horizontal") }
+                    .help("Totals and what's most due across all songs")
+                Menu {
+                    Picker("Sort by", selection: $sortOrder) {
+                        ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
+                Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
+            }
         }
         .sheet(isPresented: $showOverview) { PracticeOverviewView(library: library) }
         // The per-step guidance: says what to pick before the (context-free) file dialog.
