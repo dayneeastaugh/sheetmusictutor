@@ -1231,6 +1231,8 @@ final class PracticeSession: ObservableObject {
             audio.stop()
         } else if armed {
             armed = false                            // pressing Play again cancels the "waiting" state
+        } else if practiceMode == .drill {
+            startDrill()                             // in Drill, the transport Play IS "start drill"
         } else if startOnFirstNote {
             armed = true                             // wait for the first note; the tick idles meanwhile
         } else {

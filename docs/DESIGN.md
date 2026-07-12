@@ -79,8 +79,9 @@ in the overflow menu).
    hidden in Wait); **Focus / Section to drill** (Section from/to, **Suggest a spot**, Loop
    (Practice/Grade), Loop count-in (not Wait), Whole piece, **saved sections**); **Speed drill**
    (Drill only — "Speed up" When-I-play-it-clean / Every-few-loops, **Start → Goal** tempo, Speed up
-   by, clean-threshold + passes, one-hand-at-a-time-then-together, a plain-English summary, and a
-   **Start drill** button); **Start** (Count-in; "Start on my first note" except Drill; playback
+   by, clean-threshold + passes, one-hand-at-a-time-then-together, and a plain-English summary); the
+   drill is **started from the transport ▶ Play** at the top (in Drill mode Play drops to the start
+   tempo and begins the ramp); **Start** (Count-in; "Start on my first note" except Drill; playback
    types only); **Grading** (timing tolerance — Grade/Drill); **Takes** (Grade/Drill — ▶ last take /
    ▶ best graded take, replayed at the current tempo through the chosen output); **View** (all types:
    Bars per line — the score **auto-shrinks** until the requested count actually fits (dense

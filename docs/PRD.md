@@ -85,8 +85,8 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   show a tappable ⚑ on the score, and a Flags list adds/edits/deletes and drills to a bar. Stored per
   song (`flags.json`).
 - **Speed drill / mastery gating** — a guided auto-tempo drill on a looped section (Grade mode),
-  set up in one **Speed drill** panel with a plain-English summary and a **Start drill** button that
-  drops to the **start tempo** and begins. The tempo ramps from start → **goal** by a **step**.
+  set up in one **Speed drill** panel with a plain-English summary; the transport **▶ Play** starts it
+  (in Drill mode Play drops to the **start tempo** and begins the ramp). The tempo ramps from start → **goal** by a **step**.
   Modes: **every few loops**, or **when I play it clean** (advance only after N passes ≥ a clean
   threshold — the mastery gate; a below-threshold pass resets the streak). Reaching the goal with
   its clean passes marks the section **mastered** and stops. Optional **one hand at a time, then

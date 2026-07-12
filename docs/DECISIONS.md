@@ -490,8 +490,8 @@ current tempo, so there was often no room to ramp and nothing to ramp *from*. Fi
   tempo** and **Speed up by** — the ramp is now concrete and visible; picking a mode previews the
   start tempo on the slider.
 - Clearer labels ("Clean" means ≥ X%; Clean passes / Loops to speed up; "One hand at a time, then
-  together"), a **plain-English summary** of exactly what the drill will do, and a **Start drill**
-  button that drops to the start tempo and begins the looped graded ramp in one tap.
+  together"), a **plain-English summary** of exactly what the drill will do; the transport **▶ Play**
+  starts it (in Drill mode Play drops to the start tempo and begins the looped graded ramp).
 - **"Drill me" → "Suggest a spot"** to stop it colliding with "Speed drill" — it picks *where*
   (a section), the Speed drill controls *how* (the ramp). Status line now reads "Speed drill · …".
 Underlying ramp logic (`drillAdvance`, mastery gate, hands progression) is unchanged.

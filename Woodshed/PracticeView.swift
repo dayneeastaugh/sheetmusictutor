@@ -166,7 +166,9 @@ struct PracticeView: View {
             .keyboardShortcut(.space, modifiers: [])
             .disabled(session.waitMode)   // Wait mode is driven by your keys, not transport
             .help(session.armed ? "Waiting for your first note — press to cancel"
-                                : (session.audio.isPlaying ? "Stop (Space)" : "Play (Space)"))
+                    : (session.audio.isPlaying ? "Stop (Space)"
+                        : (session.practiceMode == .drill ? "Start drill from the start tempo (Space)"
+                                                          : "Play (Space)")))
             transportButton("forward.frame.fill", help: "Forward one bar") { session.stepBar(1) }
                 .disabled(!session.canStepBars)
         }
@@ -467,10 +469,9 @@ struct PracticeView: View {
             }
             Toggle("One hand at a time, then together", isOn: $session.handsProgression)
             Text(session.drillSummary).font(.caption2).foregroundStyle(.secondary)
-            Button { session.startDrill() } label: {
-                Label(session.audio.isPlaying ? "Restart drill" : "Start drill",
-                      systemImage: "play.circle.fill")
-            }
+            Label(session.audio.isPlaying ? "Press ◼ Stop above to end the drill"
+                                          : "Press ▶ Play above to start the drill",
+                  systemImage: "arrow.up").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
