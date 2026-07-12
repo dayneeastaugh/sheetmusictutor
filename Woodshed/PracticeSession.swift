@@ -1131,8 +1131,12 @@ final class PracticeSession: ObservableObject {
         armed = false
         if progressiveDrill {
             mastered = false
-            progressiveTarget = max(sectionStart, sectionEnd)   // build up to the selection's end (or piece end)
+            // Build up to the selection's end when a genuine multi-bar region is
+            // selected; otherwise (a single bar, or no selection) build all the way
+            // to the end of the piece — a 1-bar target would "complete" instantly.
+            progressiveTarget = sectionEnd > sectionStart ? sectionEnd : measureCount
             sectionEnd = sectionStart                           // start with just the first bar
+            DebugLog.shared.log("drill", "progressive start: bar \(sectionStart), target \(progressiveTarget) (of \(measureCount))")
         } else {
             if speedMode == .off { speedMode = .byAccuracy }    // the intuitive default: ramp when clean
             tempoPct = drillStartTempoClamped
