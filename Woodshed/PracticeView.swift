@@ -15,10 +15,7 @@
 
 import SwiftUI
 import Combine
-#if os(macOS)
-import AppKit
 import UniformTypeIdentifiers
-#endif
 
 struct PracticeView: View {
     let song: Song
@@ -26,6 +23,9 @@ struct PracticeView: View {
     @StateObject private var session: PracticeSession
     @ObservedObject private var debugLog = DebugLog.shared
     @State private var showDiagnostics = false
+    @State private var showHelp = false
+    @State private var showLogExporter = false
+    @State private var logDoc: TextFileDocument?
     @State private var showInspector = true
     @State private var inspectorTab: InspectorTab = .controls
     // Persisted globally (matches AppSettings.keyboardVisibleKey) so "Show keyboard"
@@ -107,6 +107,9 @@ struct PracticeView: View {
         .onReceive(tick) { _ in session.advanceCursorWithPlayback() }
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }
+        .sheet(isPresented: $showHelp) { helpSheet }
+        .fileExporter(isPresented: $showLogExporter, document: logDoc,
+                      contentType: .plainText, defaultFilename: "segno-debug-log") { _ in logDoc = nil }
         .alert("Flag bar \(flagEditorBar ?? 0)", isPresented: Binding(get: { flagEditorBar != nil },
                                                                       set: { if !$0 { flagEditorBar = nil } })) {
             TextField("Note (e.g. LH jump)", text: $flagEditorNote)
@@ -187,15 +190,21 @@ struct PracticeView: View {
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.space, modifiers: [])
             .disabled(session.waitMode)   // Wait mode is driven by your keys, not transport
-            .help(session.armed ? "Waiting for your first note — press to cancel"
-                    : (session.audio.isPlaying ? "Stop (Space)"
-                        : (session.practiceMode == .drill ? "Start drill from the start tempo (Space)"
-                                                          : "Play (Space)")))
+            .help(playHelp)
+            .accessibilityLabel(session.armed ? "Cancel waiting for first note"
+                                : (session.audio.isPlaying ? "Stop" : "Play"))
             transportButton("forward.frame.fill", help: "Forward one bar") { session.stepBar(1) }
                 .disabled(!session.canStepBars)
         }
         .padding(4)
         .background(Capsule().fill(.quaternary.opacity(0.6)))
+    }
+
+    private var playHelp: String {
+        session.armed ? "Waiting for your first note — press to cancel"
+            : (session.audio.isPlaying ? "Stop (Space)"
+                : (session.practiceMode == .drill ? "Start drill from the start tempo (Space)"
+                                                  : "Play (Space)"))
     }
 
     private func transportButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -207,6 +216,7 @@ struct PracticeView: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel(help)   // .help is a Mac tooltip; VoiceOver needs this
     }
 
     // MARK: - Drill progress (prominent, below the header)
@@ -630,9 +640,21 @@ struct PracticeView: View {
     /// The overflow menu — true utilities only (transport + controls live elsewhere).
     private var moreMenu: some View {
         Menu {
+            // Help is reachable here on BOTH platforms (iPad has no menu bar, so the
+            // macOS Help menu / ⌘? isn't available there).
+            Button { showHelp = true } label: { Label("Segno Help", systemImage: "questionmark.circle") }
             Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
+        }
+    }
+
+    /// Help presented as a sheet with its own Done button (used on iPad, and available
+    /// from the ⋯ menu on Mac too). On Mac the menu-bar Help ⌘? opens a window instead.
+    private var helpSheet: some View {
+        NavigationStack {
+            HelpView()
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showHelp = false } } }
         }
     }
 
@@ -711,17 +733,13 @@ struct PracticeView: View {
         }
     }
 
+    /// Cross-platform log export (macOS save panel + iPad share/save sheet) via
+    /// `.fileExporter` — the old `NSSavePanel` path was a dead button on iPad.
     private func exportDebugLog() {
-        guard let src = debugLog.exportURL() else { return }
-        #if os(macOS)
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = src.lastPathComponent
-        panel.allowedContentTypes = [.plainText]
-        if panel.runModal() == .OK, let dst = panel.url {
-            try? FileManager.default.removeItem(at: dst)
-            try? FileManager.default.copyItem(at: src, to: dst)
-        }
-        #endif
+        guard let url = debugLog.exportURL(),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        logDoc = TextFileDocument(text: text)
+        showLogExporter = true
     }
 
     @ViewBuilder

@@ -638,9 +638,35 @@ failures surface** — `writeMeta` no longer swallows errors with `try?`; a fail
 - **Metronome emphasis** — 3/8 and 3/16 are simple triple (every pulse a beat); x/16 compound meters
   (6/16, 9/16, 12/16) now group in threes like their x/8 cousins.
 
+### ADR-047 — Professional-polish pass (resume, iPad parity, accessibility, thread safety, bridge)
+**2026-07-14.** Six review findings:
+- **Resume on launch** — the selected song is now `@SceneStorage("selectedSongID")`, so relaunching
+  returns to what you were practising instead of the cold "Select a song" screen.
+- **Stale Wait marks** — switching out of Wait mode into Grade/Practice left its red fumble marks
+  overlaid on the new pass; the `practiceMode` setter clears them on any non-Wait entry.
+- **iPad parity** — Help is reachable from the ⋯ menu (a sheet) on both platforms (iPad has no menu
+  bar, so the macOS ⌘? Help window was unreachable there); the diagnostic-log **Export** is now
+  cross-platform via `.fileExporter` (the old `NSSavePanel` path was a dead button on iPad).
+- **Accessibility** — transport buttons get real `.accessibilityLabel`s (`.help` is a Mac tooltip,
+  not a VoiceOver label); the keyboard `Canvas` is one accessibility element announcing what's
+  lit/expected.
+- **Metronome thread safety** — the click/note grids (read by the timer on `metroQueue`) are now
+  written on `metroQueue` too (`configureMetronome`), pointer init moved there (`startSynced`), and
+  the free-run handler indexes a local snapshot — closing the array-mutated-during-iteration race.
+  (A full timer-lifecycle move to `metroQueue` was deferred: higher regression risk on count-in
+  timing, which can't be verified without audio hardware; the remaining scalar reads are benign on
+  64-bit.)
+- **JS bridge** — cursor commands issued before the page loads are now queued and replayed on
+  `didFinish` (they used to error and vanish, desyncing the cursor); their errors surface via the
+  bridge; the forward-only `cursorToBeat` command is rerouted to the backward-safe `cursorSeekBeat`;
+  and the hot-path JS cursor `catch {}` blocks now `post` the error (matching the "no silent bridge
+  failures" rule).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
+- Metronome: the timer lifecycle (`metroTimer`) is still main-owned; a full move to `metroQueue`
+  would close the last (benign, 64-bit-atomic) scalar reads — do it alongside a real device audio pass.
 - Restore-from-backup is manual (drop folders into `Scores/`). Add a "Restore library…" that unzips
   (reuse `MXLArchive`'s ZIP reader) if moving between devices becomes common.
 - Per-scale *mastery* (a checklist/grid across all keys) isn't first-class yet — progress is per-song

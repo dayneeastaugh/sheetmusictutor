@@ -194,19 +194,19 @@
     }
 
     window.cursorNext = function () {
-      try { osmd.cursor.next(); } catch (e) {}
+      try { osmd.cursor.next(); } catch (e) { post("error: cursorNext — " + e); }
     };
     window.cursorReset = function () {
       try {
         osmd.cursor.reset(); osmd.cursor.show();
         lastScrollTop = -1;
         smoothScrollHostTo(0);
-      } catch (e) {}
+      } catch (e) { post("error: cursorReset — " + e); }
     };
     // Advance the cursor by k steps in one call (used by timed playback so we don't
     // pay a JS round-trip per note).
     window.cursorForward = function (k) {
-      try { for (var i = 0; i < k; i++) { osmd.cursor.next(); } } catch (e) {}
+      try { for (var i = 0; i < k; i++) { osmd.cursor.next(); } } catch (e) { post("error: cursorForward — " + e); }
     };
     // Per-hand note colouring. null = default black; else {rh, lh} hex colours.
     // staffIndex 0 = top staff (RH), 1 = bottom staff (LH).
@@ -690,7 +690,7 @@
           if (it.currentTimeStamp.RealValue * 4 >= qTarget - 0.001) break;
           osmd.cursor.next(); guard++;
         }
-      } catch (e) {}
+      } catch (e) { post("error: cursorToBeat — " + e); }
     };
 
     post("ready");

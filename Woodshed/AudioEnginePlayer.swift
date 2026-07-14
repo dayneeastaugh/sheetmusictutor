@@ -196,10 +196,19 @@ final class AudioEnginePlayer: ObservableObject {
     /// used for the count-in and the free-running (no-playback) metronome.
     func configureMetronome(clickGrid: [(time: Double, level: ClickLevel)],
                             barPattern: [ClickLevel], pulseSeconds: Double) {
-        self.clickGrid = clickGrid
-        self.barPattern = barPattern
-        self.pulseSeconds = pulseSeconds
-        if metronomeOn && !isPlaying && metronomeFreeRuns { startFreeRun() }   // pick up the new tempo/meter
+        // The click timer (on metroQueue) iterates these arrays; replacing them on the
+        // main thread mid-iteration is a data race (rare crash / missed clicks). Mutate
+        // them on metroQueue — the serial queue the timer runs on — so writes and reads
+        // never overlap. (Same discipline as configureRhythm.)
+        metroQueue.async { [weak self] in
+            guard let self else { return }
+            self.clickGrid = clickGrid
+            self.barPattern = barPattern
+            self.pulseSeconds = pulseSeconds
+            if self.metronomeOn && !self.isPlaying && self.metronomeFreeRuns {
+                DispatchQueue.main.async { self.startFreeRun() }   // pick up the new tempo/meter
+            }
+        }
     }
 
     /// The count-in's own bar pattern + pulse spacing. The piece-global `barPattern`
@@ -232,10 +241,15 @@ final class AudioEnginePlayer: ObservableObject {
     private func startSynced(referenceTime: Double? = nil) {
         stopMetroTimer()
         // Skip clicks before the start position (playback may start mid-piece for a
-        // section, or loop back) so we don't fire a burst of past clicks.
+        // section, or loop back) so we don't fire a burst of past clicks. The click/note
+        // grids are owned by metroQueue, so initialise the pointers there — never read
+        // those arrays from the main thread while the timer indexes them.
         let now = referenceTime ?? currentTime
-        nextClick = clickGrid.firstIndex { $0.time >= now - 0.02 } ?? clickGrid.count
-        nextNoteClick = noteGrid.firstIndex { $0 >= now - 0.02 } ?? noteGrid.count
+        metroQueue.async { [weak self] in
+            guard let self else { return }
+            self.nextClick = self.clickGrid.firstIndex { $0.time >= now - 0.02 } ?? self.clickGrid.count
+            self.nextNoteClick = self.noteGrid.firstIndex { $0 >= now - 0.02 } ?? self.noteGrid.count
+        }
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -298,14 +312,16 @@ final class AudioEnginePlayer: ObservableObject {
     /// Free-running: click the bar pattern on a steady timer, no playback needed.
     private func startFreeRun() {
         stopMetroTimer()
-        guard !barPattern.isEmpty, pulseSeconds > 0 else { return }
+        // Snapshot the pattern into a local the handler owns, so the metroQueue timer
+        // never indexes the shared `barPattern` while it's being replaced.
+        let pattern = barPattern
+        guard !pattern.isEmpty, pulseSeconds > 0 else { return }
         var idx = 0
         let interval = pulseSeconds / Double(playbackRate)   // slower at reduced tempo
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.click(self.barPattern[idx % self.barPattern.count])
+            self?.click(pattern[idx % pattern.count])
             idx += 1
         }
         metroTimer = timer

@@ -107,6 +107,29 @@ struct PianoKeyboardView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.4)))
+        // The keyboard is a single Canvas (no per-key views), so expose it to VoiceOver
+        // as one element that announces what's currently lit/expected.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Piano keyboard")
+        .accessibilityValue(accessibilityValue)
+    }
+
+    /// A spoken summary of the keyboard state for VoiceOver.
+    private var accessibilityValue: String {
+        func names(_ s: Set<Int>) -> String {
+            s.sorted().map(Self.noteName).joined(separator: ", ")
+        }
+        var parts: [String] = []
+        if !lit.isEmpty { parts.append("playing \(names(lit))") }
+        let expected = scoreRH.union(scoreLH)
+        if !expected.isEmpty { parts.append("expected \(names(expected))") }
+        return parts.isEmpty ? "no notes" : parts.joined(separator: "; ")
+    }
+
+    /// A pitch name like "C4" / "F#3" for a MIDI number (middle C = C4 = 60).
+    static func noteName(_ n: Int) -> String {
+        let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        return "\(names[((n % 12) + 12) % 12])\(n / 12 - 1)"
     }
 
     /// Which note is at a point — black keys (upper area) take priority.

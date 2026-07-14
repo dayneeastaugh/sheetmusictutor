@@ -11,6 +11,22 @@
 
 import Foundation
 import Combine
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// A plain-text file for `.fileExporter` — used by the cross-platform diagnostic-log
+/// export (macOS save panel + iPad share/save sheet from one code path).
+struct TextFileDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+    var text: String
+    init(text: String) { self.text = text }
+    init(configuration: ReadConfiguration) throws {
+        text = String(data: configuration.file.regularFileContents ?? Data(), encoding: .utf8) ?? ""
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
 
 final class DebugLog: ObservableObject {
     static let shared = DebugLog()

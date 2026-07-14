@@ -754,6 +754,10 @@ final class PracticeSession: ObservableObject {
             return .practice
         }
         set {
+            // Wait mode leaves its red fumble marks up for review on exit; switching to
+            // another mode would overlay those stale marks on a fresh Grade/Practice
+            // pass. Clear them on any non-Wait entry.
+            if newValue != .wait && mistakesShown { clearMistakeMarks() }
             switch newValue {
             case .practice:
                 speedMode = .off; progressiveDrill = false

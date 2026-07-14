@@ -196,6 +196,7 @@ struct NotationWebView {
         private var pageLoaded = false
         private var lastLoadedB64 = ""
         private var pendingB64: String?
+        private var pendingCommand: CursorCommand?
         private var lastNonce = 0
 
         init(bridge: NotationBridge) { self.bridge = bridge }
@@ -225,11 +226,23 @@ struct NotationWebView {
             }
             if command.nonce != lastNonce {
                 lastNonce = command.nonce
-                switch command.action {
-                case "reset":  webView?.evaluateJavaScript("window.cursorReset()")
-                case "toBeat": webView?.evaluateJavaScript("window.cursorToBeat(\(command.beat))")
-                default:       webView?.evaluateJavaScript("window.cursorNext()")
-                }
+                // Queue until the page is up — a command fired before `window.*` exists
+                // errors and vanishes, silently desyncing the cursor from the session.
+                if pageLoaded { runCommand(command) } else { pendingCommand = command }
+            }
+        }
+
+        private func runCommand(_ command: CursorCommand) {
+            let js: String
+            switch command.action {
+            case "reset":  js = "window.cursorReset()"
+            // seekBeat is anchor-table based and handles BACKWARD motion; the old
+            // forward-only cursorToBeat silently no-op'd on any backward seek.
+            case "toBeat": js = "window.cursorSeekBeat(\(command.beat))"
+            default:       js = "window.cursorNext()"
+            }
+            webView?.evaluateJavaScript(js) { [weak self] _, error in
+                if let error { self?.bridge.post("error: cursor \(command.action) — \(error.localizedDescription)") }
             }
         }
 
@@ -245,6 +258,7 @@ struct NotationWebView {
             bridge.post("didFinish (page loaded)")
             pageLoaded = true
             if let p = pendingB64 { pendingB64 = nil; loadScore(p) }
+            if let c = pendingCommand { pendingCommand = nil; runCommand(c) }
         }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             bridge.post("error: nav — \(error.localizedDescription)")

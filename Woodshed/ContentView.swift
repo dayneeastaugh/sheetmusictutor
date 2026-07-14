@@ -15,18 +15,25 @@ struct ContentView: View {
     @StateObject private var library = SongLibrary()
     // Selection is by song *id* (stable across rename/favourite edits, which mint a
     // new Song value with the same id) so editing metadata never drops the detail.
-    @State private var selection: Song.ID?
+    // Persisted with @SceneStorage so relaunching returns you to the song you were
+    // practising instead of the cold "Select a song" screen.
+    @SceneStorage("selectedSongID") private var selectedSongID: String = ""
     // Track the sidebar's visibility so the library's toolbar buttons can hide when
     // it's collapsed (they belong to the library, not the practice screen).
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
+    private var selection: Binding<Song.ID?> {
+        Binding(get: { selectedSongID.isEmpty ? nil : UUID(uuidString: selectedSongID) },
+                set: { selectedSongID = $0?.uuidString ?? "" })
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibraryView(library: library, selection: $selection,
+            LibraryView(library: library, selection: selection,
                         sidebarCollapsed: columnVisibility == .detailOnly)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 300)
         } detail: {
-            if let id = selection, let song = library.songs.first(where: { $0.id == id }) {
+            if let id = selection.wrappedValue, let song = library.songs.first(where: { $0.id == id }) {
                 PracticeView(song: song, library: library)
                     .id(song.id)   // new song ⇒ fresh PracticeSession; a rename keeps it
             } else {
