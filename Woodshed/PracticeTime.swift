@@ -53,6 +53,40 @@ enum PracticeTime {
         return dict.filter { keys.contains($0.key) }.values.reduce(0, +)
     }
 
+    /// Merge several songs' day→seconds ledgers into one (for library-wide streak/week).
+    static func merge(_ dicts: [[String: Double]]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for d in dicts { for (k, v) in d { out[k, default: 0] += v } }
+        return out
+    }
+
+    /// Current consecutive-day practice streak. Counts today when you've already
+    /// practised; otherwise counts from yesterday, so a fresh morning shows the streak
+    /// you're keeping (not 0) until you next play.
+    static func streak(_ dict: [String: Double], from date: Date = Date()) -> Int {
+        let cal = Calendar.current
+        var day = date
+        if (dict[dayKey(for: day)] ?? 0) <= 0 {
+            guard let y = cal.date(byAdding: .day, value: -1, to: day) else { return 0 }
+            day = y
+        }
+        var count = 0
+        while (dict[dayKey(for: day)] ?? 0) > 0 {
+            count += 1
+            guard let prev = cal.date(byAdding: .day, value: -1, to: day) else { break }
+            day = prev
+        }
+        return count
+    }
+
+    /// The last `days` calendar days, oldest→newest, as (day, seconds) — for a bar strip.
+    static func lastDays(_ dict: [String: Double], days: Int, from date: Date = Date()) -> [(day: Date, seconds: Double)] {
+        let cal = Calendar.current
+        return (0..<days).reversed().compactMap { offset in
+            cal.date(byAdding: .day, value: -offset, to: date).map { (day: $0, seconds: dict[dayKey(for: $0)] ?? 0) }
+        }
+    }
+
     /// "2h 05m" / "23m" / "45s" — for stat rows.
     static func format(_ seconds: Double) -> String {
         let s = Int(seconds.rounded())

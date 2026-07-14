@@ -784,6 +784,23 @@ struct TimeAndTakesTests {
         return dir
     }
 
+    @Test("practice streak counts consecutive days (today optional)")
+    func streak() {
+        let cal = Calendar.current
+        func key(_ daysAgo: Int) -> String {
+            PracticeTime.dayKey(for: cal.date(byAdding: .day, value: -daysAgo, to: Date())!)
+        }
+        // Practised today, yesterday, 2 days ago → streak 3.
+        #expect(PracticeTime.streak([key(0): 100, key(1): 50, key(2): 30]) == 3)
+        // Not today yet, but yesterday + the day before → streak counts from yesterday = 2.
+        #expect(PracticeTime.streak([key(1): 50, key(2): 30]) == 2)
+        // A gap breaks it: today + 2-days-ago (missed yesterday) → streak 1.
+        #expect(PracticeTime.streak([key(0): 100, key(2): 30]) == 1)
+        // Nothing recent → 0.
+        #expect(PracticeTime.streak([key(5): 100]) == 0)
+        #expect(PracticeTime.streak([:]) == 0)
+    }
+
     @Test("time ledger accumulates per day and computes recents")
     func timeLedger() throws {
         let dir = try tempDir()

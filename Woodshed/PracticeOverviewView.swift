@@ -27,11 +27,14 @@ struct PracticeOverviewView: View {
     @State private var rows: [Row] = []
     @State private var totalSeconds: Double = 0
     @State private var weekSeconds: Double = 0
+    @State private var streakDays = 0
+    @State private var weekBars: [(day: Date, seconds: Double)] = []
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    habitStrip
                     totals
                     dueList
                 }
@@ -46,6 +49,43 @@ struct PracticeOverviewView: View {
     }
 
     private var practised: [Row] { rows.filter { $0.passes > 0 } }
+
+    /// Habit at a glance: current streak + a 7-day practice-minutes strip. Turns the
+    /// existing time ledger into the "weekly use" nudge the PRD hangs its success on.
+    private var habitStrip: some View {
+        let maxSec = max(weekBars.map(\.seconds).max() ?? 0, 1)
+        return HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill").foregroundStyle(streakDays > 0 ? .orange : .secondary)
+                    Text("\(streakDays)").font(.title.bold()).monospacedDigit()
+                }
+                Text(streakDays == 1 ? "day streak" : "day streak").font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 74, alignment: .leading)
+            Divider().frame(height: 40)
+            HStack(alignment: .bottom, spacing: 6) {
+                ForEach(weekBars, id: \.day) { bar in
+                    VStack(spacing: 3) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(bar.seconds > 0 ? Color.accentColor : Color.secondary.opacity(0.25))
+                            .frame(width: 16, height: max(3, 34 * CGFloat(bar.seconds / maxSec)))
+                        Text(Self.weekdayLetter(bar.day)).font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("\(Self.weekdayLetter(bar.day)): \(PracticeTime.format(bar.seconds))")
+                }
+            }
+            .frame(height: 52, alignment: .bottom)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.35)))
+    }
+
+    private static func weekdayLetter(_ date: Date) -> String {
+        let i = Calendar.current.component(.weekday, from: date) - 1   // 0 = Sunday
+        return ["S", "M", "T", "W", "T", "F", "S"][max(0, min(6, i))]
+    }
 
     private var totals: some View {
         VStack(spacing: 10) {
@@ -109,9 +149,11 @@ struct PracticeOverviewView: View {
 
     private func scan() {
         var total = 0.0, week = 0.0
+        var timeDicts: [[String: Double]] = []
         rows = library.songs.map { song in
             let passes = PracticeHistory.load(from: song.folder)
             let time = PracticeTime.load(from: song.folder)
+            timeDicts.append(time)
             total += PracticeTime.total(time)
             week += PracticeTime.recent(time, days: 7)
             return Row(id: song.id, title: song.title, passes: passes.count,
@@ -120,5 +162,8 @@ struct PracticeOverviewView: View {
         }
         totalSeconds = total
         weekSeconds = week
+        let merged = PracticeTime.merge(timeDicts)              // library-wide, for streak + week strip
+        streakDays = PracticeTime.streak(merged)
+        weekBars = PracticeTime.lastDays(merged, days: 7)
     }
 }
