@@ -38,6 +38,18 @@ struct ContentView: View {
     }
 }
 
+/// A zip archive to hand to `.fileExporter` (backup export). Read-back is supported
+/// so the same type could drive a future "restore from backup".
+struct ZipDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.zip] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws { data = configuration.file.regularFileContents ?? Data() }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
 struct LibraryView: View {
     @ObservedObject var library: SongLibrary
     @Binding var selection: Song.ID?
@@ -62,6 +74,10 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .title
     @State private var showOverview = false
+    @State private var deleteTarget: Song?
+    @State private var exportDoc: ZipDocument?
+    @State private var exportName = "Segno Library"
+    @State private var showExporter = false
 
     private enum SortOrder: String, CaseIterable, Identifiable {
         case title = "Title", lastPracticed = "Last practised", best = "Best score"
@@ -116,7 +132,7 @@ struct LibraryView: View {
         .tag(song.id)
         .contextMenu { songActions(song) }
         .swipeActions {
-            Button("Delete", role: .destructive) { library.delete(song) }
+            Button("Delete", role: .destructive) { deleteTarget = song }
         }
     }
 
@@ -134,32 +150,90 @@ struct LibraryView: View {
         return t
     }
 
-    var body: some View {
-        List(selection: $selection) {
-            if library.songs.isEmpty {
-                Text("No songs yet. Tap + to import a MusicXML + MIDI pair.")
-                    .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var songList: some View {
+        if library.songs.isEmpty {
+            Text("No songs yet. Tap + to import a MusicXML + MIDI pair.")
+                .foregroundStyle(.secondary)
+        }
+        // Group into Repertoire + Technical practice, but only show the headers
+        // once there's actually a technical set — otherwise it's a plain list.
+        if visibleTechnical.isEmpty {
+            ForEach(visibleRepertoire) { songRow($0) }
+        } else {
+            if !visibleRepertoire.isEmpty {
+                Section("Repertoire") { ForEach(visibleRepertoire) { songRow($0) } }
             }
-            // Group into Repertoire + Technical practice, but only show the headers
-            // once there's actually a technical set — otherwise it's a plain list.
-            if visibleTechnical.isEmpty {
-                ForEach(visibleRepertoire) { songRow($0) }
-            } else {
-                if !visibleRepertoire.isEmpty {
-                    Section("Repertoire") { ForEach(visibleRepertoire) { songRow($0) } }
-                }
-                Section {
-                    ForEach(visibleTechnical) { songRow($0) }
-                } header: {
-                    Label("Technical practice", systemImage: "figure.strengthtraining.traditional")
-                }
-            }
-            if library.unreadableFolderCount > 0 {
-                Label("\(library.unreadableFolderCount) song folder(s) couldn't be read",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+            Section {
+                ForEach(visibleTechnical) { songRow($0) }
+            } header: {
+                Label("Technical practice", systemImage: "figure.strengthtraining.traditional")
             }
         }
+        if library.unreadableFolderCount > 0 {
+            Label("\(library.unreadableFolderCount) song folder(s) couldn't be read",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+    }
+
+    var body: some View {
+        listWithToolbar
+            .alert(importPrompt == .score ? "Import a song — step 1 of 2" : "Step 2 of 2 — the MIDI",
+                   isPresented: Binding(get: { importPrompt != nil },
+                                        set: { if !$0 { importPrompt = nil } })) {
+                if importPrompt == .score {
+                    Button("Choose score…") { importStep = .score; importPrompt = nil; showImporter = true }
+                    Button("Cancel", role: .cancel) { importPrompt = nil }
+                } else {
+                    Button("Choose MIDI…") { importStep = .midi; importPrompt = nil; showImporter = true }
+                    Button("Cancel", role: .cancel) { pendingScoreURL = nil; importPrompt = nil }
+                }
+            } message: {
+                Text(importPrompt == .score
+                     ? "Choose the score exported from MuseScore (.musicxml, .xml or .mxl). You'll choose the matching MIDI (.mid) next."
+                     : "Now choose the MIDI (.mid) exported from the same piece"
+                       + (pendingScoreURL.map { " as “\($0.lastPathComponent)”." } ?? "."))
+            }
+            .fileImporter(isPresented: $showImporter,
+                          allowedContentTypes: importStep == .score ? scoreTypes : midiTypes,
+                          allowsMultipleSelection: false) { result in
+                handleImportResult(result)
+            }
+            .alert("Import", isPresented: Binding(get: { importError != nil },
+                                                  set: { if !$0 { importError = nil } })) {
+                Button("OK") { importError = nil }
+            } message: { Text(importError ?? "") }
+            .alert("Rename song", isPresented: Binding(get: { renameTarget != nil },
+                                                       set: { if !$0 { renameTarget = nil } })) {
+                TextField("Title", text: $renameText)
+                Button("Save") { saveRename() }
+                Button("Cancel", role: .cancel) { renameTarget = nil }
+            }
+            .alert("Tags", isPresented: Binding(get: { tagsTarget != nil },
+                                                set: { if !$0 { tagsTarget = nil } })) {
+                TextField("jazz, recital, hard", text: $tagsText)
+                Button("Save") { saveTags() }
+                Button("Cancel", role: .cancel) { tagsTarget = nil }
+            } message: { Text("Comma-separated labels — searchable from the library search field.") }
+            .alert("Couldn’t save", isPresented: Binding(get: { library.writeError != nil },
+                                                         set: { if !$0 { library.writeError = nil } })) {
+                Button("OK") { library.writeError = nil }
+            } message: { Text(library.writeError ?? "") }
+            .confirmationDialog(deleteTarget.map { "Delete “\($0.title)”?" } ?? "Delete song?",
+                                isPresented: Binding(get: { deleteTarget != nil },
+                                                     set: { if !$0 { deleteTarget = nil } }),
+                                titleVisibility: .visible, presenting: deleteTarget) { song in
+                Button("Delete", role: .destructive) { library.delete(song); deleteTarget = nil }
+                Button("Cancel", role: .cancel) { deleteTarget = nil }
+            } message: { _ in
+                Text("This removes the score and all its recorded practice history, takes and flags."
+                     + platformTrashNote)
+            }
+    }
+
+    private var listWithToolbar: some View {
+        List(selection: $selection) { songList }
         .navigationTitle("Library")
         // Drag a score (.musicxml/.mxl) + MIDI (.mid) pair from Finder straight in.
         .dropDestination(for: URL.self) { urls, _ in handleDrop(urls) }
@@ -175,62 +249,42 @@ struct LibraryView: View {
                         ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
                     }
                 } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
+                Button { exportLibrary() } label: { Label("Export library…", systemImage: "square.and.arrow.up") }
+                    .help("Save a .zip backup of all songs and their practice history")
+                    .disabled(library.songs.isEmpty)
                 Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
             }
         }
+        .fileExporter(isPresented: $showExporter, document: exportDoc,
+                      contentType: .zip, defaultFilename: exportName) { _ in exportDoc = nil }
         .sheet(isPresented: $showOverview) { PracticeOverviewView(library: library) }
-        // The per-step guidance: says what to pick before the (context-free) file dialog.
-        .alert(importPrompt == .score ? "Import a song — step 1 of 2" : "Step 2 of 2 — the MIDI",
-               isPresented: Binding(get: { importPrompt != nil },
-                                    set: { if !$0 { importPrompt = nil } })) {
-            if importPrompt == .score {
-                Button("Choose score…") { importStep = .score; importPrompt = nil; showImporter = true }
-                Button("Cancel", role: .cancel) { importPrompt = nil }
-            } else {
-                Button("Choose MIDI…") { importStep = .midi; importPrompt = nil; showImporter = true }
-                Button("Cancel", role: .cancel) { pendingScoreURL = nil; importPrompt = nil }
+    }
+
+    /// The two-step import result handler (extracted so the body stays type-checkable).
+    private func handleImportResult(_ result: Result<[URL], Error>) {
+        switch importStep {
+        case .score:
+            if case .success(let urls) = result, let url = urls.first {
+                pendingScoreURL = url
+                importPrompt = .midi       // guide into step 2
             }
-        } message: {
-            Text(importPrompt == .score
-                 ? "Choose the score exported from MuseScore (.musicxml, .xml or .mxl). You'll choose the matching MIDI (.mid) next."
-                 : "Now choose the MIDI (.mid) exported from the same piece"
-                   + (pendingScoreURL.map { " as “\($0.lastPathComponent)”." } ?? "."))
-        }
-        // One importer, two steps; each opened from the guidance alert above.
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: importStep == .score ? scoreTypes : midiTypes,
-                      allowsMultipleSelection: false) { result in
-            switch importStep {
-            case .score:
-                if case .success(let urls) = result, let url = urls.first {
-                    pendingScoreURL = url
-                    importPrompt = .midi       // guide into step 2
-                }
-            case .midi:
-                let midiURL: URL? = { if case .success(let urls) = result { return urls.first }; return nil }()
-                if let midiURL, let xmlURL = pendingScoreURL {
-                    performImport(musicXML: xmlURL, midi: midiURL)
-                }
-                pendingScoreURL = nil
-                importStep = .score
+        case .midi:
+            let midiURL: URL? = { if case .success(let urls) = result { return urls.first }; return nil }()
+            if let midiURL, let xmlURL = pendingScoreURL {
+                performImport(musicXML: xmlURL, midi: midiURL)
             }
+            pendingScoreURL = nil
+            importStep = .score
         }
-        .alert("Import", isPresented: Binding(get: { importError != nil },
-                                              set: { if !$0 { importError = nil } })) {
-            Button("OK") { importError = nil }
-        } message: { Text(importError ?? "") }
-        .alert("Rename song", isPresented: Binding(get: { renameTarget != nil },
-                                                   set: { if !$0 { renameTarget = nil } })) {
-            TextField("Title", text: $renameText)
-            Button("Save") { saveRename() }
-            Button("Cancel", role: .cancel) { renameTarget = nil }
-        }
-        .alert("Tags", isPresented: Binding(get: { tagsTarget != nil },
-                                            set: { if !$0 { tagsTarget = nil } })) {
-            TextField("jazz, recital, hard", text: $tagsText)
-            Button("Save") { saveTags() }
-            Button("Cancel", role: .cancel) { tagsTarget = nil }
-        } message: { Text("Comma-separated labels — searchable from the library search field.") }
+    }
+
+    /// Where a deleted song goes, per platform (soft-delete is recoverable).
+    private var platformTrashNote: String {
+        #if os(macOS)
+        return " It’s moved to the Trash, so you can put it back."
+        #else
+        return ""
+        #endif
     }
 
     /// Row actions, shared by the ⋯ menu and the right-click/long-press context menu.
@@ -239,12 +293,13 @@ struct LibraryView: View {
         Button("Rename…") { renameTarget = song; renameText = song.title }
         Button("Edit tags…") { tagsTarget = song; tagsText = (song.meta.tags ?? []).joined(separator: ", ") }
         Button(song.meta.favourite ? "Remove favourite" : "Favourite") { toggleFavourite(song) }
+        Button("Export…") { exportSong(song) }
         if song.category == .technical {
             Button("Move to Repertoire") { library.setCategory(.repertoire, for: song) }
         } else {
             Button("Move to Technical Practice") { library.setCategory(.technical, for: song) }
         }
-        Button("Delete", role: .destructive) { library.delete(song) }
+        Button("Delete", role: .destructive) { deleteTarget = song }
     }
 
     private func saveTags() {
@@ -271,6 +326,26 @@ struct LibraryView: View {
             s += " · " + tags.map { "#\($0)" }.joined(separator: " ")
         }
         return s
+    }
+
+    /// Zip one song's folder and present the system save/share sheet.
+    private func exportSong(_ song: Song) {
+        guard let url = library.exportURL(for: song), let data = try? Data(contentsOf: url) else {
+            library.writeError = "Couldn’t prepare the export for “\(song.title)”."; return
+        }
+        exportName = SongLibrary.safeFileName(song.title)
+        exportDoc = ZipDocument(data: data)
+        showExporter = true
+    }
+
+    /// Zip the whole library and present the save/share sheet.
+    private func exportLibrary() {
+        guard let url = library.exportLibraryURL(), let data = try? Data(contentsOf: url) else {
+            library.writeError = "Couldn’t prepare the library export."; return
+        }
+        exportName = "Segno Library"
+        exportDoc = ZipDocument(data: data)
+        showExporter = true
     }
 
     private func toggleFavourite(_ song: Song) {

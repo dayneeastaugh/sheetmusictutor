@@ -603,9 +603,23 @@ client, idempotent with deinit). `onAppear` calls `midi.reviveIfNeeded()` so a r
 diagnostic log on song switch. **Rejected:** hunting the exact SwiftUI retainer (fragile across OS
 versions; explicit lifecycle is correct engineering regardless — the leak itself is only memory now).
 
+### ADR-045 — Data-safety pass (delete confirmation + soft-delete, backup export, visible write failures)
+**2026-07-14.** From the code review: the library holds the user's irreplaceable practice history, so
+three gaps were closed. (1) **Delete is confirmed and reversible** — a `confirmationDialog` naming the
+song, and `SongLibrary.delete` soft-deletes (macOS system Trash via `trashItem`; elsewhere an in-library
+`.Trash/` folder that `reload` skips) instead of `removeItem`. (2) **Backup export** — per-song and
+whole-library `.zip` via `NSFileCoordinator(.forUploading)` (no dependency) → `fileExporter`; restore is
+manual for now (unzip a folder into `Scores/`), a round-trip importer is a follow-up. (3) **Write
+failures surface** — `writeMeta` no longer swallows errors with `try?`; a failure sets
+`SongLibrary.writeError`, shown as an alert, so a lost rename/favourite/best-score isn't silent.
+**Rejected:** a full trash-restore UI (Finder covers macOS; a follow-up for iOS); building our own zip
+(the coordinator's `.forUploading` is the platform-blessed path).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
+- Restore-from-backup is manual (drop folders into `Scores/`). Add a "Restore library…" that unzips
+  (reuse `MXLArchive`'s ZIP reader) if moving between devices becomes common.
 - Per-scale *mastery* (a checklist/grid across all keys) isn't first-class yet — progress is per-song
   + the trouble heatmap. Revisit if the scale books want a dedicated progress view.
 - `PianoScheduler` fires on the 50 Hz cursor tick (~20 ms jitter). Fine for melodies and moderate

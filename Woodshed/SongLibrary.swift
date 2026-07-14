@@ -13,6 +13,9 @@ import Combine
 
 final class SongLibrary: ObservableObject {
     @Published private(set) var songs: [Song] = []
+    /// Set when a durable metadata write fails (disk full, permissions). Surfaced as an
+    /// alert so a lost rename/favourite/best-score isn't silent. Cleared when shown.
+    @Published var writeError: String?
 
     /// Application Support/Segno/Scores
     let scoresDir: URL
@@ -57,6 +60,7 @@ final class SongLibrary: ObservableObject {
         var loaded: [Song] = []
         var unreadable = 0
         for dir in dirs {
+            if dir.lastPathComponent.hasPrefix(".") { continue }   // skip .Trash and other dot-folders
             let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             guard isDir else { continue }
             let metaURL = dir.appendingPathComponent("metadata.json")
@@ -86,7 +90,7 @@ final class SongLibrary: ObservableObject {
         let id = UUID(uuidString: dir.lastPathComponent) ?? UUID()
         let added = ((try? fm.attributesOfItem(atPath: dir.path))?[.creationDate] as? Date) ?? Date()
         let meta = SongMeta(id: id, title: "Recovered song", composer: nil, dateAdded: added)
-        try? writeMeta(meta, in: dir)
+        writeMeta(meta, in: dir)
         return meta
     }
 
@@ -110,20 +114,34 @@ final class SongLibrary: ObservableObject {
         let name = (title ?? musicXML.deletingPathExtension().lastPathComponent)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let meta = SongMeta(id: id, title: name.isEmpty ? "Untitled" : name, composer: nil, dateAdded: Date())
-        try writeMeta(meta, in: folder)
+        writeMeta(meta, in: folder)
         reload()
         return songs.first { $0.id == id } ?? Song(meta: meta, folder: folder)
     }
 
-    /// Delete a song and all its files.
+    /// Delete a song. **Soft-delete** so a mis-tap is recoverable: on macOS it goes to
+    /// the system Trash (restore in Finder); otherwise it's moved into an in-library
+    /// `.Trash/` folder (skipped by `reload`). This is the most destructive action in
+    /// the app — the folder holds the score AND all recorded history/takes/flags — so
+    /// it must be reversible, and the UI confirms first.
     func delete(_ song: Song) {
-        try? FileManager.default.removeItem(at: song.folder)
+        let fm = FileManager.default
+        #if os(macOS)
+        if (try? fm.trashItem(at: song.folder, resultingItemURL: nil)) != nil { reload(); return }
+        #endif
+        let trash = scoresDir.appendingPathComponent(".Trash", isDirectory: true)
+        try? fm.createDirectory(at: trash, withIntermediateDirectories: true)
+        let dest = trash.appendingPathComponent(song.folder.lastPathComponent, isDirectory: true)
+        try? fm.removeItem(at: dest)                              // clear any prior trashed copy
+        if (try? fm.moveItem(at: song.folder, to: dest)) == nil {
+            try? fm.removeItem(at: song.folder)                  // last resort: hard delete
+        }
         reload()
     }
 
     /// Persist a metadata change (rename, favourite, practice data, …).
     func update(_ meta: SongMeta, in folder: URL) {
-        try? writeMeta(meta, in: folder)
+        writeMeta(meta, in: folder)
         reload()
     }
 
@@ -140,7 +158,7 @@ final class SongLibrary: ObservableObject {
             meta.bestAccuracy = max(meta.bestAccuracy ?? 0, pass.accuracy)
         }
         songs[idx].meta = meta
-        try? writeMeta(meta, in: songs[idx].folder)
+        writeMeta(meta, in: songs[idx].folder)
     }
 
     /// Remember this song's measures-per-system layout choice (0 = auto). Updates the
@@ -152,7 +170,7 @@ final class SongLibrary: ObservableObject {
         var meta = songs[idx].meta
         meta.barsPerLine = stored
         songs[idx].meta = meta
-        try? writeMeta(meta, in: songs[idx].folder)
+        writeMeta(meta, in: songs[idx].folder)
     }
 
     /// Remember this song's engraving scale (1.0 = default). In-place, like barsPerLine.
@@ -163,7 +181,7 @@ final class SongLibrary: ObservableObject {
         var meta = songs[idx].meta
         meta.scoreZoom = stored
         songs[idx].meta = meta
-        try? writeMeta(meta, in: songs[idx].folder)
+        writeMeta(meta, in: songs[idx].folder)
     }
 
     /// Move a song between the Repertoire and Technical practice groups.
@@ -172,7 +190,7 @@ final class SongLibrary: ObservableObject {
         var meta = songs[idx].meta
         meta.category = category
         songs[idx].meta = meta
-        try? writeMeta(meta, in: songs[idx].folder)
+        writeMeta(meta, in: songs[idx].folder)
         reload()
     }
 
@@ -184,7 +202,52 @@ final class SongLibrary: ObservableObject {
         meta.lastPracticed = nil
         meta.bestAccuracy = nil
         songs[idx].meta = meta
-        try? writeMeta(meta, in: songs[idx].folder)
+        writeMeta(meta, in: songs[idx].folder)
+    }
+
+    // MARK: - Backup / export
+
+    /// A .zip of one song's folder (score + all its history/takes/flags) in a temp
+    /// file, for backup or moving to another device. Restore is manual for now: unzip
+    /// and drop the folder into the library's Scores/ directory (the app scans it).
+    func exportURL(for song: Song) -> URL? {
+        zipDirectory(song.folder, named: Self.safeFileName(song.title))
+    }
+
+    /// A .zip of the whole library (every song folder, excluding the Trash). Staged
+    /// into a cleanly-named temp folder first so the archive's top level reads well.
+    func exportLibraryURL() -> URL? {
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("Segno Library-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staging) }
+        for song in songs {
+            try? fm.copyItem(at: song.folder, to: staging.appendingPathComponent(song.folder.lastPathComponent))
+        }
+        return zipDirectory(staging, named: "Segno Library")
+    }
+
+    /// Zip a directory with `NSFileCoordinator`'s `.forUploading` option (the built-in,
+    /// dependency-free way to archive a folder on Apple platforms), then copy the
+    /// system temp zip to a stably-named file the exporter can hand off.
+    private func zipDirectory(_ dir: URL, named name: String) -> URL? {
+        var result: URL?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: dir, options: [.forUploading], error: &coordError) { zipTmp in
+            let dest = FileManager.default.temporaryDirectory
+                .appendingPathComponent(name).appendingPathExtension("zip")
+            try? FileManager.default.removeItem(at: dest)
+            do { try FileManager.default.copyItem(at: zipTmp, to: dest); result = dest }
+            catch { result = nil }
+        }
+        return result
+    }
+
+    /// A filesystem-safe version of a song title for the export filename.
+    static func safeFileName(_ s: String) -> String {
+        let cleaned = s.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>")).joined(separator: "-")
+        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Song" : trimmed
     }
 
     // MARK: - Helpers
@@ -196,11 +259,17 @@ final class SongLibrary: ObservableObject {
         try FileManager.default.copyItem(at: src, to: dst)
     }
 
-    private func writeMeta(_ meta: SongMeta, in folder: URL) throws {
-        // .atomic = write to a temp file, then rename — a kill mid-write can never
-        // leave a truncated metadata.json behind.
-        try Self.encoder.encode(meta).write(to: folder.appendingPathComponent("metadata.json"),
-                                            options: .atomic)
+    /// Persist metadata. .atomic = temp-file-then-rename, so a kill mid-write can never
+    /// leave a truncated metadata.json. A failure (disk full, permissions) is captured
+    /// into `writeError` and surfaced — not swallowed, since this is durable user data
+    /// (rename, favourite, category, and the best/last stats bumped after each pass).
+    private func writeMeta(_ meta: SongMeta, in folder: URL) {
+        do {
+            try Self.encoder.encode(meta).write(to: folder.appendingPathComponent("metadata.json"),
+                                                options: .atomic)
+        } catch {
+            writeError = "Couldn’t save “\(meta.title)”. Your change may be lost — check free disk space. (\(error.localizedDescription))"
+        }
     }
 
     /// On first launch (empty library), seed the two bundled fixtures so the app
@@ -234,7 +303,7 @@ final class SongLibrary: ObservableObject {
                 }
                 var meta = SongMeta(id: id, title: title, composer: nil, dateAdded: Date())
                 meta.category = .technical
-                try writeMeta(meta, in: folder)
+                writeMeta(meta, in: folder)
             } catch { continue }
         }
         UserDefaults.standard.set(true, forKey: key)
