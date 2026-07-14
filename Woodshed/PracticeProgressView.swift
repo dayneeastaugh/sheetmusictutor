@@ -13,12 +13,16 @@ import SwiftUI
 struct ProgressPanel: View {
     let song: Song
     let passes: [PracticePass]
+    /// Named practice sections (e.g. per-scale in the scale books) — drives the mastery grid.
+    var sections: [SavedSection] = []
     /// Seconds practised today (live, incl. the current session's unflushed time).
     var practicedToday: Double = 0
     /// The most recent pass broken down note-by-note (this session), for the summary.
     var lastPassDetail: PracticeSession.PassDetail? = nil
     /// Focus the practice section on a bar (drill a trouble spot).
     let onDrillBar: (Int) -> Void
+    /// Recall a named section (tap a mastery-grid cell to drill that scale).
+    var onApplySection: (SavedSection) -> Void = { _ in }
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
@@ -39,6 +43,7 @@ struct ProgressPanel: View {
                 VStack(alignment: .leading, spacing: 18) {
                     statRow
                     lastPassSection
+                    if sections.count >= 2 { masterySection }
                     trendSection
                     troubleSection
                     recentSection
@@ -58,6 +63,63 @@ struct ProgressPanel: View {
                 Text("This permanently clears every recorded pass, the trend, trouble spots, and best score for this song.")
             }
         }
+    }
+
+    // MARK: - Section mastery grid (per-scale for the scale books, or any named sections)
+
+    private static let masteryThreshold = 0.95
+
+    /// Best full-section Grade accuracy for a named section: passes whose bar range
+    /// matches the section exactly (how the section is drilled) — nil if never played.
+    private func best(for s: SavedSection) -> Double? {
+        passes.filter { $0.sectionStart == s.start && $0.sectionEnd == s.end }
+              .map(\.accuracy).max()
+    }
+
+    private var masterySection: some View {
+        let mastered = sections.filter { (best(for: $0) ?? 0) >= Self.masteryThreshold }.count
+        let cols = [GridItem(.adaptive(minimum: 128), spacing: 6)]
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Section mastery").font(.headline)
+                Spacer()
+                Text("\(mastered)/\(sections.count) mastered").font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Best score per section (\(Int(Self.masteryThreshold * 100))% = mastered). Tap to drill.")
+                .font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+                ForEach(sections) { s in
+                    let b = best(for: s)
+                    Button { onApplySection(s) } label: { masteryCell(s, best: b) }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func masteryCell(_ s: SavedSection, best: Double?) -> some View {
+        let tint = masteryColor(best)
+        return HStack(spacing: 6) {
+            Image(systemName: (best ?? 0) >= Self.masteryThreshold ? "checkmark.seal.fill"
+                            : (best == nil ? "circle.dotted" : "circle.lefthalf.filled"))
+                .foregroundStyle(tint)
+                .font(.caption)
+            Text(s.name).font(.caption).lineLimit(1)
+            Spacer(minLength: 2)
+            Text(best.map { "\(Int($0 * 100))%" } ?? "—")
+                .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7).fill(tint.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(tint.opacity(0.35)))
+        .accessibilityLabel("\(s.name): \(best.map { "best \(Int($0 * 100)) percent" } ?? "not yet played")")
+    }
+
+    private func masteryColor(_ best: Double?) -> Color {
+        guard let b = best else { return .secondary }
+        if b >= Self.masteryThreshold { return .green }
+        if b >= 0.75 { return .blue }
+        return .orange
     }
 
     // MARK: - Headline stats

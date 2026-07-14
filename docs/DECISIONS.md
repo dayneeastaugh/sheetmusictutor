@@ -662,6 +662,21 @@ failures surface** — `writeMeta` no longer swallows errors with `try?`; a fail
   and the hot-path JS cursor `catch {}` blocks now `post` the error (matching the "no silent bridge
   failures" rule).
 
+### ADR-048 — Weekly-use features: streak, week strip, section-mastery grid
+**2026-07-14.** Turning the recorded data into the habit loop the PRD's "weekly use" criterion needs
+(the app had all the data but never made progress *felt*):
+- **Practice streak + 7-day strip** in the Practice Overview, from the existing per-day time ledger
+  (`PracticeTime.merge/streak/lastDays`, unit-tested; streak counts today when played, else from
+  yesterday so a fresh morning shows the streak you're keeping).
+- **Section-mastery grid** in the Progress tab for any song with ≥2 named sections — which the scale
+  books have (one section per scale). Each cell shows the best Grade score for that section's exact
+  bar range (95% = mastered ✓), tap to drill it. This resolves ADR-043's open "per-scale mastery"
+  question by generalising to *named sections*, so it works for étude sections too, not just scales.
+- **Resume on launch** already landed (ADR-047, `@SceneStorage`).
+**Deferred:** an explicit end-of-session summary modal — there's no clean "session ended" trigger
+(no session object), and the Progress tab's live "Today" + the new streak already surface the recap;
+revisit if a distinct moment proves wanted.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

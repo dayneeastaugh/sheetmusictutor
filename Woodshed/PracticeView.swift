@@ -418,9 +418,11 @@ struct PracticeView: View {
                 controlsTab
             case .progress:
                 ProgressPanel(song: song, passes: session.history,
+                              sections: session.savedSections,
                               practicedToday: session.practicedToday,
                               lastPassDetail: session.lastPassDetail,
                               onDrillBar: { session.focusBar($0) },
+                              onApplySection: { session.applySavedSection($0) },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
                 FlagsPanel(session: session)
