@@ -98,6 +98,11 @@ struct PracticeView: View {
             session.onFlagTapped = { bar in flagEditorBar = bar; flagEditorNote = session.flagNote(forBar: bar) ?? "" }
             session.onAppear()
         }
+        // Deterministic teardown on song switch / window close: stop playback, silence
+        // the piano, and drop the MIDI connection NOW — never rely on deinit timing
+        // (SwiftUI can keep the replaced view's @StateObject alive; the old song kept
+        // playing and its MIDI input kept receiving).
+        .onDisappear { session.shutdown() }
         .onReceive(tick) { _ in session.advanceCursorWithPlayback() }
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }

@@ -590,6 +590,19 @@ generate it); a separate top-level "Technical" tab (a library grouping is lighte
 join). **Note:** the two books are one MIDI+XML pair each; whole-book Grade accuracy isn't meaningful
 — the intended use is section (per-scale) drilling.
 
+### ADR-044 — Deterministic session teardown on song switch (never rely on deinit)
+**2026-07-14.** Bug: switching songs mid-playback left the **old song playing** with no way to stop
+it, and old sessions' MIDI inputs kept receiving (the 2–3× duplicated-input log signature). A unit
+test proved `PracticeSession` itself deallocates cleanly even mid-playback (`SessionLifecycleTests`),
+so the retention is in the SwiftUI view layer (`NavigationSplitView` detail churn can keep a replaced
+view's `@StateObject` alive). **Decision:** resources that make sound or receive input are released
+*explicitly*, not by deallocation: `PracticeView.onDisappear` calls `session.shutdown()` — stop
+playback, flush piano output (notes off + pedal up), and `MIDIInput.teardown()` (dispose the CoreMIDI
+client, idempotent with deinit). `onAppear` calls `midi.reviveIfNeeded()` so a re-attached view
+(iPad sidebar transitions) recovers. Verified live: the shutdown + client-dispose lines appear in the
+diagnostic log on song switch. **Rejected:** hunting the exact SwiftUI retainer (fragile across OS
+versions; explicit lifecycle is correct engineering regardless — the leak itself is only memory now).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

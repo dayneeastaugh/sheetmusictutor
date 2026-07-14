@@ -45,12 +45,38 @@ final class MIDIInput: ObservableObject {
     }
 
     deinit {
-        // Dispose the CoreMIDI client (which also disposes its ports/connections).
-        // Each PracticeSession owns a MIDIInput, so without this every song switch
-        // leaked a live client into the process (audit ARCH-04).
-        if client != 0 { MIDIClientDispose(client) }
         MIDIInput.liveCount -= 1
-        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) disposed (\(MIDIInput.liveCount) live)")
+        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) deinit (\(MIDIInput.liveCount) live)")
+        disposeClient()   // no weak-self capture here — forming one in deinit is unsafe
+    }
+
+    /// Stop receiving and release the CoreMIDI client. Idempotent — called on session
+    /// shutdown (song switch) AND from deinit. Without an explicit teardown, a
+    /// view-layer-retained session kept its client alive, so every song switch added
+    /// another live input (the 2–3× duplicated-notes bug).
+    func teardown() {
+        disposeClient()
+        DispatchQueue.main.async { [weak self] in self?.activeNotes = [] }
+    }
+
+    /// Re-create the client after a teardown, if this instance is reused (SwiftUI can
+    /// detach and re-attach the same view, e.g. iPad sidebar transitions). No-op while
+    /// the client is live.
+    func reviveIfNeeded() {
+        guard client == 0 else { return }
+        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) revived")
+        setup()
+    }
+
+    /// Dispose the CoreMIDI client (which also disposes its ports/connections).
+    private func disposeClient() {
+        guard client != 0 else { return }
+        MIDIClientDispose(client)
+        client = 0
+        inputPort = 0
+        outputPort = 0
+        connected = []
+        DebugLog.shared.log("midi", "MIDIInput #\(instanceId) client disposed")
     }
 
     // MARK: - Setup

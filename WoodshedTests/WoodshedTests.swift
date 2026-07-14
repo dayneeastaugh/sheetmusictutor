@@ -856,6 +856,61 @@ struct SongMetaCompat {
     }
 }
 
+// MARK: - Session lifecycle (song switch must tear the old session down)
+
+@Suite("Session lifecycle")
+struct SessionLifecycleTests {
+
+    /// Build a real on-disk song folder from the bundled fixture pair.
+    private func makeSongFolder() throws -> Song {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ws-session-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try (try fixtureData("Fly Me To the Moon", "musicxml"))
+            .write(to: dir.appendingPathComponent("score.musicxml"))
+        try (try fixtureData("Fly Me To the Moon", "mid"))
+            .write(to: dir.appendingPathComponent("score.mid"))
+        let meta = SongMeta(id: UUID(), title: "Fixture", composer: nil, dateAdded: Date())
+        return Song(meta: meta, folder: dir)
+    }
+
+    @Test("a fully-wired session deallocates when released")
+    @MainActor
+    func idleSessionDeallocates() throws {
+        let song = try makeSongFolder()
+        defer { try? FileManager.default.removeItem(at: song.folder) }
+        weak var leaked: PracticeSession?
+        autoreleasepool {
+            let session = PracticeSession(song: song)
+            session.onAppear()
+            leaked = session
+        }
+        #expect(leaked == nil, "an idle PracticeSession must deallocate on release")
+    }
+
+    @Test("a session released MID-PLAYBACK deallocates and stops its audio")
+    @MainActor
+    func playingSessionDeallocates() async throws {
+        let song = try makeSongFolder()
+        defer { try? FileManager.default.removeItem(at: song.folder) }
+        weak var leakedSession: PracticeSession?
+        weak var leakedAudio: AudioEnginePlayer?
+        autoreleasepool {
+            let session = PracticeSession(song: song)
+            session.onAppear()
+            session.countInBars = 0
+            session.startOnFirstNote = false
+            session.togglePlay()                       // really start the sequencer
+            leakedSession = session
+            leakedAudio = session.audio
+        }
+        // Give any transient async work (audio start, main-queue hops) a beat to drain.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(leakedSession == nil, "a playing PracticeSession must deallocate when the song is switched")
+        #expect(leakedAudio == nil, "the audio engine must not outlive its session (old song keeps playing)")
+    }
+}
+
 // MARK: - Scale practice books (generated content must fuse cleanly)
 
 @Suite("Scale books")

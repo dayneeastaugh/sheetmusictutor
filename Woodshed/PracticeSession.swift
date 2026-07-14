@@ -633,7 +633,21 @@ final class PracticeSession: ObservableObject {
     /// toggle, window restore), so everything past the callback wiring is **idempotent**:
     /// the score is ingested once, not re-parsed with a state reset on every appearance
     /// (audit ARCH-07).
+    /// Deterministic teardown when the practice screen goes away (song switch, window
+    /// close). Everything audible or input-bearing stops NOW — never rely on deinit
+    /// timing: SwiftUI can keep the old view's @StateObject alive past replacement
+    /// (observed: switching songs mid-playback left the old song playing, and old
+    /// sessions' MIDI inputs kept receiving — the 2–3× duplicated-input bug).
+    func shutdown() {
+        DebugLog.shared.log("session", "shutdown: \(song.title)")
+        if audio.isPlaying { audio.stop() }
+        flushPianoOutput()                 // notes off + pedal up + scheduler reset
+        midi.teardown()                    // dispose the CoreMIDI client — stop receiving
+        armed = false
+    }
+
     func onAppear() {
+        midi.reviveIfNeeded()   // reversible after shutdown() if the same view re-attaches
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
         bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
         bridge.onDeselect = { [weak self] in self?.clearBarSelection() }   // Escape / click in whitespace
