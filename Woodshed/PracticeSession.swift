@@ -323,6 +323,18 @@ final class PracticeSession: ObservableObject {
             rebuildRhythmGrid()   // rhythm-only ticks follow the selected hand(s)
         }
     }
+    /// Which hands are audible/graded for the current `handMode`. One source of truth
+    /// for the `handMode != 2 / != 1` idiom that Grade, Wait, rhythm and the highlight
+    /// all need — so they can never disagree about hand membership.
+    var handsOn: (rh: Bool, lh: Bool) { (handMode != 2, handMode != 1) }
+    /// Chords are collapsed to one onset within this window (seconds) everywhere the
+    /// app dedupes simultaneous notes (Grade expected list, rhythm-tick grid).
+    static let chordEpsilon = 0.01
+    /// Loop-boundary timing (seconds). With a per-loop count-in, cut just BEFORE the
+    /// barline so the next bar's notes never start (the count-in silence hides it);
+    /// otherwise allow a little past the end so the last note isn't clipped.
+    static let countInLoopLead = 0.03
+    static let loopEndSlack = 0.05
     @Published var tempoPct: Double = 100 {     // playback tempo percentage
         didSet { audio.setRate(Float(tempoPct) / 100) }
     }
@@ -824,14 +836,14 @@ final class PracticeSession: ObservableObject {
     /// chords collapse to ONE expected tap per onset (timing is graded, not pitch).
     private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double)] {
         guard let events = score?.events else { return [] }
-        let rhOn = handMode != 2, lhOn = handMode != 1
+        let (rhOn, lhOn) = handsOn
         let notes = events
             .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
             .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
         guard rhythmMode else { return notes }
         var collapsed: [(pitch: Int, onset: Double, beat: Double)] = []
         for n in notes.sorted(by: { $0.onset < $1.onset }) {
-            if let last = collapsed.last, abs(last.onset - n.onset) < 0.01 { continue }   // same chord
+            if let last = collapsed.last, abs(last.onset - n.onset) < Self.chordEpsilon { continue }   // same chord
             collapsed.append(n)
         }
         return collapsed
@@ -976,7 +988,7 @@ final class PracticeSession: ObservableObject {
     /// selected hands), each carrying the required RH/LH pitches.
     private func buildWaitSteps() -> [(beat: Double, rh: Set<Int>, lh: Set<Int>)] {
         guard let events = score?.events else { return [] }
-        let rhOn = handMode != 2, lhOn = handMode != 1
+        let (rhOn, lhOn) = handsOn
         var map: [Int: (beat: Double, rh: Set<Int>, lh: Set<Int>)] = [:]
         for e in events {
             let isLeft = e.hand == .left
@@ -1268,7 +1280,7 @@ final class PracticeSession: ObservableObject {
 
     /// Apply the RH/LH selection to the audio engine (mute = 0 volume).
     private func applyHands() {
-        audio.setHands(rhAudible: handMode != 2, lhAudible: handMode != 1)
+        audio.setHands(rhAudible: handsOn.rh, lhAudible: handsOn.lh)
         if waitMode {                       // rebuild the step list for the new hands
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count
             waitIndex = 0
@@ -1286,11 +1298,11 @@ final class PracticeSession: ObservableObject {
     /// One tick time per note onset for the selected hand(s), chords collapsed. Pure —
     /// unit-tested. `handMode`: 0 both / 1 RH / 2 LH; unknown-hand notes count as right.
     static func rhythmOnsets(_ events: [NoteEvent], handMode: Int) -> [Double] {
-        let rhOn = handMode != 2, lhOn = handMode != 1
+        let rhOn = handMode != 2, lhOn = handMode != 1   // static/pure: uses the passed handMode
         var onsets: [Double] = []
         for e in events.sorted(by: { $0.onsetSeconds < $1.onsetSeconds }) {
             guard (e.hand == .left) ? lhOn : rhOn else { continue }
-            if let last = onsets.last, abs(last - e.onsetSeconds) < 0.01 { continue }   // dedupe chord
+            if let last = onsets.last, abs(last - e.onsetSeconds) < Self.chordEpsilon { continue }   // dedupe chord
             onsets.append(e.onsetSeconds)
         }
         return onsets
@@ -1480,7 +1492,7 @@ final class PracticeSession: ObservableObject {
         // never start (the count-in silence hides the tiny early cut). Otherwise allow a
         // small buffer past the end so the section's last note isn't clipped.
         let loopingWithCountIn = loopSection && loopCountInPulses > 0
-        let endTime = sectionEndTime + (loopingWithCountIn ? -0.03 : 0.05)
+        let endTime = sectionEndTime + (loopingWithCountIn ? -Self.countInLoopLead : Self.loopEndSlack)
         if endTime > 0 && t >= endTime {
             if loopSection {
                 if gradeMode { finalizeGradePass() }   // tally the pass (+ ramp/gate the speed trainer)
@@ -1529,7 +1541,7 @@ final class PracticeSession: ObservableObject {
         // notes (RH blue / LH red when hand-colouring is on). Both read only the
         // tracker's small index windows — never the whole event list.
         if gradeMode {
-            let rhOn = handMode != 2, lhOn = handMode != 1
+            let (rhOn, lhOn) = handsOn
             var rh = Set<Int>(), lh = Set<Int>()
             for i in tracker.winLo..<tracker.winHi {
                 let e = events[i]
@@ -1551,7 +1563,7 @@ final class PracticeSession: ObservableObject {
         // Send playback to the piano (MIDI out) when Piano/Both, respecting hand mutes.
         // Rhythm-only mode sends no notes anywhere — the tick is the whole point.
         if outputMode != 0 && !rhythmMode {
-            let rhOn = handMode != 2, lhOn = handMode != 1
+            let (rhOn, lhOn) = handsOn
             // Edge-triggered so ornaments, grace notes and repeated pitches all sound
             // (the old set-diff sampling dropped short/repeated notes). See ADR-042.
             for cmd in pianoSched.advance(to: t, rhOn: rhOn, lhOn: lhOn) {
