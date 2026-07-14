@@ -137,13 +137,23 @@ enum MIDIParser {
         let firstTempoBPM = 60_000_000.0 / Double(tempoMap[0].usPerQuarter)
 
         // ---- Assign a hand to each track ----
-        // Heuristic for the spike: with two tracks, the one whose notes average a
-        // higher pitch is the right hand. (Increment 2 will cross-check this against
-        // the MusicXML <staff> assignment, which is the real authority.)
-        let averagePitches: [Double] = notesPerTrack.map { track in
-            track.isEmpty ? 0 : Double(track.map(\.pitch).reduce(0, +)) / Double(track.count)
+        // Assign hands over the NOTE-BEARING tracks only — a conductor/tempo track (no
+        // notes) is common in Sibelius/Finale and some MuseScore exports, and counting
+        // it used to give 3 "tracks" and collapse every hand to .unknown. The
+        // higher-average-pitch staff is the right hand. When it isn't exactly two
+        // note-bearing tracks we can't split hands here (left .unknown); `Ingest.fuse`
+        // turns that into a clear, loud error rather than a silently empty model.
+        // (The MusicXML <staff> is the real authority, cross-checked later.)
+        let noteBearing = notesPerTrack.indices.filter { !notesPerTrack[$0].isEmpty }
+        var handForTrack = [Hand](repeating: .unknown, count: notesPerTrack.count)
+        if noteBearing.count == 2 {
+            func avgPitch(_ t: Int) -> Double {
+                Double(notesPerTrack[t].map(\.pitch).reduce(0, +)) / Double(notesPerTrack[t].count)
+            }
+            let (a, b) = (noteBearing[0], noteBearing[1])
+            if avgPitch(a) >= avgPitch(b) { handForTrack[a] = .right; handForTrack[b] = .left }
+            else { handForTrack[a] = .left; handForTrack[b] = .right }
         }
-        let handForTrack = assignHands(averagePitches: averagePitches)
 
         // ---- Flatten into the final note list, converting ticks -> seconds ----
         var notes: [MidiNote] = []
@@ -209,25 +219,22 @@ enum MIDIParser {
         }
     }
 
-    /// Map each track index to a Hand using each track's average pitch.
-    private static func assignHands(averagePitches: [Double]) -> [Hand] {
-        guard averagePitches.count == 2 else {
-            // 1 track or >2 tracks: we can't reliably guess; leave to MusicXML.
-            return Array(repeating: .unknown, count: averagePitches.count)
-        }
-        return averagePitches[0] >= averagePitches[1] ? [.right, .left] : [.left, .right]
-    }
 }
 
 // MARK: - Errors
 
 enum MIDIError: Error, CustomStringConvertible {
     case notAMIDIFile, unsupportedTiming, malformed
+    case unassignableHands(Int)
     var description: String {
         switch self {
         case .notAMIDIFile: return "Not a Standard MIDI File (missing MThd)."
         case .unsupportedTiming: return "SMPTE timing not supported (expected ticks-per-quarter)."
         case .malformed: return "Malformed MIDI data."
+        case .unassignableHands(let n):
+            return "Couldn't identify the two hands — found \(n) track\(n == 1 ? "" : "s") with notes "
+                 + "(expected 2, one per staff). Re-export the MIDI with the right and left hands on "
+                 + "separate tracks."
         }
     }
 }

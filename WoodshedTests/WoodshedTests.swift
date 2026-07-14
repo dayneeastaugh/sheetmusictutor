@@ -911,6 +911,78 @@ struct SessionLifecycleTests {
     }
 }
 
+// MARK: - Ingestion trust (review cluster C)
+
+@Suite("Ingestion trust")
+struct IngestionTrustTests {
+
+    @Test("meter emphasis: 3/8 is simple triple, 6/8 & 6/16 are compound")
+    func clickLevels() {
+        // 3/8 — every non-downbeat pulse is a beat (NOT a compound sub).
+        #expect(Ingest.clickLevel(pulseIndex: 0, num: 3, den: 8) == .downbeat)
+        #expect(Ingest.clickLevel(pulseIndex: 1, num: 3, den: 8) == .beat)
+        #expect(Ingest.clickLevel(pulseIndex: 2, num: 3, den: 8) == .beat)
+        // 6/8 — beats on 0 and 3, subs elsewhere.
+        #expect(Ingest.clickLevel(pulseIndex: 3, num: 6, den: 8) == .beat)
+        #expect(Ingest.clickLevel(pulseIndex: 1, num: 6, den: 8) == .sub)
+        // 6/16 — same compound grouping now recognised.
+        #expect(Ingest.clickLevel(pulseIndex: 3, num: 6, den: 16) == .beat)
+        #expect(Ingest.clickLevel(pulseIndex: 2, num: 6, den: 16) == .sub)
+    }
+
+    @Test("timeline mismatch fires when the MIDI runs long OR short of the score")
+    func timelineMismatch() {
+        let bar = 4.0
+        #expect(!Ingest.timelinesMismatch(xmlTotalBeats: 40, lastMidiBeat: 38, barBeats: bar))   // ok (last onset a bit early)
+        #expect(Ingest.timelinesMismatch(xmlTotalBeats: 40, lastMidiBeat: 60, barBeats: bar))    // MIDI runs long (D.C.?)
+        #expect(Ingest.timelinesMismatch(xmlTotalBeats: 40, lastMidiBeat: 20, barBeats: bar))    // MIDI ends short (folded repeat)
+    }
+
+    @Test("a single-hand MIDI (can't split hands) fails loudly, not with an empty model")
+    func unassignableHandsThrows() throws {
+        // One note-bearing track only → hands unknown → Ingest must throw.
+        let midi = ParserFixSMF.oneTrackNote()
+        let xml = ParserFixSMF.minimalXML()
+        #expect(throws: MIDIError.self) { try Ingest.fuse(midiData: midi, musicXMLData: xml) }
+    }
+
+    @Test(".mxl with an implausibly large declared size is rejected, not allocated")
+    func mxlSizeCap() throws {
+        // A stored entry whose declared uncompressed size exceeds the cap must throw
+        // .tooLarge BEFORE allocating (zip-bomb guard).
+        let entry = MXLArchive.Entry(name: "score.xml", method: 8,
+                                     compressedSize: 4, uncompressedSize: 999_999_999,
+                                     localHeaderOffset: 0)
+        // A tiny dummy archive body; extract should bail on the size check first.
+        var body = [UInt8](repeating: 0, count: 64)
+        body[0] = 0x50; body[1] = 0x4b; body[2] = 0x03; body[3] = 0x04
+        #expect(throws: MXLError.self) { try MXLArchive.extract(entry, from: Data(body)) }
+    }
+}
+
+/// Minimal MIDI/MusicXML builders for the trust tests (kept tiny + local).
+enum ParserFixSMF {
+    static func oneTrackNote() -> Data {
+        // Header: format 1, 1 track, 96 tpq. Track: note-on 72 / note-off.
+        var d: [UInt8] = [0x4D,0x54,0x68,0x64, 0,0,0,6, 0,1, 0,1, 0,96]
+        var track: [UInt8] = [0x00,0x90,72,90, 0x60,0x80,72,0, 0x00,0xFF,0x2F,0x00]
+        d += [0x4D,0x54,0x72,0x6B, 0,0,0, UInt8(track.count)]
+        d += track
+        return Data(d)
+    }
+    static func minimalXML() -> Data {
+        Data("""
+        <?xml version="1.0"?>
+        <score-partwise version="3.1"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list>
+        <part id="P1"><measure number="1">
+          <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time>
+          <clef><sign>G</sign><line>2</line></clef></attributes>
+          <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note>
+        </measure></part></score-partwise>
+        """.utf8)
+    }
+}
+
 // MARK: - Scale practice books (generated content must fuse cleanly)
 
 @Suite("Scale books")

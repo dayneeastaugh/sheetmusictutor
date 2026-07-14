@@ -33,10 +33,13 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         // the first part's total length — garbage positions. Refuse loudly instead.
         guard p.partCount <= 1 else { throw MusicXMLError.multiPart(p.partCount) }
         p.finishMeasure()
+        // Top-level meter/key are the piece's OPENING values, not whatever the last
+        // measure happened to modulate/change to (`timeSignature`/`keyFifths` track the
+        // *current* value for per-measure recording). Mirrors MIDI's first-wins capture.
         return MusicXMLScore(divisions: p.divisions,
                              tempoBPM: p.tempoBPM,
-                             timeSignature: p.timeSignature,
-                             keyFifths: p.keyFifths,
+                             timeSignature: p.firstTimeSignature ?? p.timeSignature,
+                             keyFifths: p.firstKeyFifths ?? p.keyFifths,
                              notes: p.notes,
                              measures: p.measures,
                              measureRepeats: p.measureRepeats)
@@ -45,8 +48,10 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
     // MARK: - Accumulated score-level state
     private var divisions = 1
     private var tempoBPM: Double?
-    private var timeSignature: (num: Int, den: Int)?
-    private var keyFifths = 0
+    private var timeSignature: (num: Int, den: Int)?   // CURRENT meter (updates per measure)
+    private var keyFifths = 0                           // CURRENT key (updates on modulation)
+    private var firstTimeSignature: (num: Int, den: Int)?   // opening meter, for the header
+    private var firstKeyFifths: Int?                        // opening key, for the header
     private var notes: [XMLNote] = []
 
     // MARK: - Cursor / measure state
@@ -175,7 +180,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         switch name {
         case "divisions": divisions = Int(value) ?? divisions
-        case "fifths":    keyFifths = Int(value) ?? keyFifths
+        case "fifths":    if let f = Int(value) { keyFifths = f; if firstKeyFifths == nil { firstKeyFifths = f } }
         case "beats":     if let n = Int(value) { setTimeSig(num: n, den: timeSignature?.den ?? 4) }
         case "beat-type": if let d = Int(value) { setTimeSig(num: timeSignature?.num ?? 4, den: d) }
         case "per-minute": if tempoBPM == nil, let bpm = Double(value) { tempoBPM = bpm }
@@ -206,6 +211,7 @@ final class MusicXMLParser: NSObject, XMLParserDelegate {
 
     private func setTimeSig(num: Int, den: Int) {
         timeSignature = (num, den)
+        if firstTimeSignature == nil { firstTimeSignature = (num, den) }
     }
 
     /// Record the measure currently being parsed (its actual filled length + meter +

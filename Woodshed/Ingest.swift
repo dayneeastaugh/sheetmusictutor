@@ -82,6 +82,13 @@ enum Ingest {
         let midi = try MIDIParser.parse(data: midiData)
         let xml = try MusicXMLParser.parse(data: musicXMLData)
 
+        // Hands must be identifiable, or fusion (which matches per hand) yields an EMPTY
+        // model. This happens when the MIDI isn't two note-bearing tracks (one per staff)
+        // — fail loudly with the count instead of handing back a silent empty score.
+        if !midi.notes.isEmpty, midi.notes.allSatisfy({ $0.hand == .unknown }) {
+            throw MIDIError.unassignableHands(Set(midi.notes.map(\.track)).count)
+        }
+
         let tempo = midi.tempoBPM
 
         // ---- Unfold the written timeline (repeats / voltas) ----
@@ -191,12 +198,20 @@ enum Ingest {
             // Absorb leftover MIDI notes that fall inside an *ornamented* written
             // note's beat span — these are the realized trill/turn/mordent notes.
             // They become child notes of the parent event (which grows to cover them),
-            // not separate events. The `0.25`-beat pad tolerates realizations that
-            // spill slightly past the notated value.
+            // not separate events. The pad scales with the parent's own length (a long
+            // trill's realization can overshoot a whole-note by far more than a fixed
+            // quarter-beat), and we pick the NEAREST ornamented parent, not the first —
+            // otherwise a long trill or two adjacent ornaments leave stray note-ons
+            // unabsorbed, raising a spurious "N notes unmatched" banner on a good file.
+            func pad(_ p: Parent) -> Double { max(0.25, (p.endBeats - p.startBeats) * 0.25) }
+            func covers(_ p: Parent, _ b: Double) -> Bool {
+                p.ornamented && b >= p.startBeats - pad(p) && b <= p.endBeats + pad(p)
+            }
             var ornamentRealizations = 0
             for j in slots.indices where !slots[j].matched {
                 let b = slots[j].onsetBeats
-                if let p = parents.first(where: { $0.ornamented && b >= $0.startBeats - 0.25 && b <= $0.endBeats + 0.25 }) {
+                if let p = parents.filter({ covers($0, b) })
+                    .min(by: { abs(($0.startBeats + $0.endBeats) / 2 - b) < abs(($1.startBeats + $1.endBeats) / 2 - b) }) {
                     slots[j].matched = true
                     ornamentRealizations += 1
                     events[p.index].ornamentNotes += 1
@@ -349,9 +364,17 @@ enum Ingest {
 
     /// True when the MIDI timeline runs more than one bar past the written score —
     /// the signature of unfolded repeats (or a mismatched file pair). Pure, testable.
+    /// Do the two timelines fail to line up after unfolding? Warn **either way**: the
+    /// MIDI running well past the written end (D.C./D.S. we don't fold), OR ending well
+    /// short of it (repeats present in the score but NOT played in the MIDI export, or a
+    /// truncated MIDI). The short-side slack is generous because `lastMidiBeat` is the
+    /// last *onset*, which sits a note-length before the piece's true end.
     static func timelinesMismatch(xmlTotalBeats: Double, lastMidiBeat: Double, barBeats: Double) -> Bool {
         guard xmlTotalBeats > 0 else { return false }
-        return lastMidiBeat > xmlTotalBeats + max(barBeats, 1.0)
+        let longSlack = max(barBeats, 1.0)
+        let shortSlack = max(4 * barBeats, 8.0)
+        return lastMidiBeat > xmlTotalBeats + longSlack
+            || lastMidiBeat < xmlTotalBeats - shortSlack
     }
 
     // MARK: - Tie merging
@@ -402,7 +425,10 @@ enum Ingest {
     /// rest are light subdivisions; simple meters treat every beat as a main beat.
     static func clickLevel(pulseIndex: Int, num: Int, den: Int) -> ClickLevel {
         if pulseIndex == 0 { return .downbeat }
-        let compound = (den == 8 && num % 3 == 0)
+        // Compound = an x/8 or x/16 meter that groups in threes (6, 9, 12, …). 3/8 and
+        // 3/16 are NOT compound — a bar of three even pulses is simple triple, so every
+        // pulse is a beat (grouping 3/8 as one dotted beat felt wrong to count against).
+        let compound = (den == 8 || den == 16) && num % 3 == 0 && num > 3
         if compound { return pulseIndex % 3 == 0 ? .beat : .sub }
         return .beat
     }

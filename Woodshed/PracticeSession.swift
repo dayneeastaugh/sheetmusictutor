@@ -1623,7 +1623,14 @@ final class PracticeSession: ObservableObject {
     static func warningText(for fused: FusedScore) -> String? {
         if let s = fused.structureWarning { return s }
         let unmatched = fused.reconciliations.reduce(0) { $0 + $1.unmatchedMIDI.count + $1.unmatchedXML.count }
-        guard unmatched > 0 else { return nil }
-        return "\(unmatched) note\(unmatched == 1 ? "" : "s") couldn't be matched between the score and the MIDI — grading may be off in places."
+        if unmatched > 0 {
+            return "\(unmatched) note\(unmatched == 1 ? "" : "s") couldn't be matched between the score and the MIDI — grading may be off in places."
+        }
+        // Even with no listed unmatched notes, a broken reconciliation invariant
+        // (matched + ornaments + cross-staff != MIDI count) means the model is off.
+        if fused.reconciliations.contains(where: { !$0.isClean }) {
+            return "The score and MIDI don't fully reconcile — grading may be off in places."
+        }
+        return nil
     }
 }

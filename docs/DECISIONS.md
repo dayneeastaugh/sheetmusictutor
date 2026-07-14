@@ -615,6 +615,29 @@ failures surface** — `writeMeta` no longer swallows errors with `try?`; a fail
 **Rejected:** a full trash-restore UI (Finder covers macOS; a follow-up for iOS); building our own zip
 (the coordinator's `.forUploading` is the platform-blessed path).
 
+### ADR-046 — Ingestion trust pass (never grade a silently-wrong model)
+**2026-07-14.** Six review findings hardening the "a wrong model is never silent" rule:
+- **Hands must be identifiable.** A MIDI that isn't two note-bearing tracks (conductor/tempo track,
+  3-staff, single-track) used to produce an *empty* graded model behind a soft banner. `MIDIParser`
+  now assigns hands over the note-bearing tracks (ignoring an empty conductor track); if it isn't
+  exactly two, `Ingest.fuse` throws `MIDIError.unassignableHands(n)` with the count — a loud, clear
+  import failure. (Parsing stays tolerant; the guard lives in fusion where "two hands" matters.)
+- **Top-level meter/key are first-wins**, not last-wins. The parser's `timeSignature`/`keyFifths` track
+  the *current* value (per-measure meters need that); separate `firstTimeSignature`/`firstKeyFifths`
+  feed the header, so a piece that modulates or changes meter shows its *opening* values (the 12/8→2/4
+  Chopin showed "2/4" before).
+- **Structure warning is symmetric** — `timelinesMismatch` now warns when the MIDI ends well *short*
+  of the score (repeats in the score not played in the MIDI export, or a truncated MIDI), not only
+  when it runs long. `warningText` also fires on a broken `Reconciliation.isClean` invariant even when
+  no notes are individually listed unmatched.
+- **Ornament absorption pad scales with the parent's length** and picks the *nearest* ornamented
+  parent, not the first — a long trill or two adjacent ornaments no longer leave stray note-ons that
+  raise a spurious "N unmatched" banner on a correct file.
+- **`.mxl` zip-bomb cap** — reject a declared uncompressed size over 64 MB before allocating
+  (`MXLError.tooLarge`), so a crafted/corrupt archive can't OOM-kill the app.
+- **Metronome emphasis** — 3/8 and 3/16 are simple triple (every pulse a beat); x/16 compound meters
+  (6/16, 9/16, 12/16) now group in threes like their x/8 cousins.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

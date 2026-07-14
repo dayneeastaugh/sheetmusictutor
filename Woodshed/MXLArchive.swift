@@ -17,18 +17,24 @@ import Foundation
 import Compression
 
 enum MXLError: Error, CustomStringConvertible {
-    case notAZip, malformed, unsupportedCompression, noScoreFile
+    case notAZip, malformed, unsupportedCompression, noScoreFile, tooLarge
     var description: String {
         switch self {
         case .notAZip: return "Not a valid .mxl archive."
         case .malformed: return "The .mxl archive is damaged."
         case .unsupportedCompression: return "The .mxl uses an unsupported compression method."
         case .noScoreFile: return "No MusicXML score found inside the .mxl."
+        case .tooLarge: return "The .mxl declares an implausibly large score (possible corrupt or malicious archive)."
         }
     }
 }
 
 enum MXLArchive {
+    /// Cap on a single entry's declared uncompressed size. A ZIP's header can claim up
+    /// to ~4 GB while its compressed payload is a few bytes (a "zip bomb"); without a
+    /// cap that number drives an allocation that can OOM-kill the app. A real MusicXML
+    /// score is well under this.
+    static let maxUncompressedSize = 64 * 1024 * 1024   // 64 MB
 
     /// Extract the MusicXML score from `.mxl` data: honours META-INF/container.xml's
     /// rootfile when present, else falls back to the first top-level .xml/.musicxml.
@@ -132,6 +138,8 @@ enum MXLArchive {
         let extraLen = try u16(o + 28)
         let start = o + 30 + nameLen + extraLen
         guard start + entry.compressedSize <= bytes.count else { throw MXLError.malformed }
+        // Reject an implausibly large declared size BEFORE allocating for it (zip bomb).
+        guard entry.uncompressedSize <= maxUncompressedSize else { throw MXLError.tooLarge }
         let payload = Data(bytes[start..<(start + entry.compressedSize)])
 
         switch entry.method {
