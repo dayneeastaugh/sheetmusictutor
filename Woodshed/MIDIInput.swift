@@ -145,17 +145,32 @@ final class MIDIInput: ObservableObject {
         }
     }
 
-    /// Connect any sources we're not already listening to.
+    /// Reconcile our connections with the sources that currently exist: connect any
+    /// new source, and DISCONNECT sources that have vanished (unplug / Bluetooth drop).
+    /// When any source disappears we clear `activeNotes` — a note held at the moment of
+    /// disconnect (or whose note-off was lost across a dropout) would otherwise stay
+    /// lit forever and, in Wait mode, falsely count as already-played.
     private func connectSources() {
+        guard client != 0 else { return }
+        var current = Set<MIDIEndpointRef>()
         var names: [String] = []
         for i in 0..<MIDIGetNumberOfSources() {
             let src = MIDIGetSource(i)
+            guard src != 0 else { continue }
+            current.insert(src)
             names.append(name(of: src))
-            if src != 0 && !connected.contains(src) {
-                if MIDIPortConnectSource(inputPort, src, nil) == noErr {
-                    connected.insert(src)
-                }
+            if !connected.contains(src), MIDIPortConnectSource(inputPort, src, nil) == noErr {
+                connected.insert(src)
             }
+        }
+        let vanished = connected.subtracting(current)
+        for src in vanished {
+            MIDIPortDisconnectSource(inputPort, src)
+            connected.remove(src)
+        }
+        if !vanished.isEmpty {
+            DebugLog.shared.log("midi", "#\(instanceId) \(vanished.count) source(s) vanished → clearing held notes")
+            if !activeNotes.isEmpty { activeNotes = [] }   // drop stuck notes
         }
         sources = names
         DebugLog.shared.log("midi", "#\(instanceId) sources (\(names.count)): \(names.joined(separator: ", "))")

@@ -62,6 +62,7 @@ struct PracticeView: View {
             header
             if session.practiceMode == .drill { drillProgressBar }
             if let warning = session.ingestWarning { ingestBanner(warning) }
+            if let outputWarning = session.outputWarning { infoBanner(outputWarning, systemImage: "pianokeys") }
             // In a Drill the progress bar carries all the status, so we drop the
             // status line entirely to give the score the maximum room.
             if session.practiceMode != .drill { statusBar }
@@ -284,6 +285,18 @@ struct PracticeView: View {
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 8).fill(.orange.opacity(0.12)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.orange.opacity(0.4)))
+    }
+
+    /// A lighter, informational banner (e.g. "no piano connected") — blue, no Details.
+    private func infoBanner(_ text: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage).foregroundStyle(.blue)
+            Text(text).font(.caption)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(.blue.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.blue.opacity(0.35)))
     }
 
     // MARK: - Status line (mode feedback + review marks)

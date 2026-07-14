@@ -99,14 +99,80 @@ final class AudioEnginePlayer: ObservableObject {
         } catch {
             status = "engine error: \(error.localizedDescription)"
         }
+        registerAudioNotifications()
     }
 
     deinit {
         // Sessions own their engine, so tear it down deterministically on song switch
         // rather than leaving a running engine to the whims of deallocation order.
+        notifTokens.forEach { NotificationCenter.default.removeObserver($0) }
         metroTimer?.cancel()
         sequencer?.stop()
         engine.stop()
+    }
+
+    // MARK: - Audio-session / engine resilience
+    //
+    // Real devices interrupt and reconfigure audio out from under us: a phone/FaceTime
+    // call, plugging/unplugging headphones, switching to a Bluetooth speaker. Any of
+    // these stops or rebuilds `AVAudioEngine`; without recovery, playback goes silent
+    // with no way back except relaunch. We observe the three signals and revive.
+
+    private var notifTokens: [NSObjectProtocol] = []
+
+    private func registerAudioNotifications() {
+        let nc = NotificationCenter.default
+        // Engine graph torn down by a route/format change (both platforms) → rebuild
+        // and resume where we were (unplugging headphones shouldn't end your loop).
+        notifTokens.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                          object: engine, queue: .main) { [weak self] _ in
+            self?.reviveEngine(resumeSequencer: true, reason: "route/format change")
+        })
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        notifTokens.append(nc.addObserver(forName: AVAudioSession.interruptionNotification,
+                                          object: session, queue: .main) { [weak self] note in
+            self?.handleInterruption(note)
+        })
+        #endif
+    }
+
+    #if os(iOS)
+    private func handleInterruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            // iOS has paused us and stopped the engine — reflect a stopped transport.
+            stopMetroTimer(); isRunning = false; isPlaying = false
+        case .ended:
+            // Reactivate the session and revive the engine so the NEXT Play works. We
+            // don't auto-resume playback after a call (surprising to have the piano
+            // start on its own); the user presses Play.
+            try? AVAudioSession.sharedInstance().setActive(true)
+            reviveEngine(resumeSequencer: false, reason: "interruption ended")
+            if metronomeOn && metronomeFreeRuns { startFreeRun() }
+        @unknown default: break
+        }
+    }
+    #endif
+
+    /// Restart the engine (and click node) after it was stopped/reconfigured, resuming
+    /// the sequencer at its current position if we were mid-playback.
+    private func reviveEngine(resumeSequencer: Bool, reason: String) {
+        let resumePos = sequencer?.currentPositionInSeconds ?? startSeconds
+        let wasRunning = isRunning
+        do {
+            if !engine.isRunning { try engine.start() }
+            if !clickNode.isPlaying { clickNode.play() }
+            if resumeSequencer, wasRunning, let seq = sequencer {
+                if !seq.isPlaying { seq.currentPositionInSeconds = resumePos; try seq.start() }
+                if metronomeOn || rhythmOnly { startSynced(referenceTime: resumePos) }
+            }
+            DebugLog.shared.log("audio", "engine revived (\(reason))")
+        } catch {
+            status = "audio recovery error: \(error.localizedDescription)"
+        }
     }
 
     /// A short decaying sine "tick" rendered into a buffer once, reused per click.

@@ -608,6 +608,14 @@ final class PracticeSession: ObservableObject {
             .filter { $0.hasPrefix("loaded") }
             .sink { [weak self] _ in self?.applyPersistedLayoutToNotation() }
             .store(in: &cancellables)
+        // MIDI topology changes (plug/unplug) are rare — safe to observe (unlike
+        // `activeNotes`). Re-apply output routing (so plugging the piano in switches to
+        // it, and unplugging falls back to speakers) and refresh the "no piano" banner.
+        midi.$sources
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.applyOutput(); self?.objectWillChange.send() }
+            .store(in: &cancellables)
     }
 
     /// After the score renders (first load OR a web-process-crash recovery reload),
@@ -1042,10 +1050,24 @@ final class PracticeSession: ObservableObject {
 
     /// Apply the audio-output selection to both playback and the metronome:
     /// PC speakers audible unless "Piano" only; piano (MIDI) used for "Piano"/"Both".
+    /// Safety fallback: if "Piano" is selected but no MIDI destination is connected,
+    /// keep the speakers audible so the user isn't left in total silence (the banner
+    /// tells them why) — see `outputWarning`.
     private func applyOutput() {
-        audio.setSpeakerOutput(outputMode != 1)
-        audio.setMetronomeOutput(speakers: outputMode != 1, piano: outputMode != 0)
+        let pianoReachable = midi.hasDestination
+        let speakers = outputMode != 1 || !pianoReachable
+        audio.setSpeakerOutput(speakers)
+        audio.setMetronomeOutput(speakers: speakers, piano: outputMode != 0 && pianoReachable)
         if outputMode == 0 { flushPianoOutput() }   // leaving piano output → release notes
+    }
+
+    /// Non-nil when the user has chosen piano output but no MIDI destination exists —
+    /// surfaced as a banner so "I picked Piano and hear nothing" is never a mystery.
+    var outputWarning: String? {
+        guard outputMode != 0, !midi.hasDestination else { return nil }
+        return outputMode == 1
+            ? "No MIDI piano connected — playing through the speakers instead. Connect a device, or choose Speakers."
+            : "No MIDI piano connected — the piano half of “Both” is silent until you connect a device."
     }
 
     private func flushPianoOutput() {
