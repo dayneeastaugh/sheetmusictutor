@@ -877,10 +877,13 @@ struct SongMetaCompat {
 
 @Suite("Pass report")
 struct PassReportTests {
-    private func note(_ bar: Int, hand: Hand = .right, name: String = "C4",
+    private func note(_ bar: Int, pitch: Int = 60, hand: Hand = .right, name: String = "C4",
                       matched: Bool = true, ms: Double? = 0) -> PassReportBuilder.Note {
-        PassReportBuilder.Note(bar: bar, hand: hand, name: name, matched: matched,
+        PassReportBuilder.Note(bar: bar, pitch: pitch, hand: hand, name: name, matched: matched,
                                signedErrorMs: matched ? ms : nil)
+    }
+    private func wrong(_ bar: Int, pitch: Int = 62, name: String = "D4") -> PassReportBuilder.WrongNote {
+        PassReportBuilder.WrongNote(bar: bar, pitch: pitch, name: name)
     }
 
     @Test("per-bar aggregation: totals, misses, wrongs, timing means, rest bars")
@@ -889,7 +892,7 @@ struct PassReportTests {
             notes: [note(1, ms: 10), note(1, ms: 30),
                     note(2, name: "E4", matched: false),
                     note(4, ms: -80), note(4, ms: -40)],
-            wrongBars: [2, 2], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
+            wrongNotes: [wrong(2), wrong(2)], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
         #expect(report.bars.count == 4)
         #expect(report.bars[0].isClean && report.bars[0].meanSignedMs == 20)
         #expect(report.bars[1].missed == 1 && report.bars[1].wrong == 2
@@ -904,12 +907,12 @@ struct PassReportTests {
     func hands() {
         let both = PassReportBuilder.build(
             notes: [note(1, hand: .right, ms: 10), note(1, hand: .left, ms: -50)],
-            wrongBars: [], sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
+            wrongNotes: [], sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
         #expect(both.hands.count == 2)
         #expect(both.hands.first { $0.hand == .left }?.meanSignedMs == -50)
 
         let oneHand = PassReportBuilder.build(
-            notes: [note(1, hand: .right)], wrongBars: [],
+            notes: [note(1, hand: .right)], wrongNotes: [],
             sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
         #expect(oneHand.hands.isEmpty)
     }
@@ -918,34 +921,61 @@ struct PassReportTests {
     func wins() {
         let first = PassReportBuilder.build(
             notes: [note(1, matched: false), note(2)],
-            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
+            wrongNotes: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
         #expect(first.deltaVsPrevious == nil)
 
         let second = PassReportBuilder.build(
             notes: [note(1), note(2)],
-            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: first)
+            wrongNotes: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: first)
         #expect(second.fixedBars == [1])                          // bar 1 newly clean
         #expect(second.deltaVsPrevious == 0.5)
 
         // A different bar range must NOT compare.
         let other = PassReportBuilder.build(
-            notes: [note(3)], wrongBars: [], sectionStart: 3, sectionEnd: 3,
+            notes: [note(3)], wrongNotes: [], sectionStart: 3, sectionEnd: 3,
             tempoPct: 80, previous: second)
         #expect(other.deltaVsPrevious == nil && other.fixedBars.isEmpty)
+    }
+
+    @Test("recurring faults: consecutive streak, break resets, substitution detected")
+    func recurring() {
+        let missEb = PassFault(bar: 6, pitch: 63, kind: "missed")
+        // Missed E♭4 in the 3 most recent comparable passes + this one → streak 4.
+        let report = PassReportBuilder.build(
+            notes: [note(6, pitch: 63, name: "E♭4", matched: false), note(7, pitch: 65, name: "F4")],
+            wrongNotes: [wrong(6, pitch: 62, name: "D4")],
+            sectionStart: 6, sectionEnd: 7, tempoPct: 80, previous: nil,
+            previousFaults: [[missEb], [missEb], [missEb]])
+        #expect(report.recurring.count == 1)
+        #expect(report.recurring[0].streak == 4)
+        #expect(report.recurring[0].substitution == "you play D4 instead")   // D4 is 1 semitone off
+
+        // A pass WITHOUT the fault breaks the streak (4 of last 5 ≠ 4 in a row).
+        let broken = PassReportBuilder.build(
+            notes: [note(6, pitch: 63, name: "E♭4", matched: false)],
+            wrongNotes: [], sectionStart: 6, sectionEnd: 6, tempoPct: 80, previous: nil,
+            previousFaults: [[], [missEb], [missEb]])
+        #expect(broken.recurring.isEmpty)                                    // streak 1 < 3
+
+        // No history → nothing recurring.
+        let fresh = PassReportBuilder.build(
+            notes: [note(6, pitch: 63, name: "E♭4", matched: false)],
+            wrongNotes: [], sectionStart: 6, sectionEnd: 6, tempoPct: 80, previous: nil)
+        #expect(fresh.recurring.isEmpty)
     }
 
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(
             notes: [note(1, ms: 5), note(2, ms: -60), note(3, ms: -70), note(4, ms: 10)],
-            wrongBars: [], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
+            wrongNotes: [], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
         let hot = report.timingHotspot()
         #expect(hot?.bars == 2...3)
         #expect(hot.map { abs($0.meanMs + 65) < 0.001 } == true)  // mean of −60, −70
 
         let even = PassReportBuilder.build(
             notes: [note(1, ms: 5), note(2, ms: -10)],
-            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
+            wrongNotes: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
         #expect(even.timingHotspot() == nil)
     }
 }

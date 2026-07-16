@@ -931,23 +931,36 @@ final class PracticeSession: ObservableObject {
                 .sorted { $0.bar < $1.bar })
 
         // The report card: per-bar + per-hand + timing, with wins vs the previous
-        // comparable pass (the builder ignores `previous` if the bars differ).
+        // comparable pass (the builder ignores `previous` if the bars differ) and
+        // recurring-fault streaks vs the persisted history (incl. earlier sessions).
+        let reportNotes = matcher.expected.map {
+            PassReportBuilder.Note(bar: barForBeat($0.beat), pitch: $0.pitch, hand: $0.hand,
+                                   name: Self.noteName($0.pitch), matched: $0.matched,
+                                   signedErrorMs: $0.signedError.map { $0 * 1000 })
+        }
+        let reportWrong = wrongMarks.map {
+            PassReportBuilder.WrongNote(bar: barForBeat($0.beat), pitch: $0.pitch,
+                                        name: Self.noteName($0.pitch))
+        }
+        // Comparable = same bars, same hands, graded — most recent first. `history`
+        // hasn't had this pass appended yet, so these are strictly previous passes.
+        let comparableFaults: [[PassFault]] = history
+            .filter { $0.mode == "grade" && $0.sectionStart == sectionStart
+                      && $0.sectionEnd == sectionEnd && $0.handMode == handMode }
+            .suffix(8).reversed()
+            .map { $0.faults ?? [] }
         lastPassReport = PassReportBuilder.build(
-            notes: matcher.expected.map {
-                PassReportBuilder.Note(bar: barForBeat($0.beat), hand: $0.hand,
-                                       name: Self.noteName($0.pitch), matched: $0.matched,
-                                       signedErrorMs: $0.signedError.map { $0 * 1000 })
-            },
-            wrongBars: wrongMarks.map { barForBeat($0.beat) },
+            notes: reportNotes, wrongNotes: reportWrong,
             sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
-            previous: lastPassReport)
+            previous: lastPassReport, previousFaults: comparableFaults)
         passReportDismissed = false
 
         let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,
                                 total: t.total, hits: t.hits, missed: t.missed, wrong: t.wrong, avgMs: t.avgAbsMs,
                                 missedBars: matcher.unmatched().map { barForBeat($0.beat) },
-                                signedMs: t.meanSignedMs)
+                                signedMs: t.meanSignedMs,
+                                faults: PassReportBuilder.faults(notes: reportNotes, wrongNotes: reportWrong))
         onPassRecorded?(pass)          // persist (disk + library stats)
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up

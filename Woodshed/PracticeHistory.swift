@@ -28,9 +28,19 @@ struct PracticePass: Codable, Identifiable, Hashable {
     var avgMs: Double                   // mean |timing error| of hits
     var missedBars: [Int] = []          // 1-based bar per missed note (weights the heatmap)
     var signedMs: Double? = nil         // mean signed error (< 0 rushing, > 0 dragging); Optional for back-compat
+    /// Per-note faults (capped) — feeds recurring-fault detection ("missed E♭4 in bar
+    /// 6, 4 passes in a row"). Optional for back-compat with older history lines.
+    var faults: [PassFault]? = nil
 
     var accuracy: Double { total > 0 ? Double(hits) / Double(total) : 0 }
     var isFullPiece: Bool { sectionStart <= 1 && sectionEnd >= measureCount }
+}
+
+/// One specific fault in a pass: which bar, which pitch, missed or wrong.
+struct PassFault: Codable, Hashable {
+    var bar: Int
+    var pitch: Int
+    var kind: String                    // "missed" | "wrong"
 }
 
 /// A bar you keep missing, with how many missed notes it accumulated across passes.

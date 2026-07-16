@@ -188,6 +188,11 @@ struct PassReportCard: View {
                         .font(.caption).buttonStyle(.borderless)
                 }
             }
+            ForEach(report.recurring.prefix(2)) { r in
+                callout(icon: "repeat", tint: .red,
+                        text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
+                            + (r.substitution.map { " (\($0))" } ?? ""))
+            }
             if let hot = report.timingHotspot() {
                 let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
                     : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"

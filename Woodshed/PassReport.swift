@@ -37,6 +37,17 @@ struct PassReport {
         var accuracy: Double { total > 0 ? Double(hits) / Double(total) : 1 }
     }
 
+    /// A fault that keeps happening: the same miss/wrong note across consecutive
+    /// comparable passes. The most specific feedback the app can give.
+    struct RecurringFault: Equatable, Identifiable {
+        var bar: Int
+        var name: String                // note name, e.g. "E♭4"
+        var kind: String                // "missed" | "wrong"
+        var streak: Int                 // consecutive passes including this one
+        var substitution: String?       // "you play D4 instead" (nearby wrong note)
+        var id: String { "\(bar)-\(name)-\(kind)" }
+    }
+
     var sectionStart: Int
     var sectionEnd: Int
     var tempoPct: Double
@@ -47,6 +58,8 @@ struct PassReport {
     var deltaVsPrevious: Double?
     /// Bars clean this pass that were NOT clean the previous pass — the wins.
     var fixedBars: [Int] = []
+    /// Faults recurring across consecutive comparable passes (streak ≥ 3), worst first.
+    var recurring: [RecurringFault] = []
 
     /// Worst bar (most faults; ties → earliest), for the headline callout.
     var worstBar: BarResult? {
@@ -94,19 +107,24 @@ enum PassReportBuilder {
     /// the builder is trivially testable).
     struct Note {
         var bar: Int
+        var pitch: Int
         var hand: Hand
         var name: String
         var matched: Bool
         var signedErrorMs: Double?
     }
 
+    /// A wrong/extra note played this pass, with its pitch (substitution detection).
+    struct WrongNote { var bar: Int; var pitch: Int; var name: String }
+
     /// Assemble the report. `previous` (if over the same bar range) drives the delta
-    /// and the fixed-bars wins.
-    static func build(notes: [Note], wrongBars: [Int],
+    /// and the fixed-bars wins; `previousFaults` (most-recent-first fault lists from
+    /// comparable passes, incl. earlier sessions) drives recurring-fault streaks.
+    static func build(notes: [Note], wrongNotes: [WrongNote],
                       sectionStart: Int, sectionEnd: Int, tempoPct: Double,
-                      previous: PassReport?) -> PassReport {
+                      previous: PassReport?, previousFaults: [[PassFault]] = []) -> PassReport {
         var wrongPerBar: [Int: Int] = [:]
-        for b in wrongBars { wrongPerBar[b, default: 0] += 1 }
+        for w in wrongNotes { wrongPerBar[w.bar, default: 0] += 1 }
 
         var bars: [PassReport.BarResult] = []
         for bar in sectionStart...max(sectionStart, sectionEnd) {
@@ -151,6 +169,51 @@ enum PassReportBuilder {
         return PassReport(sectionStart: sectionStart, sectionEnd: sectionEnd,
                           tempoPct: tempoPct, accuracy: accuracy,
                           bars: bars, hands: hands,
-                          deltaVsPrevious: delta, fixedBars: fixed)
+                          deltaVsPrevious: delta, fixedBars: fixed,
+                          recurring: recurringFaults(notes: notes, wrongNotes: wrongNotes,
+                                                     previousFaults: previousFaults))
+    }
+
+    /// This pass's per-note faults, for persisting on the PracticePass record.
+    static func faults(notes: [Note], wrongNotes: [WrongNote], cap: Int = 60) -> [PassFault] {
+        let missed = notes.filter { !$0.matched }
+            .map { PassFault(bar: $0.bar, pitch: $0.pitch, kind: "missed") }
+        let wrong = wrongNotes.map { PassFault(bar: $0.bar, pitch: $0.pitch, kind: "wrong") }
+        return Array((missed + wrong).prefix(cap))
+    }
+
+    /// Faults present THIS pass that also appeared in consecutive previous passes.
+    /// Streak counts back from the most recent previous pass and breaks at the first
+    /// pass without the fault — "4 passes in a row", not "4 of the last 10".
+    private static func recurringFaults(notes: [Note], wrongNotes: [WrongNote],
+                                        previousFaults: [[PassFault]]) -> [PassReport.RecurringFault] {
+        guard !previousFaults.isEmpty else { return [] }
+        let prevSets = previousFaults.map(Set.init)
+        var out: [PassReport.RecurringFault] = []
+        var seen = Set<PassFault>()
+
+        func streak(_ f: PassFault) -> Int {
+            var n = 1
+            for set in prevSets { if set.contains(f) { n += 1 } else { break } }
+            return n
+        }
+        for n in notes where !n.matched {
+            let f = PassFault(bar: n.bar, pitch: n.pitch, kind: "missed")
+            guard !seen.contains(f), case let s = streak(f), s >= 3 else { continue }
+            seen.insert(f)
+            // A nearby wrong note in the same bar is likely what got played instead.
+            let sub = wrongNotes.first { $0.bar == n.bar && abs($0.pitch - n.pitch) <= 2 }
+            out.append(PassReport.RecurringFault(bar: n.bar, name: n.name, kind: "missed",
+                                                 streak: s,
+                                                 substitution: sub.map { "you play \($0.name) instead" }))
+        }
+        for w in wrongNotes {
+            let f = PassFault(bar: w.bar, pitch: w.pitch, kind: "wrong")
+            guard !seen.contains(f), case let s = streak(f), s >= 3 else { continue }
+            seen.insert(f)
+            out.append(PassReport.RecurringFault(bar: w.bar, name: w.name, kind: "wrong",
+                                                 streak: s, substitution: nil))
+        }
+        return out.sorted { $0.streak > $1.streak }.prefix(3).map { $0 }
     }
 }
