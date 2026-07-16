@@ -60,6 +60,24 @@ struct PassReport {
     var fixedBars: [Int] = []
     /// Faults recurring across consecutive comparable passes (streak ≥ 3), worst first.
     var recurring: [RecurringFault] = []
+    /// Scale/technique evenness (computed from what you actually played — the take),
+    /// attached for Technical Practice songs. nil = not computed / not enough notes.
+    var evenness: Evenness? = nil
+
+    /// The two things a teacher listens for in a scale: even TIMING (inter-onset
+    /// consistency) and even DYNAMICS (velocity consistency).
+    struct Evenness: Equatable {
+        var timingScore: Double        // 0…1 (1 = metronomic)
+        var dynamicScore: Double       // 0…1 (1 = perfectly level)
+        var softest: (name: String, velocity: Int)?
+        var loudest: (name: String, velocity: Int)?
+
+        static func == (a: Evenness, b: Evenness) -> Bool {
+            a.timingScore == b.timingScore && a.dynamicScore == b.dynamicScore
+                && a.softest?.velocity == b.softest?.velocity
+                && a.loudest?.velocity == b.loudest?.velocity
+        }
+    }
 
     /// Worst bar (most faults; ties → earliest), for the headline callout.
     var worstBar: BarResult? {
@@ -172,6 +190,45 @@ enum PassReportBuilder {
                           deltaVsPrevious: delta, fixedBars: fixed,
                           recurring: recurringFaults(notes: notes, wrongNotes: wrongNotes,
                                                      previousFaults: previousFaults))
+    }
+
+    /// Evenness from the notes you actually played: (pitch, onset seconds, velocity).
+    /// Chords collapse to one onset; interval outliers (the bar-line breath, the held
+    /// final note) are excluded by a median filter. nil when there's too little to
+    /// judge (< 8 onsets).
+    static func evenness(played: [(pitch: Int, onset: Double, velocity: Int)],
+                         chordEpsilon: Double = 0.01,
+                         noteName: (Int) -> String) -> PassReport.Evenness? {
+        let sorted = played.sorted { $0.onset < $1.onset }
+        var onsets: [Double] = []
+        for n in sorted where onsets.last.map({ n.onset - $0 >= chordEpsilon }) ?? true {
+            onsets.append(n.onset)
+        }
+        guard onsets.count >= 8 else { return nil }
+
+        // Timing: coefficient of variation of the inter-onset intervals, after
+        // dropping intervals wildly off the median (pauses, the final long note).
+        let iois = zip(onsets.dropFirst(), onsets).map(-)
+        let med = iois.sorted()[iois.count / 2]
+        let steady = iois.filter { $0 > med * 0.25 && $0 < med * 2.5 }
+        guard steady.count >= 6, med > 0 else { return nil }
+        let mean = steady.reduce(0, +) / Double(steady.count)
+        let variance = steady.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(steady.count)
+        let cv = mean > 0 ? (variance.squareRoot() / mean) : 1
+        let timingScore = max(0, min(1, 1 - cv * 2))       // CV 0 → 1.0, CV 0.25 → 0.5, ≥0.5 → 0
+
+        // Dynamics: velocity spread. std ~6 is very level; ~30 is all over the place.
+        let vels = sorted.map { Double($0.velocity) }
+        let vMean = vels.reduce(0, +) / Double(vels.count)
+        let vVar = vels.map { ($0 - vMean) * ($0 - vMean) }.reduce(0, +) / Double(vels.count)
+        let dynamicScore = max(0, min(1, 1 - vVar.squareRoot() / 30))
+        let soft = sorted.min { $0.velocity < $1.velocity }
+        let loud = sorted.max { $0.velocity < $1.velocity }
+
+        return PassReport.Evenness(
+            timingScore: timingScore, dynamicScore: dynamicScore,
+            softest: soft.map { (noteName($0.pitch), $0.velocity) },
+            loudest: loud.map { (noteName($0.pitch), $0.velocity) })
     }
 
     /// This pass's per-note faults, for persisting on the PracticePass record.

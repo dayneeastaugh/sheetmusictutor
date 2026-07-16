@@ -973,6 +973,14 @@ final class PracticeSession: ObservableObject {
             previous: lastPassReport, previousFaults: comparableFaults)
         passReportDismissed = false
 
+        // Scale evenness for Technical Practice: computed from the notes you actually
+        // played this pass (the take buffer, before endTakeCapture clears it).
+        if song.category == .technical {
+            lastPassReport?.evenness = PassReportBuilder.evenness(
+                played: takeNotes.map { (pitch: $0.p, onset: $0.on, velocity: $0.v) },
+                chordEpsilon: Self.chordEpsilon, noteName: Self.noteName)
+        }
+
         // Per-note timing tint for the score (applied once playback stops): hits whose
         // signed error crosses the "noticeably off" threshold. Rhythm mode is
         // pitch-agnostic, so there's no meaningful notehead to tint.

@@ -27,6 +27,7 @@ struct PassReportCard: View {
             barStrip
             if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
             if !report.hands.isEmpty { handChips }
+            if let e = report.evenness { evennessGauges(e) }
             callouts
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -164,6 +165,36 @@ struct PassReportCard: View {
             }
             Spacer()
         }
+    }
+
+    // MARK: Evenness (Technical Practice: what a teacher listens for in a scale)
+
+    private func evennessGauges(_ e: PassReport.Evenness) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            evennessRow("Rhythm evenness", score: e.timingScore)
+            evennessRow("Dynamic evenness", score: e.dynamicScore)
+            if let s = e.softest, let l = e.loudest, l.velocity - s.velocity >= 30 {
+                callout(icon: "speaker.wave.2", tint: .orange,
+                        text: "Uneven touch — softest \(s.name) (\(s.velocity)), loudest \(l.name) (\(l.velocity))")
+            }
+        }
+    }
+
+    private func evennessRow(_ label: String, score: Double) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+                .frame(width: 110, alignment: .leading)
+            ProgressView(value: score)
+                .tint(score >= 0.8 ? .green : (score >= 0.5 ? .orange : .red))
+            Text(evennessWord(score)).font(.caption2).foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .trailing)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label): \(evennessWord(score))")
+    }
+
+    private func evennessWord(_ s: Double) -> String {
+        s >= 0.8 ? "very even" : (s >= 0.5 ? "a bit uneven" : "uneven")
     }
 
     // MARK: Callouts (wins first)

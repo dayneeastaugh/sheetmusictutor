@@ -195,7 +195,11 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   line = dragging, below = rushing), **per-hand chips** (accuracy + early/late, when both hands are
   graded), and specific callouts — **wins first** ("Bar 3 fixed", "▲ +5%"), then the worst bar with
   its missed note names + a Drill button, then a timing hotspot ("you rush bars 9–10 by ~60 ms").
-  See ADR-049.
+  Recurring faults get their own callout ("bar 6: E♭4 missed — 4 passes in a row (you play D4
+  instead)") from the per-pass fault history. Technical-practice songs add two **evenness gauges**
+  (rhythm + dynamics, from what you actually played) with an uneven-touch callout. A View toggle
+  ("Timing colours after a pass") tints noteheads blue = early / orange = late once playback stops.
+  See ADR-049/050.
 - **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
   ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
   shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%

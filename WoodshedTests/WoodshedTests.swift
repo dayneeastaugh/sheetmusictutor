@@ -964,6 +964,30 @@ struct PassReportTests {
         #expect(fresh.recurring.isEmpty)
     }
 
+    @Test("evenness: metronomic + level playing scores high; sloppy scores low")
+    func evenness() {
+        func name(_ p: Int) -> String { "N\(p)" }
+        // A perfectly even 16-note scale at 4 notes/sec, all velocity 80.
+        let even = (0..<16).map { (pitch: 60 + $0, onset: Double($0) * 0.25, velocity: 80) }
+        let e1 = PassReportBuilder.evenness(played: even, noteName: name)
+        #expect(e1 != nil)
+        #expect(e1!.timingScore > 0.95 && e1!.dynamicScore > 0.9)
+
+        // Lurching timing (alternating short/long) + wild velocities.
+        var t = 0.0
+        let sloppy = (0..<16).map { i -> (pitch: Int, onset: Double, velocity: Int) in
+            t += (i % 2 == 0) ? 0.15 : 0.4
+            return (pitch: 60 + i, onset: t, velocity: i % 2 == 0 ? 40 : 110)
+        }
+        let e2 = PassReportBuilder.evenness(played: sloppy, noteName: name)
+        #expect(e2 != nil)
+        #expect(e2!.timingScore < 0.5 && e2!.dynamicScore < 0.3)
+        #expect(e2!.softest?.velocity == 40 && e2!.loudest?.velocity == 110)
+
+        // Too few notes → no judgement.
+        #expect(PassReportBuilder.evenness(played: Array(even.prefix(5)), noteName: name) == nil)
+    }
+
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(

@@ -696,6 +696,26 @@ and threw them away.
 **Deferred to later batches:** persisting per-note faults per pass (recurring-fault detection across
 passes), on-score timing tint, scale-evenness metrics from take velocities.
 
+### ADR-050 — Feedback v2 batch 2: recurring faults, timing tint, scale evenness
+**2026-07-16.** Completes the maturing-feedback plan (ADR-049 was batch 1):
+- **Recurring faults** — `PracticePass.faults: [PassFault]?` (bar/pitch/kind, capped, additive-
+  optional) persists per pass, so streaks survive sessions. The builder computes *consecutive*
+  streaks vs comparable passes (same bars + hands; break-on-miss — "4 in a row", not "4 of 10") and
+  detects **substitutions** (a wrong note ≤2 semitones from a recurring miss in the same bar → "you
+  play D4 instead"). Card shows up to 2, with a repeat icon.
+- **Timing tint** — a View toggle ("Timing colours after a pass", persisted, default off): noteheads
+  whose hit timing was ≥40 ms off tint blue (early) / orange (late), deeper past 80 ms. Applied only
+  when playback STOPS (a tint re-renders the score — never mid-loop) and cleared on the next play.
+  JS `setTimingTint` reuses `markMistakes`' notehead walk; verified against the real OSMD page in a
+  browser (colours applied and cleared correctly; overlays survive the re-render).
+- **Scale evenness** — for Technical Practice songs, `PassReportBuilder.evenness` computes the two
+  things a teacher listens for from the take buffer (what you actually played): **rhythm evenness**
+  (CV of inter-onset intervals, median-filtered so the bar-line breath and held final note don't
+  count) and **dynamic evenness** (velocity spread), shown as two gauges on the report card plus an
+  "uneven touch — softest/loudest" callout when the spread is wide. Needs ≥8 onsets to judge.
+**Rejected:** per-finger analysis (no finger data in MIDI); showing evenness for repertoire (it's a
+technique metric — expressive pieces *should* vary).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
