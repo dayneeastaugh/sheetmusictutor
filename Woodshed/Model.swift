@@ -12,7 +12,7 @@
 import Foundation
 
 /// Which hand plays a note. Comes from the MIDI track / MusicXML staff.
-enum Hand: String {
+enum Hand: String, Codable {
     case right = "RH"
     case left  = "LH"
     case unknown = "?"

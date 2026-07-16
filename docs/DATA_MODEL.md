@@ -105,6 +105,7 @@ The library is stored on disk as **self-contained per-song folders** (no databas
         sections.json      # [SavedSection] — named practice sections
         time.json          # {"YYYY-MM-DD": seconds} — active practice time per day
         takes.json         # {"start-end": Take} — best graded take per section
+        report.json        # PassReport — the most recent pass's report card (survives relaunch)
 ```
 
 - **`SongMeta`** (Codable, persisted as `metadata.json`): `id: UUID`, `title`, `composer?`,

@@ -11,10 +11,10 @@
 
 import Foundation
 
-struct PassReport {
+struct PassReport: Codable, Equatable {
     /// One bar's outcome this pass. `meanSignedMs` is the average signed timing error
     /// of the bar's HIT notes (< 0 rushing, > 0 dragging); nil when nothing was hit.
-    struct BarResult: Identifiable, Equatable {
+    struct BarResult: Identifiable, Equatable, Codable {
         var bar: Int                    // 1-based
         var total: Int                  // expected notes in this bar (0 = rest bar)
         var hits: Int
@@ -28,7 +28,7 @@ struct PassReport {
     }
 
     /// One hand's outcome (only produced when both hands were graded).
-    struct HandResult: Equatable, Identifiable {
+    struct HandResult: Equatable, Identifiable, Codable {
         var hand: Hand
         var id: String { hand.rawValue }
         var total: Int
@@ -39,7 +39,7 @@ struct PassReport {
 
     /// A fault that keeps happening: the same miss/wrong note across consecutive
     /// comparable passes. The most specific feedback the app can give.
-    struct RecurringFault: Equatable, Identifiable {
+    struct RecurringFault: Equatable, Identifiable, Codable {
         var bar: Int
         var name: String                // note name, e.g. "E♭4"
         var kind: String                // "missed" | "wrong"
@@ -48,6 +48,9 @@ struct PassReport {
         var id: String { "\(bar)-\(name)-\(kind)" }
     }
 
+    /// When the pass finished (set by the session; shown when a saved report is
+    /// reloaded on a later launch so it's clearly "last time", not "just now").
+    var date: Date? = nil
     var sectionStart: Int
     var sectionEnd: Int
     var tempoPct: Double
@@ -66,17 +69,12 @@ struct PassReport {
 
     /// The two things a teacher listens for in a scale: even TIMING (inter-onset
     /// consistency) and even DYNAMICS (velocity consistency).
-    struct Evenness: Equatable {
+    struct Evenness: Equatable, Codable {
+        struct NoteVel: Equatable, Codable { var name: String; var velocity: Int }
         var timingScore: Double        // 0…1 (1 = metronomic)
         var dynamicScore: Double       // 0…1 (1 = perfectly level)
-        var softest: (name: String, velocity: Int)?
-        var loudest: (name: String, velocity: Int)?
-
-        static func == (a: Evenness, b: Evenness) -> Bool {
-            a.timingScore == b.timingScore && a.dynamicScore == b.dynamicScore
-                && a.softest?.velocity == b.softest?.velocity
-                && a.loudest?.velocity == b.loudest?.velocity
-        }
+        var softest: NoteVel?
+        var loudest: NoteVel?
     }
 
     /// Worst bar (most faults; ties → earliest), for the headline callout.
@@ -117,6 +115,28 @@ struct PassReport {
         }
         closeRun(endingBefore: (bars.last?.bar ?? 0) + 1)
         return best
+    }
+}
+
+/// Persists the most recent pass's report per song (`report.json`, atomic rewrite —
+/// same pattern as flags/sections), so "how did my last practice go?" survives an app
+/// restart instead of living only in the session.
+enum PassReportStore {
+    static func fileURL(in folder: URL) -> URL { folder.appendingPathComponent("report.json") }
+
+    static func load(from folder: URL) -> PassReport? {
+        guard let data = try? Data(contentsOf: fileURL(in: folder)) else { return nil }
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        return try? dec.decode(PassReport.self, from: data)
+    }
+
+    static func save(_ report: PassReport, to folder: URL) {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        if let data = try? enc.encode(report) {
+            try? data.write(to: fileURL(in: folder), options: .atomic)
+        }
     }
 }
 
@@ -227,8 +247,8 @@ enum PassReportBuilder {
 
         return PassReport.Evenness(
             timingScore: timingScore, dynamicScore: dynamicScore,
-            softest: soft.map { (noteName($0.pitch), $0.velocity) },
-            loudest: loud.map { (noteName($0.pitch), $0.velocity) })
+            softest: soft.map { .init(name: noteName($0.pitch), velocity: $0.velocity) },
+            loudest: loud.map { .init(name: noteName($0.pitch), velocity: $0.velocity) })
     }
 
     /// This pass's per-note faults, for persisting on the PracticePass record.

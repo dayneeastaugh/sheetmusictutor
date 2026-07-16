@@ -197,6 +197,7 @@ final class SongLibrary: ObservableObject {
     /// Wipe a song's recorded practice history and the derived stats (for a fresh start).
     func resetProgress(for song: Song) {
         try? FileManager.default.removeItem(at: PracticeHistory.fileURL(in: song.folder))
+        try? FileManager.default.removeItem(at: PassReportStore.fileURL(in: song.folder))
         guard let idx = songs.firstIndex(where: { $0.id == song.id }) else { return }
         var meta = songs[idx].meta
         meta.lastPracticed = nil

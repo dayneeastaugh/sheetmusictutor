@@ -988,6 +988,34 @@ struct PassReportTests {
         #expect(PassReportBuilder.evenness(played: Array(even.prefix(5)), noteName: name) == nil)
     }
 
+    @Test("report persists: save/load round-trip preserves everything shown")
+    func persistence() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ws-report-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var report = PassReportBuilder.build(
+            notes: [note(1, ms: 10), note(2, pitch: 63, name: "E♭4", matched: false)],
+            wrongNotes: [wrong(2)], sectionStart: 1, sectionEnd: 2, tempoPct: 85,
+            previous: nil,
+            previousFaults: [[PassFault(bar: 2, pitch: 63, kind: "missed")],
+                             [PassFault(bar: 2, pitch: 63, kind: "missed")]])
+        report.date = Date(timeIntervalSince1970: 1_752_600_000)   // whole seconds — ISO8601 round-trips exactly
+        report.evenness = PassReport.Evenness(timingScore: 0.9, dynamicScore: 0.7,
+                                              softest: .init(name: "G3", velocity: 50),
+                                              loudest: .init(name: "C5", velocity: 96))
+        PassReportStore.save(report, to: dir)
+        let loaded = try #require(PassReportStore.load(from: dir))
+        #expect(loaded == report)
+        #expect(loaded.recurring.first?.streak == 3)
+        #expect(loaded.evenness?.loudest?.name == "C5")
+
+        // Missing / corrupt file → nil, never a crash.
+        try Data("junk".utf8).write(to: PassReportStore.fileURL(in: dir))
+        #expect(PassReportStore.load(from: dir) == nil)
+    }
+
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(

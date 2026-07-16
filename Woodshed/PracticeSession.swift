@@ -701,6 +701,7 @@ final class PracticeSession: ObservableObject {
         flags = BarFlagStore.load(from: song.folder)
         savedSections = SavedSectionStore.load(from: song.folder)
         bestTakes = TakeStore.load(from: song.folder)
+        lastPassReport = PassReportStore.load(from: song.folder)   // last practice's report card
         refreshFlagOverlay()
         loadingLayout = true                      // apply the remembered layout without re-saving it
         barsPerLine = song.meta.barsPerLine ?? 0
@@ -735,6 +736,8 @@ final class PracticeSession: ObservableObject {
     func reloadHistory() {
         history = PracticeHistory.load(from: song.folder)
         refreshTroubleOverlay()
+        // A report with no history behind it is stale (progress was reset) — drop it.
+        if history.isEmpty { lastPassReport = nil }
     }
 
     /// Push (or clear) **all** the grade-related problem marks on the score together —
@@ -967,10 +970,12 @@ final class PracticeSession: ObservableObject {
                       && $0.sectionEnd == sectionEnd && $0.handMode == handMode }
             .suffix(8).reversed()
             .map { $0.faults ?? [] }
-        lastPassReport = PassReportBuilder.build(
+        var report = PassReportBuilder.build(
             notes: reportNotes, wrongNotes: reportWrong,
             sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
             previous: lastPassReport, previousFaults: comparableFaults)
+        report.date = Date()
+        lastPassReport = report
         passReportDismissed = false
 
         // Scale evenness for Technical Practice: computed from the notes you actually
@@ -980,6 +985,9 @@ final class PracticeSession: ObservableObject {
                 played: takeNotes.map { (pitch: $0.p, onset: $0.on, velocity: $0.v) },
                 chordEpsilon: Self.chordEpsilon, noteName: Self.noteName)
         }
+        // Persist the finished report so "how did my last practice go?" survives a
+        // relaunch (loaded back in onAppear; shown with its date when it's old).
+        if let report = lastPassReport { PassReportStore.save(report, to: song.folder) }
 
         // Per-note timing tint for the score (applied once playback stops): hits whose
         // signed error crosses the "noticeably off" threshold. Rhythm mode is

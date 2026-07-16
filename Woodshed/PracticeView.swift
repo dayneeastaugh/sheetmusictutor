@@ -69,7 +69,7 @@ struct PracticeView: View {
                !session.passReportDismissed,
                session.practiceMode == .grade || session.practiceMode == .drill {
                 PassReportCard(report: report,
-                               passNumber: session.gradeHistory.count,
+                               passNumber: session.gradeHistory.isEmpty ? nil : session.gradeHistory.count,
                                onDrillBar: { session.focusBar($0) },
                                onDismiss: { session.passReportDismissed = true })
             }

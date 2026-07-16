@@ -35,11 +35,21 @@ struct PassReportCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
     }
 
+    /// "Pass 3" during a session; a reloaded report says when it's from — "Last pass ·
+    /// 16 Jul" (or just "Last pass" if it was earlier today).
+    private var title: String {
+        if let n = passNumber, n > 0 { return "Pass \(n)" }
+        if let d = report.date, !Calendar.current.isDateInToday(d) {
+            return "Last pass · " + d.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return "Last pass"
+    }
+
     // MARK: Header
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text(passNumber.map { "Pass \($0)" } ?? "Last pass").font(.caption).bold()
+            Text(title).font(.caption).bold()
             Text("bars \(report.sectionStart)–\(report.sectionEnd)")
                 .font(.caption).foregroundStyle(.secondary)
             Text("\(Int(report.accuracy * 100))%")
