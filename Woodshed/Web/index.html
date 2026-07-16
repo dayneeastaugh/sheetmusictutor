@@ -343,6 +343,40 @@
     }
     window.clearMistakes = function () { recolorAndRerender(); };
 
+    // Timing tint: colour noteheads by the pass's per-note timing — blue = early
+    // (rushing), orange = late (dragging), deeper = further off. Same notehead walk
+    // as markMistakes. entries: [[beatQuarters, midiPitch, signedMs], …].
+    window.setTimingTint = function (entries) {
+      var want = {};
+      (entries || []).forEach(function (e) { want[Math.round(e[0] * 100) + ":" + e[1]] = e[2]; });
+      applyNoteColors();   // reset to baseline first
+      var ml = osmd.graphic.measureList;
+      for (var m = 0; m < ml.length; m++) {
+        var row = ml[m]; if (!row) continue;
+        for (var s = 0; s < row.length; s++) {
+          var gm = row[s]; if (!gm || !gm.staffEntries) continue;
+          gm.staffEntries.forEach(function (se) {
+            var sse = se.sourceStaffEntry;
+            if (!sse || !sse.AbsoluteTimestamp) return;
+            var key0 = Math.round(sse.AbsoluteTimestamp.RealValue * 4 * 100);
+            (se.graphicalVoiceEntries || []).forEach(function (gve) {
+              (gve.notes || []).forEach(function (n) {
+                var sn = n.sourceNote;
+                if (!sn || sn.halfTone == null) return;
+                var ms = want[key0 + ":" + (sn.halfTone + 12)];
+                if (ms === undefined) return;
+                var strong = Math.abs(ms) >= 80;
+                sn.NoteheadColor = ms < 0 ? (strong ? "#0D47A1" : "#5E92CC")
+                                          : (strong ? "#BF360C" : "#EF9A55");
+              });
+            });
+          });
+        }
+      }
+      recolorAndRerenderKeepingColors();
+    };
+    window.clearTimingTint = function () { recolorAndRerender(); };
+
     // --- Section selection (drag bars on the score to set the practice loop) ---
     // A translucent overlay highlights the selected bars without obscuring the notes.
     var measRects = [], selStart = 0, selEnd = 0;   // bars are 1-based; 0 = no selection

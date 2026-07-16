@@ -561,6 +561,8 @@ struct PracticeView: View {
                 Toggle("Highlight score notes", isOn: $session.showScoreNotes)
                 Toggle("Problem marks on score", isOn: $session.showTroubleOnScore)
                     .help("Show trouble bars (amber), missed notes, and wrong notes on the score")
+                Toggle("Timing colours after a pass", isOn: $session.timingTintOnScore)
+                    .help("When a graded pass ends, tint noteheads by your timing — blue = early (rushing), orange = late (dragging); deeper = further off")
                 Toggle("Colour hands", isOn: $session.colorHands)
                 Toggle("Show keyboard", isOn: $keyboardVisible)
             }

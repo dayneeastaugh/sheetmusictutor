@@ -121,6 +121,16 @@ final class NotationBridge: ObservableObject {
         run("window.markWrong([\(js)])")
     }
 
+    /// Colour noteheads by the finished pass's per-note timing (blue = early/rushing,
+    /// orange = late/dragging; deeper = further off). `triples` = (beat, pitch, ms).
+    func setTimingTint(_ triples: [(beat: Double, pitch: Int, ms: Double)]) {
+        let js = triples.map { "[\($0.beat),\($0.pitch),\(Int($0.ms))]" }.joined(separator: ",")
+        run("window.setTimingTint([\(js)])")
+    }
+    func clearTimingTint() {
+        run("window.clearTimingTint()")
+    }
+
     /// Tint whole bars amber as "still needs work" trouble spots (1-based bar numbers).
     func setTroubleBars(_ bars: [Int]) {
         let js = bars.map(String.init).joined(separator: ",")

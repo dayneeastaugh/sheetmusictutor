@@ -588,6 +588,24 @@ final class PracticeSession: ObservableObject {
     @Published var showTroubleOnScore = AppSettings.showTroubleOnScore {   // amber-tint trouble bars on the score
         didSet { refreshTroubleOverlay(); AppSettings.showTroubleOnScore = showTroubleOnScore }
     }
+    /// Colour noteheads by the finished pass's timing (blue early / orange late).
+    @Published var timingTintOnScore = AppSettings.timingTintOnScore {
+        didSet {
+            AppSettings.timingTintOnScore = timingTintOnScore
+            if timingTintOnScore { applyTimingTintIfPending() }
+            else if timingTintShown { bridge.clearTimingTint(); timingTintShown = false }
+        }
+    }
+    /// The finished pass's (beat, pitch, ms) hits past the tint threshold — applied to
+    /// the score when playback stops (a tint re-renders, so never mid-loop).
+    private var pendingTimingTint: [(beat: Double, pitch: Int, ms: Double)] = []
+    private var timingTintShown = false
+
+    private func applyTimingTintIfPending() {
+        guard timingTintOnScore, !audio.isPlaying, !pendingTimingTint.isEmpty else { return }
+        bridge.setTimingTint(pendingTimingTint)
+        timingTintShown = true
+    }
     /// Bars that still need work ("clear as you improve"), derived from `history`.
     var currentTroubleBars: [TroubleBar] { PracticeHistory.currentTroubleBars(history) }
 
@@ -954,6 +972,14 @@ final class PracticeSession: ObservableObject {
             sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
             previous: lastPassReport, previousFaults: comparableFaults)
         passReportDismissed = false
+
+        // Per-note timing tint for the score (applied once playback stops): hits whose
+        // signed error crosses the "noticeably off" threshold. Rhythm mode is
+        // pitch-agnostic, so there's no meaningful notehead to tint.
+        pendingTimingTint = rhythmMode ? [] : matcher.expected.compactMap {
+            guard let err = $0.signedError, abs(err) * 1000 >= 40 else { return nil }
+            return (beat: $0.beat, pitch: $0.pitch, ms: err * 1000)
+        }
 
         let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,
@@ -1379,6 +1405,10 @@ final class PracticeSession: ObservableObject {
     /// FIRST so a completed pass's take closes with its accuracy; the nil-accuracy
     /// close is the fallback for ungraded/abandoned stops.
     func playingChanged(_ was: Bool, _ now: Bool) {
+        if now, timingTintShown {          // starting playback — drop the stale tint
+            bridge.clearTimingTint()
+            timingTintShown = false
+        }
         guard was && !now else { return }
         flushPracticeTime()
         if gradeMode {
@@ -1392,6 +1422,7 @@ final class PracticeSession: ObservableObject {
             }
         }
         endTakeCapture(accuracy: nil)
+        applyTimingTintIfPending()         // playback stopped — show the pass's timing
     }
 
     // MARK: - Transport (reset · step a bar · play)

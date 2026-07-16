@@ -55,6 +55,7 @@ enum AppSettings {
         static let speedThreshold = "pref.speedThreshold"
         static let speedPassesPerStep = "pref.speedPassesPerStep"
         static let handsProgression = "pref.handsProgression"
+        static let timingTintOnScore = "pref.timingTintOnScore"
     }
 
     // View
@@ -62,6 +63,9 @@ enum AppSettings {
     static var colorHands: Bool { get { d.bool(forKey: Key.colorHands) } set { d.set(newValue, forKey: Key.colorHands) } }
     static var showScoreNotes: Bool { get { d.bool(forKey: Key.showScoreNotes) } set { d.set(newValue, forKey: Key.showScoreNotes) } }
     static var showTroubleOnScore: Bool { get { d.bool(forKey: Key.showTroubleOnScore) } set { d.set(newValue, forKey: Key.showTroubleOnScore) } }
+    /// Colour noteheads by the finished pass's timing (blue early / orange late). Off
+    /// by default — it re-renders the score after each pass, and not everyone wants it.
+    static var timingTintOnScore: Bool { get { d.bool(forKey: Key.timingTintOnScore) } set { d.set(newValue, forKey: Key.timingTintOnScore) } }
     /// The key PracticeView's @AppStorage("pref.keyboardVisible") binds to.
     static let keyboardVisibleKey = Key.keyboardVisible
 
