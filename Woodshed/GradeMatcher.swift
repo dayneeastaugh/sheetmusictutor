@@ -19,7 +19,9 @@ struct GradeMatcher {
         let pitch: Int
         let onset: Double      // musical seconds (same clock as playback)
         let beat: Double       // notated beat, for on-score marks
+        let hand: Hand         // who plays it — feeds the per-hand pass report
         var matched = false
+        var signedError: Double? = nil   // seconds, set on match (+ late, − early)
     }
 
     /// End-of-pass tally.
@@ -43,13 +45,20 @@ struct GradeMatcher {
     private(set) var signedErrors: [Double] = []  // seconds; one per hit
     private var checkIdx = 0                      // expected notes before this have closed windows
 
-    init(expected: [(pitch: Int, onset: Double, beat: Double)], tolerance: Double,
+    init(expected: [(pitch: Int, onset: Double, beat: Double, hand: Hand)], tolerance: Double,
          pitchAgnostic: Bool = false) {
         self.expected = expected
             .sorted { $0.onset < $1.onset }
-            .map { ExpectedNote(pitch: $0.pitch, onset: $0.onset, beat: $0.beat) }
+            .map { ExpectedNote(pitch: $0.pitch, onset: $0.onset, beat: $0.beat, hand: $0.hand) }
         self.tolerance = tolerance
         self.pitchAgnostic = pitchAgnostic
+    }
+
+    /// Hand-less convenience (tests, rhythm mode) — everything lands on `.unknown`.
+    init(expected: [(pitch: Int, onset: Double, beat: Double)], tolerance: Double,
+         pitchAgnostic: Bool = false) {
+        self.init(expected: expected.map { ($0.pitch, $0.onset, $0.beat, Hand.unknown) },
+                  tolerance: tolerance, pitchAgnostic: pitchAgnostic)
     }
 
     /// A live note-on at playback time `t`: match it to the nearest unmatched
@@ -69,6 +78,7 @@ struct GradeMatcher {
         }
         if best >= 0 {
             expected[best].matched = true
+            expected[best].signedError = t - expected[best].onset   // kept per-note for the report
             hits += 1
             signedErrors.append(t - expected[best].onset)   // + late, − early
             return true

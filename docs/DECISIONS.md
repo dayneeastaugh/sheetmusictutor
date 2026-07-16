@@ -677,6 +677,25 @@ failures surface** — `writeMeta` no longer swallows errors with `try?`; a fail
 (no session object), and the Progress tab's live "Today" + the new streak already surface the recap;
 revisit if a distinct moment proves wanted.
 
+### ADR-049 — Pass report card: per-bar, per-hand, timing lane, wins (feedback v2, batch 1)
+**2026-07-16.** Grading said *how well* (four aggregates) but not *where*, *which hand*, or *what
+specifically* — and it was all fault-focused. The matcher had the per-note answers at finalize time
+and threw them away.
+- **`GradeMatcher`** now retains per-note results: `ExpectedNote` gains `hand` (a new init overload;
+  the hand-less one remains for tests/rhythm) and `signedError` (set on match).
+- **`PassReport`** (pure, unit-tested `PassReportBuilder`): per-bar totals/hits/wrongs/mean signed
+  timing + missed note names; per-hand accuracy + timing (only when both hands graded); **wins** —
+  accuracy delta and `fixedBars` (clean now, not clean last pass) computed only against a previous
+  pass over the *same* bars; `worstBar` and a `timingHotspot` (largest same-direction run of per-bar
+  timing means ≥ 40 ms) for callouts.
+- **`PassReportCard`**: bar strip (green/amber/red, rest bars grey, fixed bars outlined, tap → drill),
+  a timing lane (above line = dragging, below = rushing), hand chips, and callouts with wins FIRST
+  (PRD: encouraging, never punitive). Shown under the header when a graded pass finishes and playback
+  stops (dismissible; not mid-loop — the drill bar covers live feedback), and permanently in the
+  Progress tab.
+**Deferred to later batches:** persisting per-note faults per pass (recurring-fault detection across
+passes), on-score timing tint, scale-evenness metrics from take velocities.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

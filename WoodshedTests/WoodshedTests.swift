@@ -873,6 +873,83 @@ struct SongMetaCompat {
     }
 }
 
+// MARK: - Pass report (per-bar / per-hand / timing / wins)
+
+@Suite("Pass report")
+struct PassReportTests {
+    private func note(_ bar: Int, hand: Hand = .right, name: String = "C4",
+                      matched: Bool = true, ms: Double? = 0) -> PassReportBuilder.Note {
+        PassReportBuilder.Note(bar: bar, hand: hand, name: name, matched: matched,
+                               signedErrorMs: matched ? ms : nil)
+    }
+
+    @Test("per-bar aggregation: totals, misses, wrongs, timing means, rest bars")
+    func bars() {
+        let report = PassReportBuilder.build(
+            notes: [note(1, ms: 10), note(1, ms: 30),
+                    note(2, name: "E4", matched: false),
+                    note(4, ms: -80), note(4, ms: -40)],
+            wrongBars: [2, 2], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
+        #expect(report.bars.count == 4)
+        #expect(report.bars[0].isClean && report.bars[0].meanSignedMs == 20)
+        #expect(report.bars[1].missed == 1 && report.bars[1].wrong == 2
+                && report.bars[1].missedNames == ["E4"])
+        #expect(report.bars[2].total == 0)                       // rest bar
+        #expect(report.bars[3].meanSignedMs == -60)              // rushing
+        #expect(report.worstBar?.bar == 2)
+        #expect(report.accuracy == 0.8)                          // 4 of 5
+    }
+
+    @Test("hands split only when both hands are graded; means are per hand")
+    func hands() {
+        let both = PassReportBuilder.build(
+            notes: [note(1, hand: .right, ms: 10), note(1, hand: .left, ms: -50)],
+            wrongBars: [], sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
+        #expect(both.hands.count == 2)
+        #expect(both.hands.first { $0.hand == .left }?.meanSignedMs == -50)
+
+        let oneHand = PassReportBuilder.build(
+            notes: [note(1, hand: .right)], wrongBars: [],
+            sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
+        #expect(oneHand.hands.isEmpty)
+    }
+
+    @Test("wins: delta + fixed bars vs a previous pass over the same bars only")
+    func wins() {
+        let first = PassReportBuilder.build(
+            notes: [note(1, matched: false), note(2)],
+            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
+        #expect(first.deltaVsPrevious == nil)
+
+        let second = PassReportBuilder.build(
+            notes: [note(1), note(2)],
+            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: first)
+        #expect(second.fixedBars == [1])                          // bar 1 newly clean
+        #expect(second.deltaVsPrevious == 0.5)
+
+        // A different bar range must NOT compare.
+        let other = PassReportBuilder.build(
+            notes: [note(3)], wrongBars: [], sectionStart: 3, sectionEnd: 3,
+            tempoPct: 80, previous: second)
+        #expect(other.deltaVsPrevious == nil && other.fixedBars.isEmpty)
+    }
+
+    @Test("timing hotspot finds the consistent run and ignores even playing")
+    func hotspot() {
+        let report = PassReportBuilder.build(
+            notes: [note(1, ms: 5), note(2, ms: -60), note(3, ms: -70), note(4, ms: 10)],
+            wrongBars: [], sectionStart: 1, sectionEnd: 4, tempoPct: 80, previous: nil)
+        let hot = report.timingHotspot()
+        #expect(hot?.bars == 2...3)
+        #expect(hot.map { abs($0.meanMs + 65) < 0.001 } == true)  // mean of −60, −70
+
+        let even = PassReportBuilder.build(
+            notes: [note(1, ms: 5), note(2, ms: -10)],
+            wrongBars: [], sectionStart: 1, sectionEnd: 2, tempoPct: 80, previous: nil)
+        #expect(even.timingHotspot() == nil)
+    }
+}
+
 // MARK: - Session lifecycle (song switch must tear the old session down)
 
 @Suite("Session lifecycle")

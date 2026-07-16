@@ -834,17 +834,18 @@ final class PracticeSession: ObservableObject {
 
     /// The section's expected notes (selected hands) for grading. In rhythm mode
     /// chords collapse to ONE expected tap per onset (timing is graded, not pitch).
-    private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double)] {
+    private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double, hand: Hand)] {
         guard let events = score?.events else { return [] }
         let (rhOn, lhOn) = handsOn
         let notes = events
             .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
-            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat) }
+            .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat, hand: $0.hand) }
         guard rhythmMode else { return notes }
-        var collapsed: [(pitch: Int, onset: Double, beat: Double)] = []
+        // Rhythm mode collapses chords to one tap — a merged onset has no single hand.
+        var collapsed: [(pitch: Int, onset: Double, beat: Double, hand: Hand)] = []
         for n in notes.sorted(by: { $0.onset < $1.onset }) {
             if let last = collapsed.last, abs(last.onset - n.onset) < Self.chordEpsilon { continue }   // same chord
-            collapsed.append(n)
+            collapsed.append((n.pitch, n.onset, n.beat, .unknown))
         }
         return collapsed
     }
@@ -897,6 +898,10 @@ final class PracticeSession: ObservableObject {
     struct PassDetail { var accuracy: Double; var missed: [NoteFault]; var wrong: [NoteFault] }
     /// The most recent completed pass, broken down note-by-note (this session only).
     @Published private(set) var lastPassDetail: PassDetail?
+    /// The post-pass report card (per-bar, per-hand, timing, wins) — this session only.
+    @Published private(set) var lastPassReport: PassReport?
+    /// The user dismissed the on-screen card (cleared when a new pass starts).
+    @Published var passReportDismissed = false
 
     /// MIDI pitch → note name (C♯5 etc.), matching the on-score wrong-note labels.
     static func noteName(_ p: Int) -> String {
@@ -924,6 +929,19 @@ final class PracticeSession: ObservableObject {
                 .sorted { $0.bar < $1.bar },
             wrong: wrongMarks.map { NoteFault(bar: barForBeat($0.beat), name: Self.noteName($0.pitch)) }
                 .sorted { $0.bar < $1.bar })
+
+        // The report card: per-bar + per-hand + timing, with wins vs the previous
+        // comparable pass (the builder ignores `previous` if the bars differ).
+        lastPassReport = PassReportBuilder.build(
+            notes: matcher.expected.map {
+                PassReportBuilder.Note(bar: barForBeat($0.beat), hand: $0.hand,
+                                       name: Self.noteName($0.pitch), matched: $0.matched,
+                                       signedErrorMs: $0.signedError.map { $0 * 1000 })
+            },
+            wrongBars: wrongMarks.map { barForBeat($0.beat) },
+            sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
+            previous: lastPassReport)
+        passReportDismissed = false
 
         let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,

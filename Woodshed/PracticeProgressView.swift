@@ -19,6 +19,8 @@ struct ProgressPanel: View {
     var practicedToday: Double = 0
     /// The most recent pass broken down note-by-note (this session), for the summary.
     var lastPassDetail: PracticeSession.PassDetail? = nil
+    /// The most recent pass's full report card (this session).
+    var lastPassReport: PassReport? = nil
     /// Focus the practice section on a bar (drill a trouble spot).
     let onDrillBar: (Int) -> Void
     /// Recall a named section (tap a mastery-grid cell to drill that scale).
@@ -42,6 +44,9 @@ struct ProgressPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     statRow
+                    if let report = lastPassReport {
+                        PassReportCard(report: report, onDrillBar: onDrillBar)
+                    }
                     lastPassSection
                     if sections.count >= 2 { masterySection }
                     trendSection

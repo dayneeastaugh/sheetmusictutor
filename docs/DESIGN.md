@@ -189,6 +189,13 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
 - **A pass is recorded once, on completion** — reaching the section end (each loop, or the single
   play-through). Stopping early **abandons** the partial pass (it isn't recorded), so the history and
   trend only reflect passes you actually finished.
+- **Pass report card** (once a graded pass finishes and playback stops; dismissible, and always in the
+  Progress tab): a **per-bar strip** (green clean / amber rough / red bad, rest bars grey; bars fixed
+  since the last pass outlined green; **tap a bar to drill it**), a **per-bar timing lane** (above the
+  line = dragging, below = rushing), **per-hand chips** (accuracy + early/late, when both hands are
+  graded), and specific callouts — **wins first** ("Bar 3 fixed", "▲ +5%"), then the worst bar with
+  its missed note names + a Drill button, then a timing hotspot ("you rush bars 9–10 by ~60 ms").
+  See ADR-049.
 - **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
   ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
   shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%
