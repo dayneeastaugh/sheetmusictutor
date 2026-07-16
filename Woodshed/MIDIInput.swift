@@ -172,8 +172,13 @@ final class MIDIInput: ObservableObject {
             DebugLog.shared.log("midi", "#\(instanceId) \(vanished.count) source(s) vanished → clearing held notes")
             if !activeNotes.isEmpty { activeNotes = [] }   // drop stuck notes
         }
-        sources = names
-        DebugLog.shared.log("midi", "#\(instanceId) sources (\(names.count)): \(names.joined(separator: ", "))")
+        // macOS fires the setup-changed notification several times per connect — only
+        // publish/log when the source list actually changed, so the diagnostic log
+        // stays clean and the session's output reconciliation isn't re-run needlessly.
+        if names != sources {
+            DebugLog.shared.log("midi", "#\(instanceId) sources (\(names.count)): \(names.joined(separator: ", "))")
+            sources = names
+        }
         status = names.isEmpty
             ? "No MIDI input detected — connect a piano (USB/Bluetooth)"
             : "Connected: \(names.joined(separator: ", "))"
