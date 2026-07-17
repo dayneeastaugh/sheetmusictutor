@@ -66,6 +66,30 @@ struct PassReport: Codable, Equatable {
     /// Scale/technique evenness (computed from what you actually played — the take),
     /// attached for Technical Practice songs. nil = not computed / not enough notes.
     var evenness: Evenness? = nil
+    /// Mean struck velocity per hand — the balance a teacher listens for ("the left
+    /// hand is burying the melody"). nil unless both hands played enough notes.
+    var balance: Balance? = nil
+    /// Bar spans where the sustain pedal never lifted across ≥2 barlines (the muddy-
+    /// pedal proxy: pianists lift at least at harmony changes).
+    var pedalHolds: [ClosedRange<Int>] = []
+    /// Tempo drift across the pass, % (negative = you sped up / finished faster).
+    /// From the least-squares slope of hit timing errors over time. nil = not enough data.
+    var tempoDriftPct: Double? = nil
+    /// One teacher-style tip derived from the error PATTERN (scattered = too fast;
+    /// recurring = fix notes slowly first). nil when there's nothing worth saying.
+    var advice: String? = nil
+    /// The most-rolled expected chord this pass (bar + onset spread in ms), when the
+    /// spread is audible — "strike together" feedback the tolerance window hides.
+    var worstChordSpread: ChordSpread? = nil
+    /// True when this accuracy beats every prior comparable pass (≥3 on record).
+    var personalBest: Bool = false
+
+    struct Balance: Equatable, Codable {
+        var rhMeanVelocity: Double
+        var lhMeanVelocity: Double
+        var lhLouderBy: Double { lhMeanVelocity - rhMeanVelocity }
+    }
+    struct ChordSpread: Equatable, Codable { var bar: Int; var ms: Double }
 
     /// The two things a teacher listens for in a scale: even TIMING (inter-onset
     /// consistency) and even DYNAMICS (velocity consistency).
@@ -150,6 +174,7 @@ enum PassReportBuilder {
         var name: String
         var matched: Bool
         var signedErrorMs: Double?
+        var onset: Double? = nil       // musical seconds — drift + chord-spread analysis
     }
 
     /// A wrong/extra note played this pass, with its pitch (substitution detection).
@@ -160,7 +185,8 @@ enum PassReportBuilder {
     /// comparable passes, incl. earlier sessions) drives recurring-fault streaks.
     static func build(notes: [Note], wrongNotes: [WrongNote],
                       sectionStart: Int, sectionEnd: Int, tempoPct: Double,
-                      previous: PassReport?, previousFaults: [[PassFault]] = []) -> PassReport {
+                      previous: PassReport?, previousFaults: [[PassFault]] = [],
+                      priorAccuracies: [Double] = []) -> PassReport {
         var wrongPerBar: [Int: Int] = [:]
         for w in wrongNotes { wrongPerBar[w.bar, default: 0] += 1 }
 
@@ -204,12 +230,118 @@ enum PassReportBuilder {
             fixed = bars.filter { $0.isClean && $0.total > 0 && !previouslyClean.contains($0.bar) }.map(\.bar)
         }
 
-        return PassReport(sectionStart: sectionStart, sectionEnd: sectionEnd,
-                          tempoPct: tempoPct, accuracy: accuracy,
-                          bars: bars, hands: hands,
-                          deltaVsPrevious: delta, fixedBars: fixed,
-                          recurring: recurringFaults(notes: notes, wrongNotes: wrongNotes,
-                                                     previousFaults: previousFaults))
+        let recurring = recurringFaults(notes: notes, wrongNotes: wrongNotes,
+                                        previousFaults: previousFaults)
+        var report = PassReport(sectionStart: sectionStart, sectionEnd: sectionEnd,
+                                tempoPct: tempoPct, accuracy: accuracy,
+                                bars: bars, hands: hands,
+                                deltaVsPrevious: delta, fixedBars: fixed,
+                                recurring: recurring)
+        report.tempoDriftPct = tempoDrift(notes: notes)
+        report.worstChordSpread = chordSpread(notes: notes)
+        report.advice = advice(notes: notes, wrongNotes: wrongNotes, recurring: recurring)
+        report.personalBest = priorAccuracies.count >= 3 && total > 0
+            && accuracy > (priorAccuracies.max() ?? 1)
+        return report
+    }
+
+    /// Tempo drift: least-squares slope of hit timing errors over musical time.
+    /// error(t) ≈ (r−1)·t + c where r = your tempo / reference tempo, so the slope
+    /// IS the drift ratio. Robust to a fixed offset (consistently early ≠ speeding up).
+    static func tempoDrift(notes: [Note]) -> Double? {
+        let pts = notes.compactMap { n -> (x: Double, y: Double)? in
+            guard n.matched, let ms = n.signedErrorMs, let t = n.onset else { return nil }
+            return (t, ms / 1000)
+        }
+        guard pts.count >= 10, let first = pts.map(\.x).min(), let last = pts.map(\.x).max(),
+              last - first >= 8 else { return nil }
+        let mx = pts.map(\.x).reduce(0, +) / Double(pts.count)
+        let my = pts.map(\.y).reduce(0, +) / Double(pts.count)
+        let varX = pts.map { ($0.x - mx) * ($0.x - mx) }.reduce(0, +)
+        guard varX > 0 else { return nil }
+        let cov = pts.map { ($0.x - mx) * ($0.y - my) }.reduce(0, +)
+        return (cov / varX) * 100   // % — negative = getting earlier = speeding up
+    }
+
+    /// The most-rolled written chord: expected notes sharing an onset whose matched
+    /// strike times spread audibly (the ± tolerance window otherwise hides a roll).
+    static func chordSpread(notes: [Note], chordEpsilon: Double = 0.02) -> PassReport.ChordSpread? {
+        let hits = notes.filter { $0.matched && $0.onset != nil && $0.signedErrorMs != nil }
+            .sorted { $0.onset! < $1.onset! }
+        var worst: PassReport.ChordSpread? = nil
+        var group: [Note] = []
+        func flush() {
+            if group.count >= 2 {
+                let times = group.map { $0.signedErrorMs! }
+                let spread = times.max()! - times.min()!
+                if spread >= 60, spread > (worst?.ms ?? 0) {
+                    worst = .init(bar: group[0].bar, ms: spread)
+                }
+            }
+            group = []
+        }
+        for n in hits {
+            if let lastOnset = group.last?.onset, n.onset! - lastOnset >= chordEpsilon { flush() }
+            group.append(n)
+        }
+        flush()
+        return worst
+    }
+
+    /// The teacher's tip, from the error PATTERN: repeated same-spot faults mean fix
+    /// the notes slowly; scattered one-offs mean the tempo is simply too high.
+    private static func advice(notes: [Note], wrongNotes: [WrongNote],
+                               recurring: [PassReport.RecurringFault]) -> String? {
+        let faults = notes.filter { !$0.matched }.count + wrongNotes.count
+        if recurring.count >= 2 {
+            return "The same spots miss every pass — fix the notes slowly (check the fingering) before adding speed."
+        }
+        if faults >= 6 && recurring.isEmpty {
+            return "These errors are scattered one-offs — usually the tempo is too high. Drop ~15% and re-run."
+        }
+        return nil
+    }
+
+    /// Mean struck velocity per hand. Played notes are attributed to a hand via the
+    /// nearest same-pitch expected note within tolerance (wrong notes don't count).
+    static func balance(played: [(pitch: Int, onset: Double, velocity: Int)],
+                        expected: [(pitch: Int, onset: Double, hand: Hand)],
+                        tolerance: Double) -> PassReport.Balance? {
+        var rh: [Double] = [], lh: [Double] = []
+        for p in played {
+            let e = expected
+                .filter { $0.pitch == p.pitch && abs($0.onset - p.onset) <= tolerance }
+                .min { abs($0.onset - p.onset) < abs($1.onset - p.onset) }
+            switch e?.hand {
+            case .right: rh.append(Double(p.velocity))
+            case .left: lh.append(Double(p.velocity))
+            default: break
+            }
+        }
+        guard rh.count >= 5, lh.count >= 5 else { return nil }
+        return .init(rhMeanVelocity: rh.reduce(0, +) / Double(rh.count),
+                     lhMeanVelocity: lh.reduce(0, +) / Double(lh.count))
+    }
+
+    /// Bar spans where the pedal stayed down across ≥2 consecutive barlines.
+    /// `barTimes` = each interior barline as (bar it starts, its time).
+    static func pedalHolds(pedal: [(t: Double, down: Bool)],
+                           barTimes: [(bar: Int, t: Double)]) -> [ClosedRange<Int>] {
+        var holds: [ClosedRange<Int>] = []
+        var isDown = false, downSince = 0.0
+        var events = pedal.sorted { $0.t < $1.t }
+        events.append((t: .greatestFiniteMagnitude, down: false))   // close a hold still open
+        for e in events {
+            if e.down && !isDown { isDown = true; downSince = e.t }
+            else if !e.down && isDown {
+                isDown = false
+                let crossed = barTimes.filter { $0.t > downSince && $0.t < e.t }.map(\.bar)
+                if crossed.count >= 2, let f = crossed.first, let l = crossed.last {
+                    holds.append((f - 1)...l)   // the hold began in the bar before the first line
+                }
+            }
+        }
+        return holds
     }
 
     /// Evenness from the notes you actually played: (pitch, onset seconds, velocity).

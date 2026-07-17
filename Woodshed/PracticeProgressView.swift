@@ -28,6 +28,8 @@ struct ProgressPanel: View {
     /// Non-nil in the narrow inspector: shows an "Expand" button that opens the
     /// full-size progress sheet (the card/heatmap are designed for width).
     var onExpand: (() -> Void)? = nil
+    /// Focus a bar AND drop the tempo ~30% with a ramp back (the remediation drill).
+    var onDrillSlow: ((Int) -> Void)? = nil
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
@@ -55,8 +57,9 @@ struct ProgressPanel: View {
                         .help("Open a full-size view — the report card and heatmap are easier to read wide")
                     }
                     statRow
+                    suggestedFocus
                     if let report = lastPassReport {
-                        PassReportCard(report: report, onDrillBar: onDrillBar)
+                        PassReportCard(report: report, onDrillBar: onDrillBar, onDrillSlow: onDrillSlow)
                     }
                     lastPassSection
                     if sections.count >= 2 { masterySection }
@@ -77,6 +80,41 @@ struct ProgressPanel: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This permanently clears every recorded pass, the trend, trouble spots, and best score for this song.")
+            }
+        }
+    }
+
+    // MARK: - Suggested focus (turn the data into a teacher's session plan)
+
+    /// Up to three prescriptions, teacher-ordered: fix the worst spot slowly, call out
+    /// neglected trouble (you practise what you can already play), finish with a run.
+    @ViewBuilder
+    private var suggestedFocus: some View {
+        if passes.count >= 3 {
+            let coverage = PracticeHistory.coverage(passes)
+            let maxCov = coverage.values.max() ?? 0
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Suggested focus").font(.headline)
+                if let worst = trouble.first {
+                    Button {
+                        (onDrillSlow ?? onDrillBar)(worst.bar)
+                    } label: {
+                        Label("Drill bar \(worst.bar) slowly — your top trouble spot (\(worst.misses) misses)",
+                              systemImage: "target")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if let neglected = trouble.first(where: { (coverage[$0.bar] ?? 0) * 3 < maxCov }) {
+                    Label("Bar \(neglected.bar) is weak but rarely practised (\(coverage[neglected.bar] ?? 0)× vs \(maxCov)× elsewhere) — don't just replay what already works",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if !passes.contains(where: { $0.isFullPiece && Calendar.current.isDateInToday($0.date) }) {
+                    Label("Finish with one full run-through to bank today's trend point",
+                          systemImage: "flag.checkered")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
     }

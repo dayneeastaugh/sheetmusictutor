@@ -21,6 +21,9 @@ final class MIDIInput: ObservableObject {
     @Published var activeNotes: Set<Int> = []
     /// Called on the main queue for every note-on with its velocity (take capture).
     var onNoteOn: ((_ pitch: Int, _ velocity: Int) -> Void)?
+    /// Called on the main queue when the player's sustain pedal (CC64) moves —
+    /// feeds the muddy-pedal analysis. true = down.
+    var onPedal: ((_ down: Bool) -> Void)?
     /// Human-readable connection status for the UI.
     @Published var status: String = "Starting MIDI…"
     /// Names of connected input sources.
@@ -215,6 +218,10 @@ final class MIDIInput: ObservableObject {
         switch status & 0xF0 {
         case 0x90 where velocity > 0: noteOn(note, velocity: velocity)
         case 0x80, 0x90:              noteOff(note)   // 0x80, or note-on with velocity 0
+        case 0xB0 where note == 64:                    // your sustain pedal (data1 = controller)
+            let down = velocity >= 64                  // data2 = value
+            DebugLog.shared.log("midi", "#\(instanceId) pedal \(down ? "down" : "up")")
+            DispatchQueue.main.async { [weak self] in self?.onPedal?(down) }
         default: break
         }
     }

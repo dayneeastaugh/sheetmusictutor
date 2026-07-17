@@ -458,6 +458,8 @@ final class PracticeSession: ObservableObject {
     private var takeNotes: [TakeNote] = []
     private var takeStart: Double = 0                             // musical time the take began
     private var capturing = false
+    private var takePedal: [(t: Double, down: Bool)] = []         // your CC64 during the pass
+    private var pedalIsDown = false                               // live pedal state (input side)
     // Replay: a merged on/off event stream driven from the shared 50 Hz tick.
     private var replayEvents: [(t: Double, p: Int, v: Int, isOn: Bool)] = []
     private var replayIdx = 0
@@ -472,6 +474,9 @@ final class PracticeSession: ObservableObject {
         takeOpen = [:]
         takeNotes = []
         takeStart = audio.startSeconds
+        // Seed the pedal timeline with the live state, so a pedal already down when
+        // the pass starts still counts toward a held span.
+        takePedal = pedalIsDown ? [(t: 0, down: true)] : []
     }
 
     /// Close the capture into `lastTake` (and persist it if it's the best graded
@@ -691,6 +696,11 @@ final class PracticeSession: ObservableObject {
         bridge.onDeselect = { [weak self] in self?.clearBarSelection() }   // Escape / click in whitespace
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
         midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
+        midi.onPedal = { [weak self] down in
+            guard let self else { return }
+            self.pedalIsDown = down
+            if self.capturing { self.takePedal.append((t: self.audio.currentTime - self.takeStart, down: down)) }
+        }
         guard !hasLoaded else { return }
         hasLoaded = true
         applyOutput()                                     // restore the persisted output routing
@@ -957,7 +967,8 @@ final class PracticeSession: ObservableObject {
         let reportNotes = matcher.expected.map {
             PassReportBuilder.Note(bar: barForBeat($0.beat), pitch: $0.pitch, hand: $0.hand,
                                    name: Self.noteName($0.pitch), matched: $0.matched,
-                                   signedErrorMs: $0.signedError.map { $0 * 1000 })
+                                   signedErrorMs: $0.signedError.map { $0 * 1000 },
+                                   onset: $0.onset)
         }
         let reportWrong = wrongMarks.map {
             PassReportBuilder.WrongNote(bar: barForBeat($0.beat), pitch: $0.pitch,
@@ -965,15 +976,15 @@ final class PracticeSession: ObservableObject {
         }
         // Comparable = same bars, same hands, graded — most recent first. `history`
         // hasn't had this pass appended yet, so these are strictly previous passes.
-        let comparableFaults: [[PassFault]] = history
+        let comparable = history
             .filter { $0.mode == "grade" && $0.sectionStart == sectionStart
                       && $0.sectionEnd == sectionEnd && $0.handMode == handMode }
-            .suffix(8).reversed()
-            .map { $0.faults ?? [] }
+        let comparableFaults: [[PassFault]] = comparable.suffix(8).reversed().map { $0.faults ?? [] }
         var report = PassReportBuilder.build(
             notes: reportNotes, wrongNotes: reportWrong,
             sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
-            previous: lastPassReport, previousFaults: comparableFaults)
+            previous: lastPassReport, previousFaults: comparableFaults,
+            priorAccuracies: comparable.map(\.accuracy))
         report.date = Date()
         lastPassReport = report
         passReportDismissed = false
@@ -985,6 +996,21 @@ final class PracticeSession: ObservableObject {
                 played: takeNotes.map { (pitch: $0.p, onset: $0.on, velocity: $0.v) },
                 chordEpsilon: Self.chordEpsilon, noteName: Self.noteName)
         }
+        // What a teacher hears beyond the notes (skipped in rhythm mode — no pitches):
+        // hand balance from your struck velocities, and pedal held across barlines.
+        if !rhythmMode {
+            lastPassReport?.balance = PassReportBuilder.balance(
+                played: takeNotes.map { (pitch: $0.p, onset: $0.on + takeStart, velocity: $0.v) },
+                expected: matcher.expected.map { (pitch: $0.pitch, onset: $0.onset, hand: $0.hand) },
+                tolerance: gradeTolerance)
+            if sectionEnd > sectionStart, let s = score {
+                let barTimes = (sectionStart + 1...sectionEnd).map {
+                    (bar: $0, t: s.secondsAtBeat(barStartBeat($0)) - takeStart)
+                }
+                lastPassReport?.pedalHolds = PassReportBuilder.pedalHolds(pedal: takePedal, barTimes: barTimes)
+            }
+        }
+
         // Persist the finished report so "how did my last practice go?" survives a
         // relaunch (loaded back in onAppear; shown with its date when it's old).
         if let report = lastPassReport { PassReportStore.save(report, to: song.folder) }
@@ -1254,6 +1280,19 @@ final class PracticeSession: ObservableObject {
     /// One-tap start for a drill (from the transport Play in Drill mode).
     /// Speed-ramp: drop to the start tempo and begin the ramp. Progressive: shrink the
     /// window to the first bar, remember the target, and begin building it up.
+    /// The teacher's remediation loop: focus a trouble bar AND come at it slowly —
+    /// drop to ~70% of the current tempo and ramp back with the mastery gate, instead
+    /// of re-failing it at the speed that just broke. (Press ▶ to start.)
+    func drillSlowRamp(bar: Int) {
+        focusBar(bar)
+        let goal = max(tempoPct, 50)
+        speedStartPct = max(40, ((goal * 0.7) / 5).rounded() * 5)   // ~70%, snapped to 5s
+        speedTargetPct = goal
+        progressiveDrill = false
+        speedMode = .byAccuracy
+        practiceMode = .drill
+    }
+
     func startDrill() {
         guard !waitMode else { return }
         if audio.isPlaying { audio.stop() }

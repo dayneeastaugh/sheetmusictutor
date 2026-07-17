@@ -1016,6 +1016,60 @@ struct PassReportTests {
         #expect(PassReportStore.load(from: dir) == nil)
     }
 
+    @Test("teacher metrics: balance, pedal holds, drift, chord roll, advice, PB")
+    func teacherMetrics() {
+        // Balance: LH struck harder than RH.
+        var expected: [(pitch: Int, onset: Double, hand: Hand)] = []
+        var played: [(pitch: Int, onset: Double, velocity: Int)] = []
+        for i in 0..<6 {
+            expected.append((pitch: 60 + i, onset: Double(i), hand: .right))
+            expected.append((pitch: 40 + i, onset: Double(i), hand: .left))
+            played.append((pitch: 60 + i, onset: Double(i) + 0.05, velocity: 60))
+            played.append((pitch: 40 + i, onset: Double(i) - 0.05, velocity: 85))
+        }
+        let b = PassReportBuilder.balance(played: played, expected: expected, tolerance: 0.3)
+        #expect(b != nil && abs(b!.lhLouderBy - 25) < 0.001)
+
+        // Pedal held from bar 1 across the bar-2 and bar-3 lines → span 1...3.
+        let holds = PassReportBuilder.pedalHolds(
+            pedal: [(t: 0.5, down: true), (t: 9.5, down: false)],
+            barTimes: [(bar: 2, t: 4.0), (bar: 3, t: 8.0)])
+        #expect(holds == [1...3])
+        // A lift between the lines → no hold.
+        #expect(PassReportBuilder.pedalHolds(
+            pedal: [(t: 0.5, down: true), (t: 5.0, down: false), (t: 5.2, down: true), (t: 9.5, down: false)],
+            barTimes: [(bar: 2, t: 4.0), (bar: 3, t: 8.0)]).isEmpty)
+
+        // Drift: errors trending earlier at 5%/s → ≈ −5%.
+        let driftNotes = (0..<12).map { i in
+            PassReportBuilder.Note(bar: 1, pitch: 60, hand: .right, name: "C4", matched: true,
+                                   signedErrorMs: -50.0 * Double(i), onset: Double(i))
+        }
+        let d = PassReportBuilder.tempoDrift(notes: driftNotes)
+        #expect(d != nil && abs(d! + 5) < 0.1)
+
+        // Chord roll: two notes written together, struck 90ms apart.
+        let roll = PassReportBuilder.chordSpread(notes: [
+            .init(bar: 3, pitch: 60, hand: .right, name: "C4", matched: true, signedErrorMs: -30, onset: 1.0),
+            .init(bar: 3, pitch: 64, hand: .right, name: "E4", matched: true, signedErrorMs: 60, onset: 1.0),
+        ])
+        #expect(roll?.bar == 3 && abs(roll!.ms - 90) < 0.001)
+
+        // Advice: scattered one-offs → "too fast" tip; personal best flag.
+        let scattered = (0..<8).map { i in
+            PassReportBuilder.Note(bar: 1 + i, pitch: 60 + i, hand: .right, name: "X", matched: false, signedErrorMs: nil)
+        }
+        let r = PassReportBuilder.build(notes: scattered + [note(9)], wrongNotes: [],
+                                        sectionStart: 1, sectionEnd: 9, tempoPct: 100,
+                                        previous: nil, priorAccuracies: [0.5, 0.6, 0.7])
+        #expect(r.advice?.contains("tempo is too high") == true)
+        #expect(!r.personalBest)                                   // 1/9 accuracy beats nothing
+        let pb = PassReportBuilder.build(notes: [note(1)], wrongNotes: [],
+                                         sectionStart: 1, sectionEnd: 1, tempoPct: 100,
+                                         previous: nil, priorAccuracies: [0.5, 0.6, 0.7])
+        #expect(pb.personalBest)                                   // 100% beats all three
+    }
+
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(

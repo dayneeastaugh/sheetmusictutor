@@ -15,6 +15,8 @@ struct PassReportCard: View {
     /// Ordinal of this pass in the session (for the "Pass N" title).
     var passNumber: Int? = nil
     var onDrillBar: (Int) -> Void = { _ in }
+    /// The remediation action: focus the bar AND drop to ~70% tempo with a ramp back.
+    var onDrillSlow: ((Int) -> Void)? = nil
     /// nil = not dismissible (the Progress-tab copy); non-nil shows the ✕.
     var onDismiss: (() -> Void)? = nil
 
@@ -173,6 +175,17 @@ struct PassReportCard: View {
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
             }
+            if let b = report.balance {
+                HStack(spacing: 6) {
+                    Text("Balance").font(.caption2).foregroundStyle(.secondary)
+                    Text("RH \(Int(b.rhMeanVelocity)) · LH \(Int(b.lhMeanVelocity))")
+                        .font(.callout).monospacedDigit()
+                        .foregroundStyle(b.lhLouderBy >= 10 ? Color.orange : Color.primary)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
+                .help("Mean struck velocity per hand — is the melody voiced above the accompaniment?")
+            }
             Spacer()
         }
     }
@@ -212,12 +225,15 @@ struct PassReportCard: View {
     @ViewBuilder
     private var callouts: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if report.personalBest {
+                callout(icon: "trophy.fill", tint: .green, text: "Personal best on these bars")
+            }
             if !report.fixedBars.isEmpty {
                 callout(icon: "checkmark.circle.fill", tint: .green,
                         text: report.fixedBars.count == 1
                             ? "Bar \(report.fixedBars[0]) fixed — clean this pass"
                             : "Bars \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass")
-            } else if report.accuracy >= 0.95 {
+            } else if report.accuracy >= 0.95 && !report.personalBest {
                 callout(icon: "checkmark.seal.fill", tint: .green, text: "Clean pass — nice.")
             }
             if let w = report.worstBar {
@@ -225,8 +241,14 @@ struct PassReportCard: View {
                     : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
                 HStack(spacing: 6) {
                     callout(icon: "target", tint: .red, text: "Bar \(w.bar): \(what)")
-                    Button("Drill bar \(w.bar)") { onDrillBar(w.bar) }
-                        .font(.caption).buttonStyle(.borderless)
+                    if let onDrillSlow {
+                        Button("Drill bar \(w.bar) slowly") { onDrillSlow(w.bar) }
+                            .font(.caption).buttonStyle(.borderless)
+                            .help("Focus this bar at ~70% tempo and ramp back up with the mastery gate")
+                    } else {
+                        Button("Drill bar \(w.bar)") { onDrillBar(w.bar) }
+                            .font(.caption).buttonStyle(.borderless)
+                    }
                 }
             }
             ForEach(report.recurring.prefix(2)) { r in
@@ -239,6 +261,26 @@ struct PassReportCard: View {
                     : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
                 callout(icon: "clock", tint: .orange,
                         text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms")
+            }
+            if let d = report.tempoDriftPct, abs(d) >= 3 {
+                callout(icon: "speedometer", tint: .orange,
+                        text: d < 0 ? "You sped up through the pass — ~\(Int(-d))% faster by the end"
+                                    : "You slowed through the pass — ~\(Int(d))% slower by the end")
+            }
+            if let hold = report.pedalHolds.first {
+                callout(icon: "waveform", tint: .orange,
+                        text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes")
+            }
+            if let roll = report.worstChordSpread {
+                callout(icon: "pianokeys", tint: .orange,
+                        text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together")
+            }
+            if let b = report.balance, b.lhLouderBy >= 10 {
+                callout(icon: "scalemass", tint: .orange,
+                        text: "Left hand louder than right by \(Int(b.lhLouderBy)) — the melody may be buried")
+            }
+            if let tip = report.advice {
+                callout(icon: "lightbulb", tint: .blue, text: tip)
             }
         }
     }

@@ -716,6 +716,33 @@ passes), on-score timing tint, scale-evenness metrics from take velocities.
 **Rejected:** per-finger analysis (no finger data in MIDI); showing evenness for repertoire (it's a
 technique metric — expressive pieces *should* vary).
 
+### ADR-051 — Teacher-critique batch: hear the music, coach the method
+**2026-07-17.** From a piano-teacher critique of the feedback system ("the app is deaf to everything
+except onset accuracy, and it grades results without coaching method"):
+- **Hand balance** — mean struck velocity per hand (played notes attributed via nearest same-pitch
+  expected note within tolerance). A Balance chip on the card; a callout when the LH out-strikes the
+  RH by ≥10 ("the melody may be buried").
+- **Your pedal is now heard** — `MIDIInput` captures incoming CC64 (`onPedal`); the session records a
+  per-pass pedal timeline seeded with the live state. **Muddy-pedal proxy**: spans where the pedal
+  never lifted across ≥2 barlines → "lift at the harmony changes" callout.
+- **Tempo drift** — least-squares slope of hit timing errors over time (error(t) ≈ (r−1)t + c, so
+  the slope IS the drift ratio; offset-robust). Callout at |drift| ≥ 3%: "you sped up through the
+  pass". Needs ≥10 hits over ≥8s.
+- **Chord togetherness** — the ±tolerance window scored a 100 ms roll as perfect; now the spread of
+  matched strike times within a written chord ≥60 ms produces "strike the notes together".
+- **Slow-first remediation** — `drillSlowRamp(bar:)`: the card's drill button now focuses the bar AND
+  drops to ~70% of the current tempo with the by-accuracy ramp back to it (teachers never re-run a
+  failure at the speed that broke it).
+- **Error-pattern advice** — recurring ≥2 → "fix the notes slowly (check the fingering)"; ≥6
+  scattered one-offs → "the tempo is too high — drop ~15%".
+- **Personal best** — accuracy beating every prior comparable pass (≥3 on record) → trophy win,
+  celebrated before any fault.
+- **Suggested focus** (Progress tab/sheet, ≥3 passes): drill the worst trouble bar slowly; a
+  practice-distribution honesty check via `PracticeHistory.coverage` ("bar N is weak but rarely
+  practised — don't just replay what already works"); "finish with one full run-through".
+**Deferred:** legato/duration grading and a hesitation map (tracked); rubato-aware damping of
+placement feedback.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

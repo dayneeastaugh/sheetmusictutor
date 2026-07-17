@@ -64,16 +64,7 @@ struct PracticeView: View {
             if session.practiceMode == .drill { drillProgressBar }
             if let warning = session.ingestWarning { ingestBanner(warning) }
             if let outputWarning = session.outputWarning { infoBanner(outputWarning, systemImage: "pianokeys") }
-            // The post-pass report card: shows once a graded pass finishes and playback
-            // stops (Grade auto-stops at the end; a drill shows it when you stop).
-            if let report = session.lastPassReport, !session.audio.isPlaying,
-               !session.passReportDismissed,
-               session.practiceMode == .grade || session.practiceMode == .drill {
-                PassReportCard(report: report,
-                               passNumber: session.gradeHistory.isEmpty ? nil : session.gradeHistory.count,
-                               onDrillBar: { session.focusBar($0) },
-                               onDismiss: { session.passReportDismissed = true })
-            }
+            reportCardIfVisible
             // In a Drill the progress bar carries all the status, so we drop the
             // status line entirely to give the score the maximum room.
             if session.practiceMode != .drill { statusBar }
@@ -140,6 +131,21 @@ struct PracticeView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Saved sections appear in the Focus group for one-tap recall.")
+        }
+    }
+
+    /// The post-pass report card: shows once a graded pass finishes and playback
+    /// stops (Grade auto-stops at the end; a drill shows it when you stop).
+    @ViewBuilder
+    private var reportCardIfVisible: some View {
+        if let report = session.lastPassReport, !session.audio.isPlaying,
+           !session.passReportDismissed,
+           session.practiceMode == .grade || session.practiceMode == .drill {
+            PassReportCard(report: report,
+                           passNumber: session.gradeHistory.isEmpty ? nil : session.gradeHistory.count,
+                           onDrillBar: { session.focusBar($0) },
+                           onDrillSlow: { session.drillSlowRamp(bar: $0) },
+                           onDismiss: { session.passReportDismissed = true })
         }
     }
 
@@ -437,6 +443,7 @@ struct PracticeView: View {
                               onDrillBar: { session.focusBar($0) },
                               onApplySection: { session.applySavedSection($0) },
                               onExpand: { showProgressReport = true },
+                              onDrillSlow: { session.drillSlowRamp(bar: $0) },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
                 FlagsPanel(session: session)
@@ -680,6 +687,7 @@ struct PracticeView: View {
                           lastPassReport: session.lastPassReport,
                           onDrillBar: { session.focusBar($0); showProgressReport = false },
                           onApplySection: { session.applySavedSection($0); showProgressReport = false },
+                          onDrillSlow: { session.drillSlowRamp(bar: $0); showProgressReport = false },
                           onReset: { library.resetProgress(for: song); session.reloadHistory() })
                 .padding(.horizontal, 6)
                 .navigationTitle("Progress — \(song.title)")

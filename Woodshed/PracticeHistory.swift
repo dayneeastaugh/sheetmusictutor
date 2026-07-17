@@ -43,6 +43,18 @@ struct PassFault: Codable, Hashable {
     var kind: String                    // "missed" | "wrong"
 }
 
+/// How many recorded passes covered each bar — the practice-distribution map that
+/// exposes the classic habit of practising what you can already play.
+extension PracticeHistory {
+    static func coverage(_ passes: [PracticePass]) -> [Int: Int] {
+        var c: [Int: Int] = [:]
+        for p in passes where p.sectionEnd >= p.sectionStart {
+            for b in p.sectionStart...p.sectionEnd { c[b, default: 0] += 1 }
+        }
+        return c
+    }
+}
+
 /// A bar you keep missing, with how many missed notes it accumulated across passes.
 struct TroubleBar: Identifiable, Hashable {
     var bar: Int
