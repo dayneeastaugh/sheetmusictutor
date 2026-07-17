@@ -24,6 +24,7 @@ struct PracticeView: View {
     @ObservedObject private var debugLog = DebugLog.shared
     @State private var showDiagnostics = false
     @State private var showHelp = false
+    @State private var showProgressReport = false
     @State private var showLogExporter = false
     @State private var logDoc: TextFileDocument?
     @State private var showInspector = true
@@ -118,6 +119,7 @@ struct PracticeView: View {
         .onChange(of: session.audio.isPlaying) { was, now in session.playingChanged(was, now) }
         .sheet(isPresented: $showDiagnostics) { diagnosticsSheet }
         .sheet(isPresented: $showHelp) { helpSheet }
+        .sheet(isPresented: $showProgressReport) { progressReportSheet }
         .fileExporter(isPresented: $showLogExporter, document: logDoc,
                       contentType: .plainText, defaultFilename: "segno-debug-log") { _ in logDoc = nil }
         .alert("Flag bar \(flagEditorBar ?? 0)", isPresented: Binding(get: { flagEditorBar != nil },
@@ -434,6 +436,7 @@ struct PracticeView: View {
                               lastPassReport: session.lastPassReport,
                               onDrillBar: { session.focusBar($0) },
                               onApplySection: { session.applySavedSection($0) },
+                              onExpand: { showProgressReport = true },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
                 FlagsPanel(session: session)
@@ -657,11 +660,34 @@ struct PracticeView: View {
         Menu {
             // Help is reachable here on BOTH platforms (iPad has no menu bar, so the
             // macOS Help menu / ⌘? isn't available there).
+            Button { showProgressReport = true } label: { Label("Progress report…", systemImage: "chart.line.uptrend.xyaxis") }
             Button { showHelp = true } label: { Label("Segno Help", systemImage: "questionmark.circle") }
             Button { showDiagnostics = true } label: { Label("Show diagnostics…", systemImage: "stethoscope") }
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
+    }
+
+    /// The full-size progress view: the same panel as the inspector's Progress tab,
+    /// given the width the report card and heatmap were designed for. Drilling a bar
+    /// or recalling a section closes the sheet so you land back on the score.
+    private var progressReportSheet: some View {
+        NavigationStack {
+            ProgressPanel(song: song, passes: session.history,
+                          sections: session.savedSections,
+                          practicedToday: session.practicedToday,
+                          lastPassDetail: session.lastPassDetail,
+                          lastPassReport: session.lastPassReport,
+                          onDrillBar: { session.focusBar($0); showProgressReport = false },
+                          onApplySection: { session.applySavedSection($0); showProgressReport = false },
+                          onReset: { library.resetProgress(for: song); session.reloadHistory() })
+                .padding(.horizontal, 6)
+                .navigationTitle("Progress — \(song.title)")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showProgressReport = false } } }
+        }
+        #if os(macOS)
+        .frame(minWidth: 720, idealWidth: 780, minHeight: 560, idealHeight: 640)
+        #endif
     }
 
     /// Help presented as a sheet with its own Done button (used on iPad, and available

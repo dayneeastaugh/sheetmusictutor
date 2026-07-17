@@ -25,6 +25,9 @@ struct ProgressPanel: View {
     let onDrillBar: (Int) -> Void
     /// Recall a named section (tap a mastery-grid cell to drill that scale).
     var onApplySection: (SavedSection) -> Void = { _ in }
+    /// Non-nil in the narrow inspector: shows an "Expand" button that opens the
+    /// full-size progress sheet (the card/heatmap are designed for width).
+    var onExpand: (() -> Void)? = nil
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
@@ -43,6 +46,14 @@ struct ProgressPanel: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if let onExpand {
+                        Button { onExpand() } label: {
+                            Label("Expand progress view", systemImage: "arrow.up.left.and.arrow.down.right")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Open a full-size view — the report card and heatmap are easier to read wide")
+                    }
                     statRow
                     if let report = lastPassReport {
                         PassReportCard(report: report, onDrillBar: onDrillBar)

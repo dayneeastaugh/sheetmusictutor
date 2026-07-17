@@ -199,7 +199,9 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   instead)") from the per-pass fault history. Technical-practice songs add two **evenness gauges**
   (rhythm + dynamics, from what you actually played) with an uneven-touch callout. A View toggle
   ("Timing colours after a pass") tints noteheads blue = early / orange = late once playback stops.
-  See ADR-049/050.
+  The report + trend + heatmap are designed for width, so the narrow inspector tab has an **Expand
+  progress view** button (also ⋯ menu → "Progress report…") opening a full-size sheet; drilling a
+  bar or recalling a section from it closes the sheet back to the score. See ADR-049/050.
 - **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
   ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
   shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%
