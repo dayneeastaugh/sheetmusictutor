@@ -1286,6 +1286,11 @@ final class PracticeSession: ObservableObject {
         bridge.peekBar(min(max(1, bar), measureCount))
     }
 
+    /// The saved-section name covering a bar, if any (report callouts name the spot).
+    func sectionName(forBar bar: Int) -> String? {
+        savedSections.first { bar >= $0.start && bar <= $0.end }?.name
+    }
+
     /// The teacher's remediation loop: focus a trouble bar AND come at it slowly —
     /// drop to ~70% of the current tempo and ramp back with the mastery gate, instead
     /// of re-failing it at the speed that just broke. (Press ▶ to start.)

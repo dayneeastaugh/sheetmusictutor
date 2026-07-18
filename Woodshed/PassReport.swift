@@ -101,6 +101,43 @@ struct PassReport: Codable, Equatable {
         var loudest: NoteVel?
     }
 
+    /// A run of adjacent problem bars, for the compact long-score view: rather than a
+    /// per-bar sliver strip (unreadable past ~24 bars), faulty bars merge into tappable
+    /// ranges tinted by their worst bar. severity 1 = rough (amber), 2 = bad (red).
+    struct ProblemCluster: Identifiable, Equatable {
+        var range: ClosedRange<Int>
+        var severity: Int
+        var id: Int { range.lowerBound }
+        var label: String {
+            range.count == 1 ? "bar \(range.lowerBound)" : "bars \(range.lowerBound)–\(range.upperBound)"
+        }
+    }
+
+    /// Adjacent faulty bars merged into ranges (rest/clean bars break a run), worst-
+    /// severity first then earliest — the compact map for a long pass.
+    func problemClusters() -> [ProblemCluster] {
+        func sev(_ b: BarResult) -> Int {
+            if b.total == 0 || b.isClean { return 0 }
+            return (b.accuracy >= 0.8 && b.missed + b.wrong <= 2) ? 1 : 2
+        }
+        var clusters: [ProblemCluster] = []
+        var run: (start: Int, end: Int, sev: Int)? = nil
+        for b in bars {
+            let s = sev(b)
+            if s == 0 {
+                if let r = run { clusters.append(.init(range: r.start...r.end, severity: r.sev)); run = nil }
+            } else if var r = run {
+                r.end = b.bar; r.sev = max(r.sev, s); run = r
+            } else {
+                run = (b.bar, b.bar, s)
+            }
+        }
+        if let r = run { clusters.append(.init(range: r.start...r.end, severity: r.sev)) }
+        return clusters.sorted { ($0.severity, -$0.range.lowerBound) > ($1.severity, -$1.range.lowerBound) }
+    }
+
+    var cleanBarCount: Int { bars.filter { $0.total == 0 || $0.isClean }.count }
+
     /// Worst bar (most faults; ties → earliest), for the headline callout.
     var worstBar: BarResult? {
         bars.filter { $0.missed + $0.wrong > 0 }

@@ -743,6 +743,23 @@ except onset accuracy, and it grades results without coaching method"):
 **Deferred:** legato/duration grading and a hesitation map (tracked); rubato-aware damping of
 placement feedback.
 
+### ADR-052 — Report card scales to long scores (clustering, callout budget, wrapped strip)
+**2026-07-18.** The per-bar strip and 9-line callout stack read fine on a 10-bar drill but degrade on
+a full run (a 90-bar strip = untappable slivers; every callout category firing = a wall). The score
+is the map; the card is the verdict:
+- **Problem chips** — above 24 bars the compact card drops the sliver strip for
+  `PassReport.problemClusters()`: adjacent faulty bars merge into severity-tinted ranges (`bars 12–14`,
+  `bar 27`), worst-first, tappable to peek, plus an "N of M bars clean" line and "+N more".
+- **Callout budget** — wins + the worst-bar (primary, with the slow-drill button) + top-2 secondary
+  issues (teacher priority: recurring → timing → pedal → chord → balance → drift) + the tip; the rest
+  collapse behind "+N more". Short passes are unaffected (budget only bites past 3 secondary issues).
+- **Expanded sheet wraps** — the strip breaks into 20-bar rows with a per-bar timing tick beneath, all
+  callouts shown (`expanded` flag from the full-size Progress sheet).
+- **Named location** — the worst-bar callout says "bar 42 — in Bridge" when a saved section covers it.
+Pure `problemClusters` unit-tested. (Testing note: a `#expect(cl.count==3)` that under-counted let a
+later `cl[2]` crash the shared test host and cascade-fail the whole run — the data was wrong, not the
+code; fixed the fixture. Watch indexed access after a count assertion in Swift Testing.)
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

@@ -1070,6 +1070,34 @@ struct PassReportTests {
         #expect(pb.personalBest)                                   // 100% beats all three
     }
 
+    @Test("problem clusters merge adjacent faulty bars, worst-severity first")
+    func clusters() {
+        // Bars: 1 clean, 2–3 red, 4 clean, 5 amber, 6 clean, 7 red (gaps keep them
+        // as separate clusters; adjacent faulty bars would merge — tested implicitly).
+        var notes: [PassReportBuilder.Note] = []
+        func bar(_ n: Int, hits: Int, of total: Int) {
+            for i in 0..<total {
+                notes.append(.init(bar: n, pitch: 60, hand: .right, name: "C4", matched: i < hits, signedErrorMs: nil))
+            }
+        }
+        bar(1, hits: 4, of: 4)   // clean
+        bar(2, hits: 0, of: 4)   // red
+        bar(3, hits: 1, of: 4)   // red   → merges with bar 2
+        bar(4, hits: 4, of: 4)   // clean (breaks the run)
+        bar(5, hits: 4, of: 5)   // amber (1 miss, 80%)
+        bar(6, hits: 4, of: 4)   // clean (breaks the run)
+        bar(7, hits: 0, of: 4)   // red
+        let r = PassReportBuilder.build(notes: notes, wrongNotes: [], sectionStart: 1, sectionEnd: 7,
+                                        tempoPct: 100, previous: nil)
+        let cl = r.problemClusters()
+        #expect(cl.count == 3)
+        // Reds (2–3, 7) sort before the amber (5); reds tie-break by earliest bar.
+        #expect(cl[0].range == 2...3 && cl[0].severity == 2)
+        #expect(cl[1].range == 7...7 && cl[1].severity == 2)
+        #expect(cl[2].range == 5...5 && cl[2].severity == 1)
+        #expect(r.cleanBarCount == 3)   // bars 1, 4, 6
+    }
+
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(

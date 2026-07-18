@@ -146,7 +146,8 @@ struct PracticeView: View {
                            onDrillBar: { session.focusBar($0) },
                            onDrillSlow: { session.drillSlowRamp(bar: $0) },
                            onPeekBar: { session.peekBar($0) },
-                           onDismiss: { session.passReportDismissed = true })
+                           onDismiss: { session.passReportDismissed = true },
+                           sectionName: { session.sectionName(forBar: $0) })
         }
     }
 
@@ -691,6 +692,7 @@ struct PracticeView: View {
                           onApplySection: { session.applySavedSection($0); showProgressReport = false },
                           onDrillSlow: { session.drillSlowRamp(bar: $0); showProgressReport = false },
                           onPeekBar: { session.peekBar($0); showProgressReport = false },
+                          wide: true,
                           onReset: { library.resetProgress(for: song); session.reloadHistory() })
                 .padding(.horizontal, 6)
                 .navigationTitle("Progress — \(song.title)")

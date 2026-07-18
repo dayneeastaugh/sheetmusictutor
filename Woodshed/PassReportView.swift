@@ -21,15 +21,33 @@ struct PassReportCard: View {
     var onPeekBar: ((Int) -> Void)? = nil
     /// nil = not dismissible (the Progress-tab copy); non-nil shows the ✕.
     var onDismiss: (() -> Void)? = nil
+    /// The full-size sheet passes true: the bar strip wraps into rows and every callout
+    /// shows (no budget/collapse) — room to see everything on a long piece.
+    var expanded: Bool = false
+    /// Resolves a bar to the saved-section name covering it ("Bridge"), if any — lets a
+    /// long-piece callout say "bar 42 — in Bridge", how you actually think about it.
+    var sectionName: ((Int) -> String?)? = nil
+
+    @State private var showAllCallouts = false
 
     private static let rhColor = Color(red: 21 / 255, green: 101 / 255, blue: 192 / 255)   // early/rushing (blue)
     private static let lateColor = Color(red: 230 / 255, green: 129 / 255, blue: 0 / 255)  // late/dragging (orange)
+    /// Above this many bars, the compact card swaps the per-bar strip for problem chips
+    /// (a per-bar sliver is unreadable and untappable). The sheet always wraps instead.
+    private static let compactBarLimit = 24
+    private var isLong: Bool { report.bars.count > Self.compactBarLimit }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            barStrip
-            if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
+            if expanded {
+                wrappedStrip
+            } else if isLong {
+                problemChips
+            } else {
+                barStrip
+                if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
+            }
             if !report.hands.isEmpty { handChips }
             if let e = report.evenness { evennessGauges(e) }
             callouts
@@ -37,6 +55,85 @@ struct PassReportCard: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35)))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+    }
+
+    // MARK: Compact long-score view — problem chips instead of a sliver strip
+
+    private var problemChips: some View {
+        let clusters = report.problemClusters()
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("\(report.cleanBarCount) of \(report.bars.count) bars clean")
+                .font(.caption).foregroundStyle(.secondary)
+            if clusters.isEmpty {
+                Label("No trouble spots this pass", systemImage: "checkmark.seal")
+                    .font(.caption).foregroundStyle(.green)
+            } else {
+                FlowChips(clusters: Array(clusters.prefix(showAllCallouts ? clusters.count : 6)),
+                          onTap: { peek($0.range.lowerBound) })
+                if !showAllCallouts && clusters.count > 6 {
+                    Button("+\(clusters.count - 6) more trouble spots") { showAllCallouts = true }
+                        .font(.caption2).buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    // MARK: Expanded view — the strip wrapped into score-like rows
+
+    private var wrappedStrip: some View {
+        let rows = stride(from: 0, to: report.bars.count, by: 20).map {
+            Array(report.bars[$0..<min($0 + 20, report.bars.count)])
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                VStack(spacing: 2) {
+                    HStack(spacing: 3) {
+                        ForEach(row) { b in barCell(b) }
+                        if row.count < 20 { Spacer(minLength: 0) }
+                    }
+                    HStack(spacing: 3) {
+                        ForEach(row) { b in
+                            Text("\(b.bar)").font(.system(size: 9)).monospacedDigit()
+                                .foregroundStyle(.secondary).frame(width: cellWidth)
+                        }
+                        if row.count < 20 { Spacer(minLength: 0) }
+                    }
+                }
+            }
+            Text("timing above the line = dragging, below = rushing")
+                .font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+    }
+
+    // Fixed cell width so wrapped rows align regardless of bar count.
+    private var cellWidth: CGFloat { 26 }
+
+    private func barCell(_ b: PassReport.BarResult) -> some View {
+        Button { onDrillBar(b.bar) } label: {
+            VStack(spacing: 1) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color(for: b))
+                    .overlay(RoundedRectangle(cornerRadius: 3)
+                        .stroke(report.fixedBars.contains(b.bar) ? Color.green : .clear, lineWidth: 2))
+                    .frame(width: cellWidth, height: 22)
+                timingTick(b)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(help(for: b))
+        .accessibilityLabel("Bar \(b.bar): \(help(for: b))")
+    }
+
+    /// A small up/down tick under a wrapped cell showing that bar's timing lean.
+    @ViewBuilder
+    private func timingTick(_ b: PassReport.BarResult) -> some View {
+        if let ms = b.meanSignedMs, abs(ms) >= 8 {
+            let h = CGFloat(min(abs(ms), 120) / 120) * 8
+            Rectangle().fill(ms > 0 ? Self.lateColor : Self.rhColor)
+                .frame(width: cellWidth * 0.5, height: max(2, h))
+        } else {
+            Color.clear.frame(width: cellWidth * 0.5, height: 8)
+        }
     }
 
     /// "Pass 3" during a session; a reloaded report says when it's from — "Last pass ·
@@ -236,17 +333,66 @@ struct PassReportCard: View {
 
     // MARK: Callouts (wins first)
 
+    private struct Issue: Identifiable {
+        let id = UUID(); let icon: String; let tint: Color; let text: String; var peek: Int? = nil
+    }
+
+    /// Secondary issues in teacher-priority order (recurring first — most actionable),
+    /// budgeted on a long/rough pass so the card reads as a summary, not a wall.
+    private var secondaryIssues: [Issue] {
+        var out: [Issue] = []
+        for r in report.recurring.prefix(2) {
+            out.append(Issue(icon: "repeat", tint: .red,
+                             text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
+                                + (r.substitution.map { " (\($0))" } ?? ""), peek: r.bar))
+        }
+        if let hot = report.timingHotspot() {
+            let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
+                : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
+            out.append(Issue(icon: "clock", tint: .orange,
+                             text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms",
+                             peek: hot.bars.lowerBound))
+        }
+        if let hold = report.pedalHolds.first {
+            out.append(Issue(icon: "waveform", tint: .orange,
+                             text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes",
+                             peek: hold.lowerBound))
+        }
+        if let roll = report.worstChordSpread {
+            out.append(Issue(icon: "pianokeys", tint: .orange,
+                             text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together",
+                             peek: roll.bar))
+        }
+        if let b = report.balance, b.lhLouderBy >= 10 {
+            out.append(Issue(icon: "scalemass", tint: .orange,
+                             text: "Left hand louder than right by \(Int(b.lhLouderBy)) — the melody may be buried"))
+        }
+        if let d = report.tempoDriftPct, abs(d) >= 3 {
+            out.append(Issue(icon: "speedometer", tint: .orange,
+                             text: d < 0 ? "You sped up through the pass — ~\(Int(-d))% faster by the end"
+                                         : "You slowed through the pass — ~\(Int(d))% slower by the end"))
+        }
+        return out
+    }
+
     @ViewBuilder
     private var callouts: some View {
+        // Budget the secondary issues in the compact card so a rough long pass doesn't
+        // wall you with nine lines; the expanded sheet (or "+N more") shows all.
+        let issues = secondaryIssues
+        let budget = 2
+        let showAll = expanded || showAllCallouts || issues.count <= budget + 1
+        let shown = showAll ? issues : Array(issues.prefix(budget))
+
         VStack(alignment: .leading, spacing: 4) {
             if report.personalBest {
                 callout(icon: "trophy.fill", tint: .green, text: "Personal best on these bars")
             }
             if !report.fixedBars.isEmpty {
                 callout(icon: "checkmark.circle.fill", tint: .green,
-                        text: report.fixedBars.count == 1
-                            ? "Bar \(report.fixedBars[0]) fixed — clean this pass"
-                            : "Bars \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass",
+                        text: report.fixedBars.count <= 3
+                            ? "Bar\(report.fixedBars.count == 1 ? "" : "s") \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass"
+                            : "\(report.fixedBars.count) bars fixed this pass ✓",
                         peek: report.fixedBars.first)
             } else if report.accuracy >= 0.95 && !report.personalBest {
                 callout(icon: "checkmark.seal.fill", tint: .green, text: "Clean pass — nice.")
@@ -254,54 +400,33 @@ struct PassReportCard: View {
             if let w = report.worstBar {
                 let what = w.missedNames.isEmpty ? "\(w.missed + w.wrong) faults"
                     : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
+                let loc = sectionName?(w.bar).map { " — in \($0)" } ?? ""
                 HStack(spacing: 6) {
-                    callout(icon: "target", tint: .red, text: "Bar \(w.bar): \(what)", peek: w.bar)
+                    callout(icon: "target", tint: .red, text: "Bar \(w.bar)\(loc): \(what)", peek: w.bar)
                     if let onDrillSlow {
-                        Button("Drill bar \(w.bar) slowly") { onDrillSlow(w.bar) }
-                            .font(.caption).buttonStyle(.borderless)
-                            .help("Focus this bar at ~70% tempo and ramp back up with the mastery gate")
+                        Button("Drill slowly") { onDrillSlow(w.bar) }
+                            .font(.caption).buttonStyle(.borderless).fixedSize()
+                            .help("Focus bar \(w.bar) at ~70% tempo and ramp back up with the mastery gate")
                     } else {
-                        Button("Drill bar \(w.bar)") { onDrillBar(w.bar) }
-                            .font(.caption).buttonStyle(.borderless)
+                        Button("Drill") { onDrillBar(w.bar) }
+                            .font(.caption).buttonStyle(.borderless).fixedSize()
                     }
                 }
             }
-            ForEach(report.recurring.prefix(2)) { r in
-                callout(icon: "repeat", tint: .red,
-                        text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
-                            + (r.substitution.map { " (\($0))" } ?? ""), peek: r.bar)
+            ForEach(shown) { issue in
+                callout(icon: issue.icon, tint: issue.tint, text: issue.text, peek: issue.peek)
             }
-            if let hot = report.timingHotspot() {
-                let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
-                    : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
-                callout(icon: "clock", tint: .orange,
-                        text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms",
-                        peek: hot.bars.lowerBound)
-            }
-            if let d = report.tempoDriftPct, abs(d) >= 3 {
-                callout(icon: "speedometer", tint: .orange,
-                        text: d < 0 ? "You sped up through the pass — ~\(Int(-d))% faster by the end"
-                                    : "You slowed through the pass — ~\(Int(d))% slower by the end")
-            }
-            if let hold = report.pedalHolds.first {
-                callout(icon: "waveform", tint: .orange,
-                        text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes",
-                        peek: hold.lowerBound)
-            }
-            if let roll = report.worstChordSpread {
-                callout(icon: "pianokeys", tint: .orange,
-                        text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together",
-                        peek: roll.bar)
-            }
-            if let b = report.balance, b.lhLouderBy >= 10 {
-                callout(icon: "scalemass", tint: .orange,
-                        text: "Left hand louder than right by \(Int(b.lhLouderBy)) — the melody may be buried")
+            if !showAll {
+                Button("+\(issues.count - budget) more") { showAllCallouts = true }
+                    .font(.caption2).buttonStyle(.borderless)
             }
             if let tip = report.advice {
                 callout(icon: "lightbulb", tint: .blue, text: tip)
             }
         }
     }
+
+    private func peek(_ bar: Int) { onPeekBar?(bar) }
 
     /// A feedback line. When it references a bar and a peek handler exists, tapping
     /// the line flashes that bar on the score — the text is linked to the music.
@@ -318,6 +443,32 @@ struct PassReportCard: View {
                     .help("Show bar \(peek) on the score")
             } else {
                 row
+            }
+        }
+    }
+}
+
+/// Wrapping row of tappable problem-range chips (compact long-score view). A grid with
+/// adaptive columns wraps naturally; each chip is tinted by its worst bar's severity.
+private struct FlowChips: View {
+    let clusters: [PassReport.ProblemCluster]
+    let onTap: (PassReport.ProblemCluster) -> Void
+    private let cols = [GridItem(.adaptive(minimum: 92), spacing: 6, alignment: .leading)]
+
+    var body: some View {
+        LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+            ForEach(clusters) { c in
+                let tint = c.severity == 2 ? Color.red : Color.orange
+                Button { onTap(c) } label: {
+                    Text(c.label).font(.caption2).lineLimit(1)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(tint.opacity(0.16)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint.opacity(0.5)))
+                        .foregroundStyle(tint)
+                }
+                .buttonStyle(.plain)
+                .help("Show \(c.label) on the score")
             }
         }
     }

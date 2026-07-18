@@ -205,7 +205,11 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   bar is **tappable — it flashes that bar on the score** (a purple pulse that scrolls into view and
   fades, touching nothing else), so "bar 9" is always one tap from the actual music. In the narrow
   inspector the card lays out for the column (two-line header; chips stack instead of wrapping).
-  See ADR-049/050/051.
+  **On a long score** (>24 bars) the compact card swaps the per-bar strip for tappable **problem-range
+  chips** ("bars 12–14", "bar 27") + an "N of M bars clean" line, and **budgets** the callouts (wins +
+  worst bar + top-2 issues + tip, rest behind "+N more") so a full run reads as a summary, not a wall;
+  the expanded sheet wraps the full strip into 20-bar rows with per-bar timing ticks. Worst-bar
+  callouts name the saved section ("bar 42 — in Bridge"). See ADR-049/050/051/052.
 - **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
   ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
   shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%

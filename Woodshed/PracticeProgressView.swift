@@ -32,6 +32,14 @@ struct ProgressPanel: View {
     var onDrillSlow: ((Int) -> Void)? = nil
     /// Flash a bar on the score (link the text feedback to the actual music).
     var onPeekBar: ((Int) -> Void)? = nil
+    /// The full-size sheet passes true so the report card wraps its strip / shows all.
+    var wide: Bool = false
+
+    /// The saved-section name covering a bar, if any — lets a long-piece callout say
+    /// "bar 42 — in Bridge".
+    private func sectionName(for bar: Int) -> String? {
+        sections.first { bar >= $0.start && bar <= $0.end }?.name
+    }
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
@@ -62,7 +70,8 @@ struct ProgressPanel: View {
                     suggestedFocus
                     if let report = lastPassReport {
                         PassReportCard(report: report, onDrillBar: onDrillBar,
-                                       onDrillSlow: onDrillSlow, onPeekBar: onPeekBar)
+                                       onDrillSlow: onDrillSlow, onPeekBar: onPeekBar,
+                                       expanded: wide, sectionName: sectionName)
                     }
                     lastPassSection
                     if sections.count >= 2 { masterySection }
