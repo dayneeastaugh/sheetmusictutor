@@ -145,6 +145,7 @@ struct PracticeView: View {
                            passNumber: session.gradeHistory.isEmpty ? nil : session.gradeHistory.count,
                            onDrillBar: { session.focusBar($0) },
                            onDrillSlow: { session.drillSlowRamp(bar: $0) },
+                           onPeekBar: { session.peekBar($0) },
                            onDismiss: { session.passReportDismissed = true })
         }
     }
@@ -444,6 +445,7 @@ struct PracticeView: View {
                               onApplySection: { session.applySavedSection($0) },
                               onExpand: { showProgressReport = true },
                               onDrillSlow: { session.drillSlowRamp(bar: $0) },
+                              onPeekBar: { session.peekBar($0) },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
                 FlagsPanel(session: session)
@@ -688,6 +690,7 @@ struct PracticeView: View {
                           onDrillBar: { session.focusBar($0); showProgressReport = false },
                           onApplySection: { session.applySavedSection($0); showProgressReport = false },
                           onDrillSlow: { session.drillSlowRamp(bar: $0); showProgressReport = false },
+                          onPeekBar: { session.peekBar($0); showProgressReport = false },
                           onReset: { library.resetProgress(for: song); session.reloadHistory() })
                 .padding(.horizontal, 6)
                 .navigationTitle("Progress — \(song.title)")

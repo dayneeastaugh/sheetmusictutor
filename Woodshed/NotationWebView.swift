@@ -65,6 +65,12 @@ final class NotationBridge: ObservableObject {
         }
     }
 
+    /// Flash a bar on the score (a feedback callout's "show me"): scrolls it into
+    /// view and pulses a bright outline that fades. Non-destructive to the selection.
+    func peekBar(_ bar: Int) {
+        run("window.peekBar(\(bar))")
+    }
+
     /// Highlight a bar range on the score (1-based) / clear the highlight.
     func setSelection(_ start: Int, _ end: Int) {
         run("window.setSelection(\(start),\(end))")

@@ -17,6 +17,8 @@ struct PassReportCard: View {
     var onDrillBar: (Int) -> Void = { _ in }
     /// The remediation action: focus the bar AND drop to ~70% tempo with a ramp back.
     var onDrillSlow: ((Int) -> Void)? = nil
+    /// Flash a bar on the score (tapping a callout answers "where IS bar 9?").
+    var onPeekBar: ((Int) -> Void)? = nil
     /// nil = not dismissible (the Progress-tab copy); non-nil shows the ✕.
     var onDismiss: (() -> Void)? = nil
 
@@ -49,27 +51,30 @@ struct PassReportCard: View {
 
     // MARK: Header
 
+    // Two lines so the card never letter-wraps in the narrow inspector: the verdict
+    // (title · % · delta) on top, the context (bars · tempo) beneath.
     private var header: some View {
-        HStack(spacing: 8) {
-            Text(title).font(.caption).bold()
-            Text("bars \(report.sectionStart)–\(report.sectionEnd)")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("\(Int(report.accuracy * 100))%")
-                .font(.title3).bold().monospacedDigit()
-                .foregroundStyle(report.accuracy >= 0.95 ? .green : .primary)
-            if let d = report.deltaVsPrevious, abs(d) >= 0.005 {
-                Text("\(d > 0 ? "▲" : "▼") \(abs(Int((d * 100).rounded())))%")
-                    .font(.caption).monospacedDigit()
-                    .foregroundStyle(d > 0 ? .green : .orange)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 8) {
+                Text(title).font(.caption).bold().lineLimit(1)
+                Text("\(Int(report.accuracy * 100))%")
+                    .font(.title3).bold().monospacedDigit().fixedSize()
+                    .foregroundStyle(report.accuracy >= 0.95 ? .green : .primary)
+                if let d = report.deltaVsPrevious, abs(d) >= 0.005 {
+                    Text("\(d > 0 ? "▲" : "▼") \(abs(Int((d * 100).rounded())))%")
+                        .font(.caption).monospacedDigit().fixedSize()
+                        .foregroundStyle(d > 0 ? .green : .orange)
+                }
+                Spacer(minLength: 4)
+                if let onDismiss {
+                    Button { onDismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        .buttonStyle(.borderless)
+                        .help("Hide this report (it stays in the Progress tab)")
+                        .accessibilityLabel("Dismiss pass report")
+                }
             }
-            Spacer()
-            Text("\(Int(report.tempoPct))% tempo").font(.caption).foregroundStyle(.secondary)
-            if let onDismiss {
-                Button { onDismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                    .buttonStyle(.borderless)
-                    .help("Hide this report (it stays in the Progress tab)")
-                    .accessibilityLabel("Dismiss pass report")
-            }
+            Text("bars \(report.sectionStart)–\(report.sectionEnd) · \(Int(report.tempoPct))% tempo")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 
@@ -158,35 +163,44 @@ struct PassReportCard: View {
 
     // MARK: Hands
 
+    // The chips never letter-wrap (.fixedSize); when the row doesn't fit the narrow
+    // inspector, ViewThatFits stacks them vertically instead.
     private var handChips: some View {
-        HStack(spacing: 8) {
-            ForEach(report.hands) { (h: PassReport.HandResult) in
-                HStack(spacing: 6) {
-                    Text(h.hand == Hand.right ? "Right hand" : "Left hand")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { chipViews; Spacer(minLength: 0) }
+            VStack(alignment: .leading, spacing: 6) { chipViews }
+        }
+    }
+
+    @ViewBuilder
+    private var chipViews: some View {
+        ForEach(report.hands) { (h: PassReport.HandResult) in
+            HStack(spacing: 6) {
+                Text(h.hand == Hand.right ? "Right hand" : "Left hand")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text("\(Int(h.accuracy * 100))%")
+                    .font(.callout).bold().monospacedDigit()
+                    .foregroundStyle(h.accuracy >= 0.9 ? Color.primary : Color.orange)
+                if let ms = h.meanSignedMs, abs(ms) >= 25 {
+                    Text(ms > 0 ? "late ~\(Int(ms))ms" : "early ~\(Int(-ms))ms")
                         .font(.caption2).foregroundStyle(.secondary)
-                    Text("\(Int(h.accuracy * 100))%")
-                        .font(.callout).bold().monospacedDigit()
-                        .foregroundStyle(h.accuracy >= 0.9 ? Color.primary : Color.orange)
-                    if let ms = h.meanSignedMs, abs(ms) >= 25 {
-                        Text(ms > 0 ? "late ~\(Int(ms))ms" : "early ~\(Int(-ms))ms")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
             }
-            if let b = report.balance {
-                HStack(spacing: 6) {
-                    Text("Balance").font(.caption2).foregroundStyle(.secondary)
-                    Text("RH \(Int(b.rhMeanVelocity)) · LH \(Int(b.lhMeanVelocity))")
-                        .font(.callout).monospacedDigit()
-                        .foregroundStyle(b.lhLouderBy >= 10 ? Color.orange : Color.primary)
-                }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
-                .help("Mean struck velocity per hand — is the melody voiced above the accompaniment?")
+            .fixedSize()
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
+        }
+        if let b = report.balance {
+            HStack(spacing: 6) {
+                Text("Balance").font(.caption2).foregroundStyle(.secondary)
+                Text("RH \(Int(b.rhMeanVelocity)) · LH \(Int(b.lhMeanVelocity))")
+                    .font(.callout).monospacedDigit()
+                    .foregroundStyle(b.lhLouderBy >= 10 ? Color.orange : Color.primary)
             }
-            Spacer()
+            .fixedSize()
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
+            .help("Mean struck velocity per hand — is the melody voiced above the accompaniment?")
         }
     }
 
@@ -232,7 +246,8 @@ struct PassReportCard: View {
                 callout(icon: "checkmark.circle.fill", tint: .green,
                         text: report.fixedBars.count == 1
                             ? "Bar \(report.fixedBars[0]) fixed — clean this pass"
-                            : "Bars \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass")
+                            : "Bars \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass",
+                        peek: report.fixedBars.first)
             } else if report.accuracy >= 0.95 && !report.personalBest {
                 callout(icon: "checkmark.seal.fill", tint: .green, text: "Clean pass — nice.")
             }
@@ -240,7 +255,7 @@ struct PassReportCard: View {
                 let what = w.missedNames.isEmpty ? "\(w.missed + w.wrong) faults"
                     : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
                 HStack(spacing: 6) {
-                    callout(icon: "target", tint: .red, text: "Bar \(w.bar): \(what)")
+                    callout(icon: "target", tint: .red, text: "Bar \(w.bar): \(what)", peek: w.bar)
                     if let onDrillSlow {
                         Button("Drill bar \(w.bar) slowly") { onDrillSlow(w.bar) }
                             .font(.caption).buttonStyle(.borderless)
@@ -254,13 +269,14 @@ struct PassReportCard: View {
             ForEach(report.recurring.prefix(2)) { r in
                 callout(icon: "repeat", tint: .red,
                         text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
-                            + (r.substitution.map { " (\($0))" } ?? ""))
+                            + (r.substitution.map { " (\($0))" } ?? ""), peek: r.bar)
             }
             if let hot = report.timingHotspot() {
                 let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
                     : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
                 callout(icon: "clock", tint: .orange,
-                        text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms")
+                        text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms",
+                        peek: hot.bars.lowerBound)
             }
             if let d = report.tempoDriftPct, abs(d) >= 3 {
                 callout(icon: "speedometer", tint: .orange,
@@ -269,11 +285,13 @@ struct PassReportCard: View {
             }
             if let hold = report.pedalHolds.first {
                 callout(icon: "waveform", tint: .orange,
-                        text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes")
+                        text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes",
+                        peek: hold.lowerBound)
             }
             if let roll = report.worstChordSpread {
                 callout(icon: "pianokeys", tint: .orange,
-                        text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together")
+                        text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together",
+                        peek: roll.bar)
             }
             if let b = report.balance, b.lhLouderBy >= 10 {
                 callout(icon: "scalemass", tint: .orange,
@@ -285,10 +303,22 @@ struct PassReportCard: View {
         }
     }
 
-    private func callout(icon: String, tint: Color, text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+    /// A feedback line. When it references a bar and a peek handler exists, tapping
+    /// the line flashes that bar on the score — the text is linked to the music.
+    private func callout(icon: String, tint: Color, text: String, peek: Int? = nil) -> some View {
+        let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: icon).font(.caption).foregroundStyle(tint)
             Text(text).font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        return Group {
+            if let peek, let onPeekBar {
+                Button { onPeekBar(peek) } label: { row.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .help("Show bar \(peek) on the score")
+            } else {
+                row
+            }
         }
     }
 }

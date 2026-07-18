@@ -1280,6 +1280,12 @@ final class PracticeSession: ObservableObject {
     /// One-tap start for a drill (from the transport Play in Drill mode).
     /// Speed-ramp: drop to the start tempo and begin the ramp. Progressive: shrink the
     /// window to the first bar, remember the target, and begin building it up.
+    /// Flash a bar on the score without changing anything — the "show me where bar 9
+    /// actually is" affordance behind every feedback callout.
+    func peekBar(_ bar: Int) {
+        bridge.peekBar(min(max(1, bar), measureCount))
+    }
+
     /// The teacher's remediation loop: focus a trouble bar AND come at it slowly —
     /// drop to ~70% of the current tempo and ramp back with the mastery gate, instead
     /// of re-failing it at the speed that just broke. (Press ▶ to start.)

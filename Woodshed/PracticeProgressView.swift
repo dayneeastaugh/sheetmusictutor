@@ -30,6 +30,8 @@ struct ProgressPanel: View {
     var onExpand: (() -> Void)? = nil
     /// Focus a bar AND drop the tempo ~30% with a ramp back (the remediation drill).
     var onDrillSlow: ((Int) -> Void)? = nil
+    /// Flash a bar on the score (link the text feedback to the actual music).
+    var onPeekBar: ((Int) -> Void)? = nil
     /// Wipe this song's history (called after the user confirms).
     let onReset: () -> Void
 
@@ -59,7 +61,8 @@ struct ProgressPanel: View {
                     statRow
                     suggestedFocus
                     if let report = lastPassReport {
-                        PassReportCard(report: report, onDrillBar: onDrillBar, onDrillSlow: onDrillSlow)
+                        PassReportCard(report: report, onDrillBar: onDrillBar,
+                                       onDrillSlow: onDrillSlow, onPeekBar: onPeekBar)
                     }
                     lastPassSection
                     if sections.count >= 2 { masterySection }
@@ -101,14 +104,22 @@ struct ProgressPanel: View {
                     } label: {
                         Label("Drill bar \(worst.bar) slowly — your top trouble spot (\(worst.misses) misses)",
                               systemImage: "target")
-                            .font(.caption)
+                            .font(.caption).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     .buttonStyle(.bordered)
                 }
                 if let neglected = trouble.first(where: { (coverage[$0.bar] ?? 0) * 3 < maxCov }) {
-                    Label("Bar \(neglected.bar) is weak but rarely practised (\(coverage[neglected.bar] ?? 0)× vs \(maxCov)× elsewhere) — don't just replay what already works",
-                          systemImage: "exclamationmark.triangle")
+                    let row = Label("Bar \(neglected.bar) is weak but rarely practised (\(coverage[neglected.bar] ?? 0)× vs \(maxCov)× elsewhere) — don't just replay what already works",
+                                    systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let onPeekBar {
+                        Button { onPeekBar(neglected.bar) } label: { row.contentShape(Rectangle()) }
+                            .buttonStyle(.plain)
+                            .help("Show bar \(neglected.bar) on the score")
+                    } else {
+                        row
+                    }
                 }
                 if !passes.contains(where: { $0.isFullPiece && Calendar.current.isDateInToday($0.date) }) {
                     Label("Finish with one full run-through to bank today's trend point",

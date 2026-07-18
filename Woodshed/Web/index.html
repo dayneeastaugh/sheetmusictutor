@@ -421,6 +421,37 @@
     }
 
     window.setSelection = function (startBar, endBar) { selStart = startBar; selEnd = endBar; drawSelection(); };
+
+    // Peek: flash a bar on the score (feedback callouts tap → "SHOW me bar 9").
+    // Scrolls the bar into view, draws a bright pulse outline, fades it out. Non-
+    // destructive — the practice selection and all overlays are untouched.
+    var peekTimer = null;
+    window.peekBar = function (n) {
+      var cont = document.getElementById("osmdContainer"); if (!cont) return;
+      var ov = document.getElementById("peekOverlay");
+      if (!ov) {
+        ov = document.createElement("div"); ov.id = "peekOverlay";
+        ov.style.cssText = "position:absolute;left:0;top:0;pointer-events:none;z-index:4;";
+        cont.appendChild(ov);
+      }
+      ov.innerHTML = "";
+      if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+      var top = null;
+      measRects.forEach(function (r) {
+        if (r.m !== n - 1) return;
+        if (top === null || r.y < top) top = r.y;
+        var d = document.createElement("div");
+        d.style.cssText = "position:absolute;left:" + (r.x - 2) + "px;top:" + (r.y - 2) + "px;width:" +
+          (r.w + 4) + "px;height:" + (r.h + 4) + "px;border:3px solid #7B1FA2;border-radius:5px;" +
+          "background:rgba(123,31,162,0.10);transition:opacity 0.6s ease 1.0s;opacity:1;";
+        ov.appendChild(d);
+      });
+      if (top !== null) { smoothScrollHostTo(Math.max(0, top - 60)); }
+      requestAnimationFrame(function () {
+        for (var i = 0; i < ov.children.length; i++) { ov.children[i].style.opacity = "0"; }
+      });
+      peekTimer = setTimeout(function () { ov.innerHTML = ""; }, 1700);
+    };
     window.clearSelection = function () { selStart = 0; selEnd = 0; drawSelection(); };
 
     // --- Trouble spots: amber-tint whole bars you still keep missing. Sits BELOW the
