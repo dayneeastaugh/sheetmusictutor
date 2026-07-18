@@ -82,9 +82,16 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   free-running, or count-in) that can also route clicks to the piano via a `pianoClick` callback.
   Publishes `isPlaying`, `isRunning`, `metronomeOn`, `status`.
 - **`MIDIInput.swift`** — owns a CoreMIDI client. Input port (modern `MIDIEventList`/UMP) connects
-  all sources and auto-reconnects on hot-plug; publishes `activeNotes` (held pitches), `status`,
-  `sources`. Output port (`MIDIPacketList`) sends playback notes and metronome clicks (GM percussion
-  on ch. 10) to the piano.
+  all sources, auto-reconnects on hot-plug, **prunes vanished sources** (clearing stuck notes on
+  unplug), and captures the player's **sustain pedal** (CC64 → `onPedal`); publishes `activeNotes`,
+  `status`, `sources`. Output port (`MIDIPacketList`) sends playback notes, sustain, and metronome
+  clicks (GM percussion on ch. 10) to the piano. `teardown()`/`reviveIfNeeded()` give the session a
+  deterministic lifecycle (ADR-044: the view layer can outlive a switched-away song's session, so
+  resources that make sound or receive input are released explicitly on `onDisappear`, never left to
+  deinit timing).
+- **`PianoScheduler.swift`** — pure, edge-triggered MIDI-out player (notes + `playbackExtras` +
+  pedal timeline) driven from the 50 Hz tick; re-articulates repeats, floors sub-tick notes,
+  repositions on loop/seek (ADR-042).
 - **`NotationWebView.swift`** — `NSViewRepresentable`/`UIViewRepresentable` wrapping `WKWebView`.
   Contains **`NotationBridge`** (`ObservableObject`) which holds a weak reference to the web view and
   drives it directly (bypassing SwiftUI churn) at the ~50 Hz cursor rate. Loads `Web/index.html`
@@ -122,8 +129,22 @@ Value types only, no logic beyond small helpers. The vocabulary shared by every 
   Controls (grouped `Form`), Progress (`ProgressPanel`), Flags (`FlagsPanel`). Holds only the 0.02 s
   cursor `Timer.publish` and the play-state `onChange`; the rest is layout. Wires
   `session.onPassRecorded` to `library.recordPass` so finished Grade passes persist.
-- **`ProgressPanel`** — the per-song progress inspector tab: accuracy trend, best/last, trouble-spot
-  heatmap (tap to drill via `session.focusBar`), recent-pass log, reset.
+- **`ProgressPanel`** — the per-song progress inspector tab: **Suggested focus** (worst trouble bar
+  → slow drill, practice-distribution check, run-through nudge), the last-pass **report card**,
+  accuracy trend, best/last, trouble-spot heatmap (tap to drill), section-mastery grid, recent-pass
+  log, reset; an Expand button opens the full-size sheet.
+- **`PassReport.swift` / `PassReportView.swift`** — the feedback pipeline (ADR-049–052):
+  `GradeMatcher` retains per-note results (hand, signed error); at finalize the pure
+  **`PassReportBuilder`** turns them + take data (velocities, pedal) + persisted fault history into a
+  `PassReport` (per-bar/per-hand results, wins, recurring faults, balance, pedal holds, drift, chord
+  rolls, evenness, advice), persisted per song by `PassReportStore` (`report.json`).
+  **`PassReportCard`** renders it (bar strip / problem chips on long scores, timing lane, budgeted
+  callouts) with actions wired to the session: drill, **slow-ramp remediation** (`drillSlowRamp`),
+  and **peek** (`bridge.peekBar` — flash a bar on the score).
+- **`AppSettings.swift`** — `UserDefaults`-backed global preferences (`pref.` keys) read into the
+  session's `@Published`s at init and written back from `didSet` (ADR-036).
+- **`DebugLog.swift`** — opt-in diagnostic log (persisted file + live tail + export) instrumenting
+  MIDI in/out, grading, drills, and session lifecycle (ADR-041).
 - **`PianoKeyboardView.swift`** — a stateless 88-key keyboard drawn with **`Canvas`** (one
   immediate-mode pass; the previous ~140-diffed-views version dropped frames at trill speeds).
   Key geometry is precomputed statically. Colours: green = you playing, blue = right-hand score /
@@ -245,9 +266,12 @@ UI-decoupled; extracting the matcher into its own unit-tested pure module is the
 
 ## Persistence & networking
 
-- **Persistence: none.** Scores are bundled resources; nothing is written to disk (a temporary
-  diagnostic log path exists only behind a dev flag, currently unused). The PRD's SQLite/GRDB layer
-  is not built.
+- **Persistence: file-based, no database** (ADR-018/021). Per-song folders under
+  `Application Support/Segno/Scores/<uuid>/` hold the score pair + `metadata.json`, `history.jsonl`,
+  `flags.json`, `sections.json`, `time.json`, `takes.json`, `report.json` — all atomic writes;
+  soft-delete to Trash; whole-library/song **backup export** (.zip via `NSFileCoordinator`). Global
+  preferences in `UserDefaults` (`AppSettings`); the opt-in `DebugLog` file lives beside the library.
+  A GRDB store remains deferred until cross-song analytics need it. See DATA_MODEL.md.
 - **Networking: none, by design.** No runtime network calls anywhere. OSMD, fonts, sounds, and
   scores are all local.
 

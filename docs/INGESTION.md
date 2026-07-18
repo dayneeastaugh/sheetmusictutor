@@ -42,7 +42,9 @@ and treat the realised flurry as satisfied — never demand the exact alternatio
 The absorbed MIDI notes are, however, **retained for playback** in `FusedScore.playbackExtras`
 (hand-tagged, never graded or notated), so the connected piano can *sound* the ornament instead of
 just its principal note. Grading and notation stay notation-centric; only audio output sees the extras.
-See ADR-042.
+The absorption window **scales with the parent note's length** (`max(0.25, duration × 0.25)` beats)
+and picks the **nearest** ornamented parent — a long trill's overshoot or two adjacent ornaments no
+longer leave stray "unmatched" notes. See ADR-042/046.
 
 ## Rule 4 — Merge tied notes
 A tie in MusicXML is two `<note>` elements; in MIDI it is one sustained note-on. `Ingest.mergeTies`
@@ -51,8 +53,10 @@ count. (This is how 267 RH pitched notes − 66 ties = 201/202 lines up with MID
 
 ## Rule 5 — Fuse by hand, then by beat + pitch
 MuseScore exports each staff as its own MIDI **track** (track 0 = RH, track 1 = LH; confirmed by
-pitch range and count). Within each hand, XML sounding notes are matched to MIDI notes by nearest
-musical beat + equal pitch (a generous 1-beat window absorbs swing). The result attaches XML identity
+pitch range and count). Hands are assigned over **note-bearing tracks only** (a conductor/tempo track
+is ignored); if there aren't exactly two, `Ingest.fuse` throws `MIDIError.unassignableHands(n)` — a
+loud import failure, never a silently empty model. Within each hand, XML sounding notes are matched
+to MIDI notes by nearest musical beat + equal pitch (a generous 1-beat window absorbs swing). The result attaches XML identity
 (spelling/hand/voice/notatedType) onto MIDI timing → `NoteEvent`.
 
 ## Rule 6 — Spelling comes from MusicXML, always
@@ -76,8 +80,10 @@ MIDI ticks) and its written beat (drives the cursor, so on a repeat's second pas
 back like a reader's eyes). `secondsAtBeat` maps written beats via their *first occurrence* (the
 piece end maps to the unfolded end so closing repeats play out); the metronome grid runs over the
 unfolded order so it clicks every played bar. **D.C./D.S./Coda jumps are still not handled** —
-`timelinesMismatch` (now checked against the *unfolded* total) sets `FusedScore.structureWarning`
-and the UI banner says so. One known coarseness: a *section* whose bars sit inside a repeat region
+`timelinesMismatch` (checked against the *unfolded* total, **symmetric** — it also fires when the
+MIDI ends well *short* of the score, e.g. repeats not played in the export) sets
+`FusedScore.structureWarning` and the UI banner says so; the banner also fires on a broken
+`Reconciliation.isClean` count invariant. One known coarseness: a *section* whose bars sit inside a repeat region
 plays their first pass only.
 
 ## Cross-staff notation
@@ -97,6 +103,12 @@ plays as the MIDI hand (who actually plays it) with the XML note's identity, cou
   a catchable `MIDIError.malformed`, never a crash (fuzz-tested in `WoodshedTests`).
 - Grace notes: currently parsed as zero-duration notes; they generally match fine but are an edge
   case to watch.
+- **Sustain pedal (CC64)** is captured from the MIDI file into `MidiScore.pedalEvents` →
+  `FusedScore.pedalTimeline` (playback to the piano); other controllers are still skipped.
+- **Top-level meter/key are first-wins** in `MusicXMLParser` (the opening values feed the header;
+  per-measure meters still track every change) — a 12/8→2/4 piece no longer displays "2/4".
+- **`.mxl` declared sizes are capped** (64 MB/entry) before allocation — a corrupt/crafted archive
+  can't OOM the app (`MXLError.tooLarge`).
 
 ## Metronome grid (built here, used by audio)
 From the per-measure meter, `Ingest.buildClickGrid` emits click times with three emphasis tiers:

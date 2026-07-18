@@ -29,7 +29,10 @@ truth), `onsetBeats` (tick/ticksPerQuarter — tempo-independent, for alignment)
 ### `MidiScore` (output of `MIDIParser.parse`)
 `ticksPerQuarter`, `tempoBPM` (first tempo), `timeSignature`, `notes: [MidiNote]`,
 `secondsAtBeat: (Double) -> Double` (tempo-map converter for any beat), `trackHands: [Hand]`
-(track→hand for audio routing). Convenience: `rightHandCount`, `leftHandCount`.
+(track→hand for audio routing; assigned over **note-bearing** tracks only — a conductor track is
+ignored, and fusion throws `unassignableHands` if there aren't exactly two),
+`pedalEvents: [(seconds, down)]` (sustain CC64 transitions, collapsed to genuine changes).
+Convenience: `rightHandCount`, `leftHandCount`.
 
 ### `XMLNote` (from `MusicXMLParser`)
 One `<note>`: `pitch?`/`spelledName?` (nil for rests), `isRest`, `isChord`, `staff`, `voice`,
@@ -37,8 +40,9 @@ One `<note>`: `pitch?`/`spelledName?` (nil for rests), `isRest`, `isChord`, `sta
 Computed `hand` from `staff`.
 
 ### `MusicXMLScore` (output of `MusicXMLParser.parse`)
-`divisions`, `tempoBPM?`, `timeSignature?`, `keyFifths`, `notes: [XMLNote]`, and
-`measures: [(startBeat, lengthBeats, num, den)]` (per-measure metric structure, for the metronome).
+`divisions`, `tempoBPM?`, `timeSignature?`/`keyFifths` (**first-wins** — the opening meter/key, not
+the last section's), `notes: [XMLNote]`, `measures: [(startBeat, lengthBeats, num, den)]` (per-measure
+metric structure, for the metronome), and `measureRepeats: [RepeatMarks]` (repeat/volta unfolding).
 
 ### `NoteEvent` (the fused, authoritative unit) — `Identifiable`
 The thing everything downstream consumes. **MIDI timing fused with MusicXML identity:**
@@ -56,6 +60,8 @@ Per-hand ingestion audit: `xmlSoundingCount`, `midiCount`, `matched`, `ornamentR
 ### `FusedScore` (the authoritative model) — output of `Ingest.fuse`
 - `tempoBPM`, `timeSignature?`, `keyFifths`
 - `events: [NoteEvent]` (sorted by onset) — the master list
+- `playbackExtras: [NoteEvent]` — realised ornament notes, **playback-only** (sounded on the piano,
+  never graded/notated — ADR-042); `pedalTimeline: [(time, down)]` — sustain for MIDI-out
 - `clickGrid: [(time, level: ClickLevel)]` — metronome click times + emphasis, from barlines/meter
 - `metronomeBarPattern: [ClickLevel]` + `metronomePulseSeconds` — for count-in & free-run metronome
 - `trackHands: [Hand]` — MIDI track → hand, for per-hand audio routing
@@ -70,12 +76,25 @@ Per-hand ingestion audit: `xmlSoundingCount`, `midiCount`, `matched`, `ornamentR
   (drives the live status line + trend; the persisted equivalent is `PracticePass`).
 - `waitSteps: [(beat, rh: Set<Int>, lh: Set<Int>)]` — Wait-mode step list.
 
+### `PassReport` (the post-pass report card) — `Codable` (`PassReport.swift`)
+Built by the pure `PassReportBuilder` when a graded pass finalizes; persisted per song as
+`report.json` (`PassReportStore`) so the last practice survives relaunch. Per-bar `BarResult`s
+(hits/misses/wrongs/mean signed timing/missed names), per-hand `HandResult`s, `deltaVsPrevious` +
+`fixedBars` (wins vs the previous same-bars pass), `recurring: [RecurringFault]` (consecutive-pass
+streaks + substitutions), `balance` (per-hand mean velocity), `pedalHolds` (pedal across ≥2 barlines),
+`tempoDriftPct`, `worstChordSpread`, `evenness` (scale rhythm/dynamics, Technical Practice),
+`personalBest`, `advice`, `date`. Derived: `worstBar`, `timingHotspot()`, `problemClusters()`
+(adjacent faulty bars merged into severity ranges for long scores).
+
 ### `PracticePass` (persisted practice record) — `Codable, Identifiable` (`PracticeHistory.swift`)
 One tallied Grade pass, appended to the song's `history.jsonl`. Fields: `id`, `date`, `mode`
 (`"grade"`), `sectionStart`/`sectionEnd`/`measureCount` (the bar range + whole-piece size),
-`tempoPct`, `handMode`, `total`/`hits`/`missed`/`wrong`/`avgMs`, and `missedBars: [Int]` (one 1-based
-bar per missed note — weights the trouble-spot heatmap). Computed `accuracy`, `isFullPiece`.
-`TroubleBar { bar, misses }` is the aggregate of `missedBars` across passes.
+`tempoPct`, `handMode`, `total`/`hits`/`missed`/`wrong`/`avgMs`, `missedBars: [Int]` (one 1-based
+bar per missed note — weights the trouble-spot heatmap), `signedMs?` (mean signed timing; < 0 =
+rushing), and `faults: [PassFault]?` (per-note `{bar, pitch, kind}` — capped; feeds recurring-fault
+streaks across sessions; optional for back-compat). Computed `accuracy`, `isFullPiece`.
+`TroubleBar { bar, misses }` is the aggregate of `missedBars` across passes;
+`PracticeHistory.coverage` maps bar → passes-covering-it (the practice-distribution check).
 
 ## Relationships & invariants
 

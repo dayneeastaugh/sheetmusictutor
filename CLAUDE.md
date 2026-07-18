@@ -34,12 +34,17 @@ architecture, tech stack, design, and data model. They exist to prevent drift.
 | [docs/INGESTION.md](docs/INGESTION.md) | The core hard problem: MusicXML+MIDI parsing/fusion rules and the findings behind them. |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | ADR-style log of key decisions and rejected alternatives. |
 
-## Status (as of this writing)
+## Status (as of this writing — 2026-07-18)
 
-Phase 0 (vertical-slice prototype) is **complete and working on macOS**: ingestion, notation +
-follow-cursor, playback (per-hand, tempo %, PC/piano/both output), a meter-aware metronome, live
-MIDI input + on-screen keyboard, and first cuts of **Wait mode** and **Tempo/Grade mode** matching.
-The app currently has **no persistence** and runs **sandbox-off**. See each doc's `## Open Questions`.
+Well past the Phase-0 prototype: the app is a **working practice tutor on macOS** (iPadOS builds;
+untested on hardware). Ingestion (incl. repeats/voltas, ornaments, pedal), notation + follow-cursor,
+playback (per-hand, tempo %, PC/piano/both incl. an event-scheduled piano path), metronome, live MIDI
+in/out, four training-session types (Practice / Wait / Grade / Drill incl. progressive + speed-ramp
+drills with mastery gating), a rich **post-pass report card** (per-bar/per-hand results, timing,
+recurring faults, hand balance, pedal, evenness, wins, teacher-style advice, score-linked peeks), and
+**extensive file-based persistence** (per-song library folders: history, takes, flags, sections,
+time, last report; global preferences; backup export). Runs **sandbox-off** (ADR-009). See
+DECISIONS.md ADR-041…052 for the recent arc and each doc's `## Open Questions`.
 
 ## Build & run
 

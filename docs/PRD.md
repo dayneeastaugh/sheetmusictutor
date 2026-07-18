@@ -22,16 +22,17 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 ## 3. Core user stories & flows
 
 1. **Import** — "I export a piece from MuseScore as MusicXML + MIDI and open it in Woodshed."
-   *(Today: scores are bundled fixtures; a real import/library flow is not built.)*
+   *(Built: guided two-step import, drag-drop, `.mxl`, validation-by-fusing, library with search/
+   sort/tags/categories and backup export.)*
 2. **Read** — "I see my score rendered with a cursor that follows along and keeps the active line in
    view." *(Built.)*
 3. **Listen** — "I play it back, mute one hand, slow it down, and choose whether it comes out of the
    laptop or my piano." *(Built: per-hand, tempo %, speakers/piano/both.)*
 4. **Keep time** — "I turn on a metronome that clicks the right meter, with a count-in." *(Built.)*
 5. **Learn the notes** — "Wait mode pauses at each note/chord until I play the right notes; wrong
-   notes are shown but don't block me, and I can review what I fumbled afterwards." *(Built, first cut.)*
+   notes are shown but don't block me, and I can review what I fumbled afterwards." *(Built.)*
 6. **Play along & grade** — "I play along at tempo; afterwards it tells me my accuracy and timing and
-   marks what I missed." *(Built, first cut — 'Grade' mode.)*
+   marks what I missed." *(Built — 'Grade' mode, plus the post-pass report card below.)*
 7. **Master & progress** — "It only advances tempo/section when I've played accurately;
    it shows my trouble spots and history over time." *(Built in full: history, trend, trouble spots,
    tempo mastery gating, and hands-separate → hands-together progression.)*
@@ -106,6 +107,23 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
 - **Drill me** — one button picks today's spot (worst trouble bar → oldest flag → random) and loops
   a 2-bar window around it.
 
+- **Feedback v2 — the pass report card** (ADR-049–052) — after every graded pass: per-bar results
+  (strip / problem-range chips on long scores), a per-bar timing lane, per-hand accuracy + timing,
+  **wins first** (fixed bars, deltas, personal bests), recurring-fault streaks with substitution
+  detection ("you play D4 instead"), a timing hotspot + tempo-drift line, hand **balance**, **your
+  pedal** (muddy-pedal spans), chord-roll detection, scale **evenness** gauges (Technical Practice),
+  and teacher-style advice ("tempo too high — drop ~15%"). Every bar-referencing callout **taps to
+  flash that bar on the score**; a "Drill slowly" button runs the slow-then-ramp remediation loop.
+  The report persists per song (`report.json`) and survives relaunch. Optional **timing tint** colours
+  noteheads blue = early / orange = late after a pass.
+- **Technical Practice** (ADR-043) — a library category seeded with generated **Major/Minor scale
+  books** (48 scales, correct spelling, one saved section per scale), a per-section **mastery grid**,
+  and a **Suggested focus** plan (worst trouble bar, neglected-bars honesty check, run-through nudge).
+- **Data safety & app polish** (ADR-044–048) — confirmed + recoverable song delete, library/song
+  **backup export** (.zip), visible write failures, resume-on-launch, practice **streak + 7-day
+  strip**, deterministic session teardown on song switch, MIDI unplug recovery, iOS audio-interruption
+  recovery, cross-platform in-app Help + diagnostics log export (opt-in `DebugLog`).
+
 ### Planned (from the roadmap, not yet built)
 - **Library refinements** — richer entry points (iCloud/AirDrop/drag-drop), target-tempo in the list.
   *(Search, sort, tags, `.mxl` import, and the guided two-step import are built.)*
@@ -130,7 +148,9 @@ slowly, both hands, loop it" path should exist). Single-user, personal instrumen
   timer (target: move click to a sample-accurate look-ahead scheduler — see Open Questions).
 - **Storage:** file-based — per-song `metadata.json` + append-only `history.jsonl` (no DB). A GRDB
   store is deferred until cross-song analytics need it (DECISIONS ADR-021).
-- **Accessibility:** *not yet addressed* — see Open Questions.
+- **Accessibility:** *first pass done* — colour-blind-safe hand colours, VoiceOver labels on the
+  transport, the keyboard exposed as an accessibility element, labelled report-card elements.
+  Dynamic Type and a full VoiceOver audit remain open.
 
 ## 6. Out of scope (explicit non-goals)
 
