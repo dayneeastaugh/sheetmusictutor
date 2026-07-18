@@ -147,6 +147,7 @@ struct PracticeView: View {
                            onDrillSlow: { session.drillSlowRamp(bar: $0) },
                            onPeekBar: { session.peekBar($0) },
                            onDismiss: { session.passReportDismissed = true },
+                           collapsible: true,
                            sectionName: { session.sectionName(forBar: $0) })
         }
     }

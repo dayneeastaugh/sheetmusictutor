@@ -71,7 +71,7 @@ struct ProgressPanel: View {
                     if let report = lastPassReport {
                         PassReportCard(report: report, onDrillBar: onDrillBar,
                                        onDrillSlow: onDrillSlow, onPeekBar: onPeekBar,
-                                       expanded: wide, sectionName: sectionName)
+                                       collapsible: !wide, expanded: wide, sectionName: sectionName)
                     }
                     lastPassSection
                     if sections.count >= 2 { masterySection }

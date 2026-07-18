@@ -21,6 +21,9 @@ struct PassReportCard: View {
     var onPeekBar: ((Int) -> Void)? = nil
     /// nil = not dismissible (the Progress-tab copy); non-nil shows the ✕.
     var onDismiss: (() -> Void)? = nil
+    /// Show a collapse chevron; collapsed = header verdict only (persisted, shared by
+    /// the practice-area and inspector cards — the sheet stays always-open).
+    var collapsible: Bool = false
     /// The full-size sheet passes true: the bar strip wraps into rows and every callout
     /// shows (no budget/collapse) — room to see everything on a long piece.
     var expanded: Bool = false
@@ -29,6 +32,7 @@ struct PassReportCard: View {
     var sectionName: ((Int) -> String?)? = nil
 
     @State private var showAllCallouts = false
+    @AppStorage("pref.passReportCollapsed") private var collapsed = false
 
     private static let rhColor = Color(red: 21 / 255, green: 101 / 255, blue: 192 / 255)   // early/rushing (blue)
     private static let lateColor = Color(red: 230 / 255, green: 129 / 255, blue: 0 / 255)  // late/dragging (orange)
@@ -40,17 +44,19 @@ struct PassReportCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            if expanded {
-                wrappedStrip
-            } else if isLong {
-                problemChips
-            } else {
-                barStrip
-                if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
+            if !(collapsible && collapsed) {            // collapsed = header verdict only
+                if expanded {
+                    wrappedStrip
+                } else if isLong {
+                    problemChips
+                } else {
+                    barStrip
+                    if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
+                }
+                if !report.hands.isEmpty { handChips }
+                if let e = report.evenness { evennessGauges(e) }
+                callouts
             }
-            if !report.hands.isEmpty { handChips }
-            if let e = report.evenness { evennessGauges(e) }
-            callouts
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.35)))
@@ -153,6 +159,15 @@ struct PassReportCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 8) {
+                if collapsible {
+                    Button { withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() } } label: {
+                        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(collapsed ? "Expand the pass report" : "Collapse to just the score line")
+                    .accessibilityLabel(collapsed ? "Expand pass report" : "Collapse pass report")
+                }
                 Text(title).font(.caption).bold().lineLimit(1)
                 Text("\(Int(report.accuracy * 100))%")
                     .font(.title3).bold().monospacedDigit().fixedSize()
@@ -170,9 +185,17 @@ struct PassReportCard: View {
                         .accessibilityLabel("Dismiss pass report")
                 }
             }
-            Text("bars \(report.sectionStart)–\(report.sectionEnd) · \(Int(report.tempoPct))% tempo")
+            Text("bars \(report.sectionStart)–\(report.sectionEnd) · \(Int(report.tempoPct))% tempo"
+                 + collapsedSummary)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
+    }
+
+    /// When collapsed, the header line carries the one-glance verdict.
+    private var collapsedSummary: String {
+        guard collapsible, collapsed else { return "" }
+        let n = report.problemClusters().count
+        return n == 0 ? " · clean" : " · \(n) trouble spot\(n == 1 ? "" : "s")"
     }
 
     // MARK: Bar strip
@@ -401,8 +424,11 @@ struct PassReportCard: View {
                 let what = w.missedNames.isEmpty ? "\(w.missed + w.wrong) faults"
                     : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
                 let loc = sectionName?(w.bar).map { " — in \($0)" } ?? ""
-                HStack(spacing: 6) {
-                    callout(icon: "target", tint: .red, text: "Bar \(w.bar)\(loc): \(what)", peek: w.bar)
+                // The action sits right beside its finding (an infinity-width text row
+                // used to fling "Drill slowly" to the card's far edge).
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    callout(icon: "target", tint: .red, text: "Bar \(w.bar)\(loc): \(what)",
+                            peek: w.bar, expand: false)
                     if let onDrillSlow {
                         Button("Drill slowly") { onDrillSlow(w.bar) }
                             .font(.caption).buttonStyle(.borderless).fixedSize()
@@ -411,6 +437,7 @@ struct PassReportCard: View {
                         Button("Drill") { onDrillBar(w.bar) }
                             .font(.caption).buttonStyle(.borderless).fixedSize()
                     }
+                    Spacer(minLength: 0)
                 }
             }
             ForEach(shown) { issue in
@@ -430,11 +457,12 @@ struct PassReportCard: View {
 
     /// A feedback line. When it references a bar and a peek handler exists, tapping
     /// the line flashes that bar on the score — the text is linked to the music.
-    private func callout(icon: String, tint: Color, text: String, peek: Int? = nil) -> some View {
+    private func callout(icon: String, tint: Color, text: String, peek: Int? = nil,
+                         expand: Bool = true) -> some View {
         let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: icon).font(.caption).foregroundStyle(tint)
             Text(text).font(.caption)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: expand ? .infinity : nil, alignment: .leading)
         }
         return Group {
             if let peek, let onPeekBar {

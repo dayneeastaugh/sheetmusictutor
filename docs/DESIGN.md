@@ -209,7 +209,10 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   chips** ("bars 12–14", "bar 27") + an "N of M bars clean" line, and **budgets** the callouts (wins +
   worst bar + top-2 issues + tip, rest behind "+N more") so a full run reads as a summary, not a wall;
   the expanded sheet wraps the full strip into 20-bar rows with per-bar timing ticks. Worst-bar
-  callouts name the saved section ("bar 42 — in Bridge"). See ADR-049/050/051/052.
+  callouts name the saved section ("bar 42 — in Bridge"), and the "Drill slowly" action sits directly
+  beside its finding. The card is **collapsible** (chevron in the header, persisted): collapsed it's a
+  one-line verdict — "Pass 4 · 98% · bars 1–10 · 2 trouble spots" — so it never crowds the score.
+  See ADR-049/050/051/052.
 - **Speed trainer (auto-tempo / mastery):** turning it on sets up Grade + Loop; the tempo slider then
   ramps automatically after each pass (by reps, or by accuracy = the mastery gate). The status line
   shows "Speed trainer · 80% → 100% · 1/2 clean · last 96%", and on mastery "Section mastered at 100%
