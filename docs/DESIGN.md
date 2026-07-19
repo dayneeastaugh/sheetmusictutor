@@ -87,7 +87,9 @@ in the overflow menu).
    load, a `ContentUnavailableView` replaces it. If the web content process dies it reloads and
    re-applies score + layout + overlays automatically.
 5. **Keyboard** — the 88-key `PianoKeyboardView` (88 pt on Mac, 74 pt on iPad), with a legend +
-   MIDI connection status beneath. Collapsible ("Show keyboard" in View settings); when hidden a
+   MIDI connection status beneath. Keys clicked/touched on it **count as playing** — they feed the
+   same matching pipeline as real MIDI (Wait steps, sync-start, Grade, takes at a fixed velocity),
+   so the app is fully usable without a piano connected. Collapsible ("Show keyboard" in View settings); when hidden a
    one-line strip keeps the MIDI status + a restore button.
 6. **Inspector — Controls tab** — a grouped `Form` that shows **only the settings relevant to the
    current training-session type**, so each session presents just what it needs (ADR-039). Most of

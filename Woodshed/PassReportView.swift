@@ -421,7 +421,8 @@ struct PassReportCard: View {
                 callout(icon: "checkmark.seal.fill", tint: .green, text: "Clean pass — nice.")
             }
             if let w = report.worstBar {
-                let what = w.missedNames.isEmpty ? "\(w.missed + w.wrong) faults"
+                let n = w.missed + w.wrong
+                let what = w.missedNames.isEmpty ? "\(n) fault\(n == 1 ? "" : "s")"
                     : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
                 let loc = sectionName?(w.bar).map { " — in \($0)" } ?? ""
                 // The action sits right beside its finding (an infinity-width text row

@@ -1437,14 +1437,29 @@ final class PracticeSession: ObservableObject {
     /// the internal sampler for Speakers, the external piano (MIDI out) for Piano —
     /// both for Both. Without this, tapping the keyboard is silent under Piano output
     /// (the sampler is muted and nothing was sent to the piano).
+    /// Notes played on the ON-SCREEN keyboard. They must count as *playing*, not just
+    /// make sound: they feed the same matching pipeline as real MIDI input (Wait-mode
+    /// steps, sync-start, Grade scoring, take capture). Without this, clicking the
+    /// right key in Wait mode played the note but never advanced the step.
+    private var screenKeysDown: Set<Int> = []
+
     func previewNoteOn(_ pitch: Int) {
         if outputMode != 1 { audio.playNote(pitch) }        // speakers (0) or both (2)
         if outputMode != 0 { midi.sendNoteOn(pitch) }       // piano (1) or both (2)
+        guard !screenKeysDown.contains(pitch) else { return }
+        let old = screenKeysDown
+        screenKeysDown.insert(pitch)
+        captureNoteOn(pitch, velocity: 80)                  // a click has no velocity; use a mid value
+        midiNotesChanged(old, screenKeysDown)
     }
 
     func previewNoteOff(_ pitch: Int) {
         if outputMode != 1 { audio.stopNote(pitch) }
         if outputMode != 0 { midi.sendNoteOff(pitch) }
+        guard screenKeysDown.contains(pitch) else { return }
+        let old = screenKeysDown
+        screenKeysDown.remove(pitch)
+        midiNotesChanged(old, screenKeysDown)
     }
 
     // MARK: - MIDI input events (wired from the view's onChange)
