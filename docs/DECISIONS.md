@@ -760,6 +760,25 @@ Pure `problemClusters` unit-tested. (Testing note: a `#expect(cl.count==3)` that
 later `cl[2]` crash the shared test host and cascade-fail the whole run — the data was wrong, not the
 code; fixed the fixture. Watch indexed access after a count assertion in Swift Testing.)
 
+### ADR-052 — Themed feedback: Notes / Rhythm & tempo / Touch & pedal (two tiers)
+**2026-07-19.** A teacher's debrief is a few THEMES with one focus, not ten observations in severity
+order — and themes give feedback a stable geography (rhythm is always the rhythm row). The report
+card's callouts are restructured into two tiers, computed by pure `PassReport.themes()` +
+`winsSummary` (unit-tested):
+- **Tier 1** — a wins line first ("Personal best · bars 3, 7 fixed · ▲4%"), then one row per
+  concerning theme, severity-ordered (**focus** red / **watch** amber), each a one-line summary with
+  tappable bar references (peek) and a chevron; themes that are fine compress to a single quiet line
+  ("Rhythm ✓ steady · Touch ✓ balanced"). The 💡 advice line rides with the top theme — the one
+  instruction survives.
+- **Tier 2** — the existing detailed findings (worst bar + Drill slowly, recurring, hotspot, drift,
+  pedal, chord rolls, balance) grouped **under their theme**, disclosed per-row; the expanded sheet
+  shows everything open.
+Theme statuses derive from existing signals only (Notes: recurring/accuracy; Rhythm: hotspot, drift,
+timing evenness, bar leans; Touch: pedal holds, balance, chord rolls, dynamic evenness) — honest
+theming, calibratable alongside the gauge thresholds. **Rejected:** merging the bar strip into themes
+(the strip locates, themes summarise — different questions); showing all-good themes as full rows
+(three green rows claim attention a clean pass doesn't need).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

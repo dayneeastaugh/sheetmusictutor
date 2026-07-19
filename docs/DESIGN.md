@@ -202,7 +202,9 @@ the status line and legends; the diagnostics sheet uses `.system(.body/.footnote
   Progress tab): a **per-bar strip** (green clean / amber rough / red bad, rest bars grey; bars fixed
   since the last pass outlined green; **tap a bar to drill it**), a **per-bar timing lane** (above the
   line = dragging, below = rushing), **per-hand chips** (accuracy + early/late, when both hands are
-  graded), and specific callouts — **wins first** ("Bar 3 fixed", "▲ +5%"), then the worst bar with
+  graded), and **themed callouts** (ADR-052): a wins line, then Notes / Rhythm & tempo / Touch & pedal rows
+  (severity-ordered, one-line summaries, per-row disclosure to the detailed findings; fine themes
+  compress to "Rhythm ✓ steady") — **wins first** ("Bar 3 fixed", "▲ +5%"), then the worst bar with
   its missed note names + a Drill button, then a timing hotspot ("you rush bars 9–10 by ~60 ms").
   Recurring faults get their own callout ("bar 6: E♭4 missed — 4 passes in a row (you play D4
   instead)") from the per-pass fault history. Technical-practice songs add two **evenness gauges**

@@ -1098,6 +1098,38 @@ struct PassReportTests {
         #expect(r.cleanBarCount == 3)   // bars 1, 4, 6
     }
 
+    @Test("themes: signals map to Notes/Rhythm/Touch with severity ordering + wins line")
+    func themes() {
+        // A rough pass: recurring miss (Notes→focus), rushing run (Rhythm→focus),
+        // pedal hold (Touch→focus). All three concerning, notes first on tie.
+        let miss = PassFault(bar: 3, pitch: 63, kind: "missed")
+        var rough = PassReportBuilder.build(
+            notes: [note(3, pitch: 63, name: "E♭4", matched: false),
+                    note(4, ms: -60), note(5, ms: -70), note(6, ms: 5)],
+            wrongNotes: [], sectionStart: 3, sectionEnd: 6, tempoPct: 80,
+            previous: nil, previousFaults: [[miss], [miss]])
+        rough.pedalHolds = [1...3]
+        let t1 = rough.themes()
+        #expect(t1.map(\.kind) == [.notes, .rhythm, .touch])       // all focus → stable kind order
+        #expect(t1.allSatisfy { $0.status == .focus })
+        #expect(t1[0].summary.contains("E♭4") && t1[0].summary.contains("3 passes"))
+        #expect(t1[1].summary.contains("rush"))
+        #expect(t1[2].summary.contains("pedal held"))
+
+        // A clean pass: everything good, wins line says clean.
+        let clean = PassReportBuilder.build(
+            notes: (1...12).map { note(1, pitch: 60 + $0, ms: 5) },
+            wrongNotes: [], sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
+        #expect(clean.themes().allSatisfy { $0.status == .good })
+        #expect(clean.winsSummary == "Clean pass")
+
+        // Wins compose: PB + fixed bars.
+        var winning = clean
+        winning.personalBest = true
+        winning.fixedBars = [2, 5]
+        #expect(winning.winsSummary == "Personal best · bars 2, 5 fixed")
+    }
+
     @Test("timing hotspot finds the consistent run and ignores even playing")
     func hotspot() {
         let report = PassReportBuilder.build(

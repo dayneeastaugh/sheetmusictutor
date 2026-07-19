@@ -356,100 +356,135 @@ struct PassReportCard: View {
 
     // MARK: Callouts (wins first)
 
-    private struct Issue: Identifiable {
-        let id = UUID(); let icon: String; let tint: Color; let text: String; var peek: Int? = nil
-    }
+    // MARK: Themed callouts (ADR-052) — tier 1: wins + theme rows; tier 2: details
 
-    /// Secondary issues in teacher-priority order (recurring first — most actionable),
-    /// budgeted on a long/rough pass so the card reads as a summary, not a wall.
-    private var secondaryIssues: [Issue] {
-        var out: [Issue] = []
-        for r in report.recurring.prefix(2) {
-            out.append(Issue(icon: "repeat", tint: .red,
-                             text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
-                                + (r.substitution.map { " (\($0))" } ?? ""), peek: r.bar))
-        }
-        if let hot = report.timingHotspot() {
-            let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
-                : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
-            out.append(Issue(icon: "clock", tint: .orange,
-                             text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms",
-                             peek: hot.bars.lowerBound))
-        }
-        if let hold = report.pedalHolds.first {
-            out.append(Issue(icon: "waveform", tint: .orange,
-                             text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes",
-                             peek: hold.lowerBound))
-        }
-        if let roll = report.worstChordSpread {
-            out.append(Issue(icon: "pianokeys", tint: .orange,
-                             text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together",
-                             peek: roll.bar))
-        }
-        if let b = report.balance, b.lhLouderBy >= 10 {
-            out.append(Issue(icon: "scalemass", tint: .orange,
-                             text: "Left hand louder than right by \(Int(b.lhLouderBy)) — the melody may be buried"))
-        }
-        if let d = report.tempoDriftPct, abs(d) >= 3 {
-            out.append(Issue(icon: "speedometer", tint: .orange,
-                             text: d < 0 ? "You sped up through the pass — ~\(Int(-d))% faster by the end"
-                                         : "You slowed through the pass — ~\(Int(d))% slower by the end"))
-        }
-        return out
-    }
+    @State private var openThemes: Set<String> = []
 
     @ViewBuilder
     private var callouts: some View {
-        // Budget the secondary issues in the compact card so a rough long pass doesn't
-        // wall you with nine lines; the expanded sheet (or "+N more") shows all.
-        let issues = secondaryIssues
-        let budget = 2
-        let showAll = expanded || showAllCallouts || issues.count <= budget + 1
-        let shown = showAll ? issues : Array(issues.prefix(budget))
-
-        VStack(alignment: .leading, spacing: 4) {
-            if report.personalBest {
-                callout(icon: "trophy.fill", tint: .green, text: "Personal best on these bars")
-            }
-            if !report.fixedBars.isEmpty {
-                callout(icon: "checkmark.circle.fill", tint: .green,
-                        text: report.fixedBars.count <= 3
-                            ? "Bar\(report.fixedBars.count == 1 ? "" : "s") \(report.fixedBars.map(String.init).joined(separator: ", ")) fixed — clean this pass"
-                            : "\(report.fixedBars.count) bars fixed this pass ✓",
+        let themes = report.themes()
+        let concerning = themes.filter { $0.status != .good }
+        let fine = themes.filter { $0.status == .good }
+        VStack(alignment: .leading, spacing: 5) {
+            if let wins = report.winsSummary {
+                callout(icon: "trophy.fill", tint: .green, text: wins,
                         peek: report.fixedBars.first)
-            } else if report.accuracy >= 0.95 && !report.personalBest {
-                callout(icon: "checkmark.seal.fill", tint: .green, text: "Clean pass — nice.")
             }
-            if let w = report.worstBar {
-                let n = w.missed + w.wrong
-                let what = w.missedNames.isEmpty ? "\(n) fault\(n == 1 ? "" : "s")"
-                    : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
-                let loc = sectionName?(w.bar).map { " — in \($0)" } ?? ""
-                // The action sits right beside its finding (an infinity-width text row
-                // used to fling "Drill slowly" to the card's far edge).
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    callout(icon: "target", tint: .red, text: "Bar \(w.bar)\(loc): \(what)",
-                            peek: w.bar, expand: false)
-                    if let onDrillSlow {
-                        Button("Drill slowly") { onDrillSlow(w.bar) }
-                            .font(.caption).buttonStyle(.borderless).fixedSize()
-                            .help("Focus bar \(w.bar) at ~70% tempo and ramp back up with the mastery gate")
-                    } else {
-                        Button("Drill") { onDrillBar(w.bar) }
-                            .font(.caption).buttonStyle(.borderless).fixedSize()
-                    }
-                    Spacer(minLength: 0)
+            ForEach(concerning) { theme in
+                themeRow(theme)
+                if openThemes.contains(theme.id) || expanded {
+                    themeDetails(theme.kind).padding(.leading, 22)
+                }
+                // The coach's one instruction rides with the top (focus) theme.
+                if theme.id == concerning.first?.id, let tip = report.advice {
+                    callout(icon: "lightbulb", tint: .blue, text: tip).padding(.leading, 22)
                 }
             }
-            ForEach(shown) { issue in
-                callout(icon: issue.icon, tint: issue.tint, text: issue.text, peek: issue.peek)
+            if !fine.isEmpty {
+                Text(fine.map { "\($0.kind.title) ✓ \($0.goodWord)" }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.green.opacity(0.9))
             }
-            if !showAll {
-                Button("+\(issues.count - budget) more") { showAllCallouts = true }
-                    .font(.caption2).buttonStyle(.borderless)
+        }
+    }
+
+    /// One theme row: status dot · name · one-line summary. Tap the text to peek its
+    /// bar; the chevron (or the expanded sheet) opens the detailed findings beneath.
+    private func themeRow(_ theme: PassReport.ThemeSummary) -> some View {
+        let tint: Color = theme.status == .focus ? .red : .orange
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: theme.kind.icon).font(.caption).foregroundStyle(tint)
+                .frame(width: 14)
+            Group {
+                if let peekBar = theme.peek, let onPeekBar {
+                    Button { onPeekBar(peekBar) } label: {
+                        themeText(theme, tint: tint).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show bar \(peekBar) on the score")
+                } else {
+                    themeText(theme, tint: tint)
+                }
             }
-            if let tip = report.advice {
-                callout(icon: "lightbulb", tint: .blue, text: tip)
+            if !expanded {
+                Button {
+                    if openThemes.contains(theme.id) { openThemes.remove(theme.id) }
+                    else { openThemes.insert(theme.id) }
+                } label: {
+                    Image(systemName: openThemes.contains(theme.id) ? "chevron.down" : "chevron.right")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Show the detailed findings for \(theme.kind.title)")
+                .accessibilityLabel("\(openThemes.contains(theme.id) ? "Hide" : "Show") \(theme.kind.title) details")
+            }
+        }
+    }
+
+    private func themeText(_ theme: PassReport.ThemeSummary, tint: Color) -> some View {
+        (Text("\(theme.kind.title): ").bold().foregroundColor(tint)
+            + Text(theme.summary))
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Tier 2 — the detailed findings, grouped under their theme.
+    @ViewBuilder
+    private func themeDetails(_ kind: PassReport.ThemeSummary.Kind) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch kind {
+            case .notes:
+                if let w = report.worstBar {
+                    let n = w.missed + w.wrong
+                    let what = w.missedNames.isEmpty ? "\(n) fault\(n == 1 ? "" : "s")"
+                        : "missed \(w.missedNames.joined(separator: ", "))" + (w.wrong > 0 ? " + \(w.wrong) wrong" : "")
+                    let loc = sectionName?(w.bar).map { " — in \($0)" } ?? ""
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        callout(icon: "target", tint: .red, text: "Bar \(w.bar)\(loc): \(what)",
+                                peek: w.bar, expand: false)
+                        if let onDrillSlow {
+                            Button("Drill slowly") { onDrillSlow(w.bar) }
+                                .font(.caption).buttonStyle(.borderless).fixedSize()
+                                .help("Focus bar \(w.bar) at ~70% tempo and ramp back up with the mastery gate")
+                        } else {
+                            Button("Drill") { onDrillBar(w.bar) }
+                                .font(.caption).buttonStyle(.borderless).fixedSize()
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                ForEach(report.recurring) { r in
+                    callout(icon: "repeat", tint: .red,
+                            text: "Bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes in a row"
+                                + (r.substitution.map { " (\($0))" } ?? ""), peek: r.bar)
+                }
+            case .rhythm:
+                if let hot = report.timingHotspot() {
+                    let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
+                        : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
+                    callout(icon: "clock", tint: .orange,
+                            text: "You \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms",
+                            peek: hot.bars.lowerBound)
+                }
+                if let d = report.tempoDriftPct, abs(d) >= 3 {
+                    callout(icon: "speedometer", tint: .orange,
+                            text: d < 0 ? "You sped up through the pass — ~\(Int(-d))% faster by the end"
+                                        : "You slowed through the pass — ~\(Int(d))% slower by the end")
+                }
+            case .touch:
+                if let hold = report.pedalHolds.first {
+                    callout(icon: "waveform", tint: .orange,
+                            text: "Pedal held through bars \(hold.lowerBound)–\(hold.upperBound) — lift at the harmony changes",
+                            peek: hold.lowerBound)
+                }
+                if let roll = report.worstChordSpread {
+                    callout(icon: "pianokeys", tint: .orange,
+                            text: "Rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms spread) — strike the notes together",
+                            peek: roll.bar)
+                }
+                if let b = report.balance, b.lhLouderBy >= 10 {
+                    callout(icon: "scalemass", tint: .orange,
+                            text: "Left hand louder than right by \(Int(b.lhLouderBy)) — the melody may be buried")
+                }
             }
         }
     }

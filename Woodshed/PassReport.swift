@@ -138,6 +138,135 @@ struct PassReport: Codable, Equatable {
 
     var cleanBarCount: Int { bars.filter { $0.total == 0 || $0.isClean }.count }
 
+    // MARK: Themes — the teacher's structure (ADR-052)
+    //
+    // A lesson debrief isn't ten observations in severity order; it's a few THEMES
+    // with one focus: Notes (right keys?), Rhythm & tempo (right time?), Touch &
+    // pedal (right sound?) — plus a win to open with. Every signal the app computes
+    // maps honestly onto one of these; the card shows theme rows first (stable
+    // geography — rhythm is always rhythm) and the detailed findings beneath.
+
+    struct ThemeSummary: Identifiable, Equatable {
+        enum Kind: String, CaseIterable {
+            case notes, rhythm, touch
+            var title: String {
+                switch self {
+                case .notes: return "Notes"
+                case .rhythm: return "Rhythm & tempo"
+                case .touch: return "Touch & pedal"
+                }
+            }
+            var icon: String {
+                switch self {
+                case .notes: return "music.note"
+                case .rhythm: return "metronome"
+                case .touch: return "pianokeys"
+                }
+            }
+        }
+        enum Status: Int, Comparable {
+            case good = 0, watch = 1, focus = 2
+            static func < (a: Status, b: Status) -> Bool { a.rawValue < b.rawValue }
+        }
+        var kind: Kind
+        var status: Status
+        var summary: String        // one line, bar references inline
+        var goodWord: String       // for the compressed "Rhythm ✓ steady" line
+        var peek: Int?             // tap → flash this bar on the score
+        var id: String { kind.rawValue }
+    }
+
+    /// The three themes, computed from this pass's signals, sorted focus → good.
+    func themes() -> [ThemeSummary] {
+        let faults = bars.reduce(0) { $0 + $1.missed + $1.wrong }
+        let faultBars = bars.filter { $0.missed + $0.wrong > 0 }.count
+
+        // Notes — right keys?
+        var notesStatus: ThemeSummary.Status = .good
+        var notesSummary = "every note right"
+        if let r = recurring.first {
+            notesStatus = .focus
+            notesSummary = "bar \(r.bar): \(r.name) \(r.kind) — \(r.streak) passes running"
+                + (r.substitution.map { " (\($0))" } ?? "")
+        } else if let w = worstBar {
+            notesStatus = accuracy < 0.90 ? .focus : .watch
+            let what = w.missedNames.isEmpty ? "\(w.missed + w.wrong) fault\(w.missed + w.wrong == 1 ? "" : "s")"
+                : "missed \(w.missedNames.joined(separator: ", "))"
+            notesSummary = faultBars <= 1 ? "all in bar \(w.bar): \(what)"
+                : "worst at bar \(w.bar) (\(what)) — \(faults) faults over \(faultBars) bars"
+        }
+        let notes = ThemeSummary(kind: .notes, status: notesStatus, summary: notesSummary,
+                                 goodWord: "accurate", peek: recurring.first?.bar ?? worstBar?.bar)
+
+        // Rhythm & tempo — right time?
+        var rhythmParts: [String] = []
+        var rhythmStatus: ThemeSummary.Status = .good
+        let hot = timingHotspot()
+        if let hot {
+            rhythmStatus = .focus
+            let where_ = hot.bars.count == 1 ? "bar \(hot.bars.lowerBound)"
+                : "bars \(hot.bars.lowerBound)–\(hot.bars.upperBound)"
+            rhythmParts.append("you \(hot.meanMs < 0 ? "rush" : "drag") \(where_) by ~\(Int(abs(hot.meanMs))) ms")
+        }
+        if let d = tempoDriftPct, abs(d) >= 3 {
+            rhythmStatus = .focus
+            rhythmParts.append(d < 0 ? "sped up ~\(Int(-d))% over the pass" : "slowed ~\(Int(d))% over the pass")
+        }
+        if let e = evenness, e.timingScore < 0.8 {
+            rhythmStatus = max(rhythmStatus, e.timingScore < 0.5 ? .focus : .watch)
+            rhythmParts.append("note spacing uneven")
+        }
+        if rhythmStatus == .good {
+            let maxLean = bars.compactMap(\.meanSignedMs).map(abs).max() ?? 0
+            if maxLean >= 25 { rhythmStatus = .watch; rhythmParts.append("mostly steady — a few bars lean \(Int(maxLean)) ms") }
+        }
+        let rhythm = ThemeSummary(kind: .rhythm, status: rhythmStatus,
+                                  summary: rhythmParts.isEmpty ? "steady and in place" : rhythmParts.joined(separator: "; "),
+                                  goodWord: "steady", peek: hot?.bars.lowerBound)
+
+        // Touch & pedal — right sound?
+        var touchParts: [String] = []
+        var touchStatus: ThemeSummary.Status = .good
+        if let hold = pedalHolds.first {
+            touchStatus = .focus
+            touchParts.append("pedal held through bars \(hold.lowerBound)–\(hold.upperBound)")
+        }
+        if let b = balance, b.lhLouderBy >= 10 {
+            touchStatus = max(touchStatus, b.lhLouderBy >= 15 ? .focus : .watch)
+            touchParts.append("left hand louder by \(Int(b.lhLouderBy)) — melody may be buried")
+        }
+        if let roll = worstChordSpread {
+            touchStatus = max(touchStatus, .watch)
+            touchParts.append("rolled chord in bar \(roll.bar) (~\(Int(roll.ms)) ms)")
+        }
+        if let e = evenness, e.dynamicScore < 0.6 {
+            touchStatus = max(touchStatus, .watch)
+            touchParts.append("uneven touch")
+        }
+        let touch = ThemeSummary(kind: .touch, status: touchStatus,
+                                 summary: touchParts.isEmpty ? "balanced and clean" : touchParts.joined(separator: "; "),
+                                 goodWord: "balanced", peek: pedalHolds.first?.lowerBound ?? worstChordSpread?.bar)
+
+        return [notes, rhythm, touch].sorted {
+            $0.status == $1.status ? $0.kind.rawValue < $1.kind.rawValue : $0.status > $1.status
+        }
+    }
+
+    /// The opening win line ("Personal best · bars 3, 7 fixed · ▲4%"), nil when there
+    /// isn't one — teachers open with something earned.
+    var winsSummary: String? {
+        var parts: [String] = []
+        if personalBest { parts.append("Personal best") }
+        if !fixedBars.isEmpty {
+            parts.append(fixedBars.count <= 3
+                ? "bar\(fixedBars.count == 1 ? "" : "s") \(fixedBars.map(String.init).joined(separator: ", ")) fixed"
+                : "\(fixedBars.count) bars fixed")
+        }
+        if let d = deltaVsPrevious, d >= 0.005 { parts.append("▲\(Int((d * 100).rounded()))%") }
+        if parts.isEmpty && accuracy >= 0.95 { parts.append("Clean pass") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// Worst bar (most faults; ties → earliest), for the headline callout.
     var worstBar: BarResult? {
         bars.filter { $0.missed + $0.wrong > 0 }
