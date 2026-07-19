@@ -136,6 +136,12 @@ struct PracticeView: View {
 
     /// The post-pass report card: shows once a graded pass finishes and playback
     /// stops (Grade auto-stops at the end; a drill shows it when you stop).
+    private var reportCardShowing: Bool {
+        session.lastPassReport != nil && !session.audio.isPlaying
+            && !session.passReportDismissed
+            && (session.practiceMode == .grade || session.practiceMode == .drill)
+    }
+
     @ViewBuilder
     private var reportCardIfVisible: some View {
         if let report = session.lastPassReport, !session.audio.isPlaying,
@@ -377,7 +383,8 @@ struct PracticeView: View {
                 if session.passAbandoned {
                     Text("Pass abandoned — stopped before the end (not recorded)")
                         .foregroundStyle(.secondary)
-                } else if let r = session.gradeResult {
+                } else if let r = session.gradeResult, !reportCardShowing {
+                    // The report card carries this headline when it's on screen.
                     Text("Pass \(session.gradeHistory.count): \(Int(r.accuracy * 100))% · Missed \(r.missed) · Wrong \(r.extra) · ±\(Int(r.avgMs))ms · \(timingFeel(r.signedMs))")
                         .foregroundStyle(r.accuracy >= 0.95 ? .green : .primary)
                     if session.gradeHistory.count > 1 {

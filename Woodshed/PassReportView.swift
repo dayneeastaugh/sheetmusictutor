@@ -42,7 +42,7 @@ struct PassReportCard: View {
     private var isLong: Bool { report.bars.count > Self.compactBarLimit }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             header
             if !(collapsible && collapsed) {            // collapsed = header verdict only
                 if expanded {
@@ -53,8 +53,12 @@ struct PassReportCard: View {
                     barStrip
                     if report.bars.contains(where: { $0.meanSignedMs != nil }) { timingLane }
                 }
-                if !report.hands.isEmpty { handChips }
+                if !report.hands.isEmpty || report.balance != nil {
+                    Divider().opacity(0.5)
+                    handChips
+                }
                 if let e = report.evenness { evennessGauges(e) }
+                Divider().opacity(0.5)
                 callouts
             }
         }
@@ -69,7 +73,7 @@ struct PassReportCard: View {
         let clusters = report.problemClusters()
         return VStack(alignment: .leading, spacing: 5) {
             Text("\(report.cleanBarCount) of \(report.bars.count) bars clean")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption2).foregroundStyle(.secondary)
             if clusters.isEmpty {
                 Label("No trouble spots this pass", systemImage: "checkmark.seal")
                     .font(.caption).foregroundStyle(.green)
@@ -295,33 +299,30 @@ struct PassReportCard: View {
     @ViewBuilder
     private var chipViews: some View {
         ForEach(report.hands) { (h: PassReport.HandResult) in
-            HStack(spacing: 6) {
-                Text(h.hand == Hand.right ? "Right hand" : "Left hand")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text("\(Int(h.accuracy * 100))%")
-                    .font(.callout).bold().monospacedDigit()
-                    .foregroundStyle(h.accuracy >= 0.9 ? Color.primary : Color.orange)
-                if let ms = h.meanSignedMs, abs(ms) >= 25 {
-                    Text(ms > 0 ? "late ~\(Int(ms))ms" : "early ~\(Int(-ms))ms")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .fixedSize()
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
+            statColumn(h.hand == Hand.right ? "Right hand" : "Left hand",
+                       value: "\(Int(h.accuracy * 100))%",
+                       detail: h.meanSignedMs.flatMap { abs($0) >= 25 ? ($0 > 0 ? "late ~\(Int($0))ms" : "early ~\(Int(-$0))ms") : nil },
+                       tint: h.accuracy >= 0.9 ? Color.primary : Color.orange)
         }
         if let b = report.balance {
-            HStack(spacing: 6) {
-                Text("Balance").font(.caption2).foregroundStyle(.secondary)
-                Text("RH \(Int(b.rhMeanVelocity)) · LH \(Int(b.lhMeanVelocity))")
-                    .font(.callout).monospacedDigit()
-                    .foregroundStyle(b.lhLouderBy >= 10 ? Color.orange : Color.primary)
-            }
-            .fixedSize()
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
-            .help("Mean struck velocity per hand — is the melody voiced above the accompaniment?")
+            statColumn("Balance",
+                       value: "\(Int(b.rhMeanVelocity)) · \(Int(b.lhMeanVelocity))",
+                       detail: "RH · LH",
+                       tint: b.lhLouderBy >= 10 ? Color.orange : Color.primary)
+                .help("Mean struck velocity per hand — is the melody voiced above the accompaniment?")
         }
+    }
+
+    /// A quiet label-over-value stat (same idiom as the drill bar's stats).
+    private func statColumn(_ label: String, value: String, detail: String?, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value).font(.callout).bold().monospacedDigit().foregroundStyle(tint)
+                if let detail { Text(detail).font(.caption2).foregroundStyle(.secondary) }
+            }
+        }
+        .fixedSize()
     }
 
     // MARK: Evenness (Technical Practice: what a teacher listens for in a scale)
@@ -377,7 +378,11 @@ struct PassReportCard: View {
                 }
                 // The coach's one instruction rides with the top (focus) theme.
                 if theme.id == concerning.first?.id, let tip = report.advice {
-                    callout(icon: "lightbulb", tint: .blue, text: tip).padding(.leading, 22)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "lightbulb").font(.caption2).foregroundStyle(.blue)
+                        Text(tip).font(.caption).foregroundStyle(.secondary).italic()
+                    }
+                    .padding(.leading, 29)
                 }
             }
             if !fine.isEmpty {
@@ -391,9 +396,9 @@ struct PassReportCard: View {
     /// bar; the chevron (or the expanded sheet) opens the detailed findings beneath.
     private func themeRow(_ theme: PassReport.ThemeSummary) -> some View {
         let tint: Color = theme.status == .focus ? .red : .orange
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: theme.kind.icon).font(.caption).foregroundStyle(tint)
-                .frame(width: 14)
+        return HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: theme.kind.icon).font(.caption).foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .center)
             Group {
                 if let peekBar = theme.peek, let onPeekBar {
                     Button { onPeekBar(peekBar) } label: {
@@ -421,10 +426,14 @@ struct PassReportCard: View {
     }
 
     private func themeText(_ theme: PassReport.ThemeSummary, tint: Color) -> some View {
-        (Text("\(theme.kind.title): ").bold().foregroundColor(tint)
-            + Text(theme.summary))
-            .font(.caption)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Circle().fill(tint).frame(width: 6, height: 6)
+                .accessibilityLabel(theme.status == .focus ? "needs focus" : "watch")
+            (Text("\(theme.kind.title)  ").fontWeight(.semibold)
+                + Text(theme.summary).foregroundColor(.secondary))
+                .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Tier 2 — the detailed findings, grouped under their theme.
@@ -517,18 +526,16 @@ struct PassReportCard: View {
 private struct FlowChips: View {
     let clusters: [PassReport.ProblemCluster]
     let onTap: (PassReport.ProblemCluster) -> Void
-    private let cols = [GridItem(.adaptive(minimum: 92), spacing: 6, alignment: .leading)]
+    private let cols = [GridItem(.adaptive(minimum: 84), spacing: 5, alignment: .leading)]
 
     var body: some View {
-        LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+        LazyVGrid(columns: cols, alignment: .leading, spacing: 5) {
             ForEach(clusters) { c in
                 let tint = c.severity == 2 ? Color.red : Color.orange
                 Button { onTap(c) } label: {
-                    Text(c.label).font(.caption2).lineLimit(1)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .frame(maxWidth: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(tint.opacity(0.16)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(tint.opacity(0.5)))
+                    Text(c.label).font(.caption2).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(tint.opacity(0.14)))
                         .foregroundStyle(tint)
                 }
                 .buttonStyle(.plain)
