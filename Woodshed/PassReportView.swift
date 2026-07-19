@@ -410,18 +410,24 @@ struct PassReportCard: View {
                     themeText(theme, tint: tint)
                 }
             }
+            // The disclosure sits right beside the text (an infinity-width row used to
+            // fling it to the card's far edge, where it went unnoticed).
             if !expanded {
                 Button {
                     if openThemes.contains(theme.id) { openThemes.remove(theme.id) }
                     else { openThemes.insert(theme.id) }
                 } label: {
-                    Image(systemName: openThemes.contains(theme.id) ? "chevron.down" : "chevron.right")
+                    Label(openThemes.contains(theme.id) ? "less" : "details",
+                          systemImage: openThemes.contains(theme.id) ? "chevron.down" : "chevron.right")
                         .font(.caption2).foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.borderless)
+                .fixedSize()
                 .help("Show the detailed findings for \(theme.kind.title)")
                 .accessibilityLabel("\(openThemes.contains(theme.id) ? "Hide" : "Show") \(theme.kind.title) details")
             }
+            Spacer(minLength: 0)
         }
     }
 
@@ -433,7 +439,6 @@ struct PassReportCard: View {
                 + Text(theme.summary).foregroundColor(.secondary))
                 .font(.caption)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Tier 2 — the detailed findings, grouped under their theme.
@@ -523,13 +528,38 @@ struct PassReportCard: View {
 
 /// Wrapping row of tappable problem-range chips (compact long-score view). A grid with
 /// adaptive columns wraps naturally; each chip is tinted by its worst bar's severity.
+/// A left-packed wrapping row (tags flow like words; a uniform grid left ragged gaps).
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 5
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxW = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let sz = v.sizeThatFits(.unspecified)
+            if x > 0, x + sz.width > maxW { x = 0; y += rowH + spacing; rowH = 0 }
+            x += sz.width + spacing
+            rowH = max(rowH, sz.height)
+        }
+        return CGSize(width: maxW.isFinite ? maxW : x, height: y + rowH)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let sz = v.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + sz.width > bounds.maxX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += sz.width + spacing
+            rowH = max(rowH, sz.height)
+        }
+    }
+}
+
 private struct FlowChips: View {
     let clusters: [PassReport.ProblemCluster]
     let onTap: (PassReport.ProblemCluster) -> Void
-    private let cols = [GridItem(.adaptive(minimum: 84), spacing: 5, alignment: .leading)]
 
     var body: some View {
-        LazyVGrid(columns: cols, alignment: .leading, spacing: 5) {
+        FlowLayout(spacing: 5) {
             ForEach(clusters) { c in
                 let tint = c.severity == 2 ? Color.red : Color.orange
                 Button { onTap(c) } label: {
