@@ -68,7 +68,8 @@ in the overflow menu).
    **transport cluster** in a capsule: `⏮` (back to the section start — while playing it
    jumps there, in Grade mode restarting the pass; while stopped it resets the playhead + cursor),
    `◀` / `▶` **one bar** (stopped: moves the *playhead* — where Play begins, cursor previews it;
-   playing: jumps the live position; disabled in Grade — it would corrupt the pass — and in Wait),
+   playing: jumps the live position; disabled in Grade — it would corrupt the pass — and in Wait);
+   in Wait, `⏮` **restarts the walkthrough** (fumbles reset per pass),
    and the prominent icon-only `▶︎/◼` Play/Stop (Space; shows a clock while armed for sync start).
    Loops always return to the *section* start regardless of the playhead. A status-line hint shows
    "Play starts at bar N" when the playhead is off the section start. On macOS a `navigationSubtitle`
@@ -78,7 +79,8 @@ in the overflow menu).
    opening the diagnostics sheet. Grading is never silently wrong. The same warning appears as an
    alert at import time; an unparseable pair is rejected at import.
 3. **Status line** — one caption that shows whatever's relevant: "Play a note to start…" (when armed
-   for sync start), Wait progress (`n/N` + fumbles), Grade pass result + accuracy trend, "Red = notes
+   for sync start), Wait progress (`n/N` + fumbles; completion says "✓ Complete — ⏮ to go again, or turn on 🔁 Loop",
+   and with **Loop on the walkthrough restarts automatically**, each pass recorded), Grade pass result + accuracy trend, "Red = notes
    you fumbled" + **Clear marks**, the active section range, or the web-bridge status. The Play button
    shows **Waiting…** while armed.
 4. **Notation** — the `WKWebView` at `maxHeight: .infinity` (rounded 8 pt, hairline border). The

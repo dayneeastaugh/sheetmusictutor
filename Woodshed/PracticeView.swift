@@ -195,10 +195,9 @@ struct PracticeView: View {
     /// (which steps by notes); everything is disabled in Wait except its own flow.
     private var transport: some View {
         HStack(spacing: 2) {
-            transportButton("backward.end.fill", help: "Back to the start of the section") {
+            transportButton("backward.end.fill", help: "Back to the start of the section (in Wait: restart the walkthrough)") {
                 session.transportReset()
             }
-            .disabled(session.waitMode)
             transportButton("backward.frame.fill", help: "Back one bar") { session.stepBar(-1) }
                 .disabled(!session.canStepBars)
             Button { session.togglePlay() } label: {
@@ -368,7 +367,7 @@ struct PracticeView: View {
             } else if session.waitMode {
                 Text((session.waitIndex < session.waitStepCount
                       ? "Play the blue notes (red = wrong) · \(session.waitIndex + 1)/\(session.waitStepCount)"
-                      : "✓ Complete") + " · Fumbles: \(session.mistakeCount)")
+                      : "✓ Complete — ⏮ to go again, or turn on 🔁 Loop") + " · Fumbles: \(session.mistakeCount)")
                     .foregroundStyle(.green)
             } else if session.gradeMode {
                 if session.passAbandoned {

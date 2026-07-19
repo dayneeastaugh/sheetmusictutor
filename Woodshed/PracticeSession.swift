@@ -1107,6 +1107,15 @@ final class PracticeSession: ObservableObject {
 
     /// Park the cursor on step `i` and show ALL its required notes on the keyboard
     /// (blue = still needed). The set shrinks as you play the right notes.
+    /// Start the walkthrough over (⏮ in Wait mode, or automatically when Loop is on).
+    /// Fumbles reset per pass — each walkthrough is honest on its own.
+    func restartWaitWalkthrough() {
+        guard waitMode, !waitSteps.isEmpty else { return }
+        fumbledSteps = []; mistakeCount = 0
+        waitIndex = 0
+        showWaitStep(0)
+    }
+
     private func showWaitStep(_ i: Int) {
         guard i < waitSteps.count else { return }
         waitPlayed = []
@@ -1145,8 +1154,14 @@ final class PracticeSession: ObservableObject {
             if waitIndex < waitSteps.count {
                 showWaitStep(waitIndex)
             } else {
-                lights.rh = []; lights.lh = []   // reached the end
+                DebugLog.shared.log("wait", "walkthrough complete (fumbles \(mistakeCount))"
+                    + (loopSection ? " → looping" : ""))
                 recordWaitPass()                 // a completed walkthrough counts as practice history
+                if loopSection {
+                    restartWaitWalkthrough()     // 🔁 Loop applies to Wait too — go again
+                } else {
+                    lights.rh = []; lights.lh = []   // reached the end (status says how to repeat)
+                }
             }
         } else {
             lights.rh = required.subtracting(waitPlayed)   // only the still-missing notes
@@ -1546,7 +1561,7 @@ final class PracticeSession: ObservableObject {
     /// ⏮ Back to the section start. While playing: jump there (in Grade mode this
     /// restarts the pass); while stopped: move the playhead + cursor there.
     func transportReset() {
-        guard !waitMode else { return }
+        if waitMode { restartWaitWalkthrough(); return }   // ⏮ in Wait = start the walkthrough over
         playheadBar = sectionStart
         if audio.isPlaying {
             flushPianoOutput()
