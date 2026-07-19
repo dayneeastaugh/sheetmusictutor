@@ -1062,7 +1062,11 @@ final class PracticeSession: ObservableObject {
             bridge.clearMistakes()
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count
             waitIndex = 0
-            if waitSteps.isEmpty { waitMode = false; return }
+            if waitSteps.isEmpty {
+                DebugLog.shared.log("wait", "no steps for bars \(sectionStart)–\(sectionEnd), handMode \(handMode) → wait OFF")
+                waitMode = false; return
+            }
+            DebugLog.shared.log("wait", "ON: \(waitSteps.count) steps, bars \(sectionStart)–\(sectionEnd), handMode \(handMode)")
             showWaitStep(0)
         } else {
             lights.rh = []; lights.lh = []
@@ -1107,6 +1111,7 @@ final class PracticeSession: ObservableObject {
         guard i < waitSteps.count else { return }
         waitPlayed = []
         let s = waitSteps[i]
+        DebugLog.shared.log("wait", "step \(i + 1)/\(waitSteps.count) @bar \(barForBeat(s.beat)): need \(s.rh.union(s.lh).sorted().map(Self.noteName).joined(separator: ","))")
         bridge.seek(s.beat)
         lights.rh = s.rh.union(s.lh)
         lights.lh = []
@@ -1116,10 +1121,14 @@ final class PracticeSession: ObservableObject {
     /// every required note has been played. Wrong/extra notes don't block (they show
     /// red on the keyboard while held).
     private func handleWaitInput(_ added: Set<Int>) {
-        guard waitIndex < waitSteps.count else { return }
+        guard waitIndex < waitSteps.count else {
+            DebugLog.shared.log("wait", "input \(added.sorted()) ignored — walkthrough already complete")
+            return
+        }
         lastWaitInputDate = Date()          // Wait counts as active practice while you're playing
         waitPlayed.formUnion(added)
         let required = waitSteps[waitIndex].rh.union(waitSteps[waitIndex].lh)
+        DebugLog.shared.log("wait", "step \(waitIndex + 1)/\(waitSteps.count): played \(added.sorted().map(Self.noteName).joined(separator: ",")) — need \(required.sorted().map(Self.noteName).joined(separator: ","))")
         // Any note that isn't wanted at this step is a fumble — record the step's
         // notes so they can be reviewed (marked red) afterwards.
         if !added.subtracting(required).isEmpty {
@@ -1131,6 +1140,7 @@ final class PracticeSession: ObservableObject {
             mistakeCount = fumbledSteps.count
         }
         if required.isSubset(of: waitPlayed) {
+            DebugLog.shared.log("wait", "step \(waitIndex + 1) complete → advance")
             waitIndex += 1
             if waitIndex < waitSteps.count {
                 showWaitStep(waitIndex)
