@@ -48,6 +48,11 @@ machinery (best %, last-practised, the trouble heatmap over the scales, drills).
 > **Cross-platform rule:** every action must be reachable without swipe or hover. Prefer explicit
 > buttons/menus over gesture-only affordances so the same UI works on Mac and iPad.
 
+**Selecting a bar range:** **click the loop's first bar, then its last** — the first click arms an
+anchor (`anchor:` bridge message; the status line prompts "now click the loop's last bar"), the second
+completes the range; the same bar twice settles on that single bar, and a drag always defines its own
+range (drag + inspector steppers unchanged). Far easier than dragging across scrolling systems.
+
 **Deselecting a bar range:** drag-select on the score sets the section; **Escape** or a **click in the
 score's whitespace** (outside any bar) clears it back to the whole piece. Handled both in the web
 layer (Escape keydown / whitespace mousedown → `deselect`) and by a SwiftUI `.cancelAction` fallback

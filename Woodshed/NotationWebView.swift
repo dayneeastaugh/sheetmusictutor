@@ -33,6 +33,9 @@ final class NotationBridge: ObservableObject {
     var onFlagTap: ((Int) -> Void)?
     /// Called to clear the bar selection (Escape, or a click in the score's whitespace).
     var onDeselect: (() -> Void)?
+    /// A click armed a bar as the loop's FIRST bar (click-click range selection) —
+    /// the UI shows a "now click the last bar" hint.
+    var onAnchor: ((Int) -> Void)?
 
     func post(_ s: String) {
         if s.hasPrefix("select:") {
@@ -44,6 +47,10 @@ final class NotationBridge: ObservableObject {
         }
         if s == "deselect" {
             DispatchQueue.main.async { self.onDeselect?() }
+            return
+        }
+        if s.hasPrefix("anchor:") {
+            if let bar = Int(s.dropFirst(7)) { DispatchQueue.main.async { self.onAnchor?(bar) } }
             return
         }
         if s.hasPrefix("flag:") {

@@ -334,7 +334,11 @@ struct PracticeView: View {
     @ViewBuilder
     private var statusBar: some View {
         HStack(spacing: 10) {
-            if session.armed {
+            if let a = session.pendingLoopAnchor {
+                Label("Loop start: bar \(a) — now click the loop's last bar (same bar again = just bar \(a); Esc cancels)",
+                      systemImage: "hand.tap")
+                    .foregroundStyle(.blue)
+            } else if session.armed {
                 Label("Play a note to start…", systemImage: "hand.point.up.left")
                     .foregroundStyle(.blue)
             } else if session.progressiveDrill {

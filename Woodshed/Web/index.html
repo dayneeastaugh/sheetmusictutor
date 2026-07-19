@@ -565,8 +565,30 @@
         var m = measureAt(x, y); if (m < 0) return;
         selStart = Math.min(anchor, m) + 1; selEnd = Math.max(anchor, m) + 1; drawSelection();
       }
+      // Click-click pairing: a plain CLICK on a bar arms it as the loop's first bar
+      // (Swift shows a hint); clicking another bar completes the range — far easier
+      // than dragging across scrolling systems. Clicking the same bar again settles
+      // on just that bar; a real drag or a deselect resets the pairing.
+      var pairAnchor = 0;   // 1-based bar awaiting its partner (0 = none)
+      window._clearPairAnchor = function () { pairAnchor = 0; };
       function endDrag() {
         if (!dragging) return; dragging = false; stopEdgeScroll();
+        var isClick = (selStart === selEnd);
+        if (isClick) {
+          var b = selStart;
+          if (pairAnchor && pairAnchor !== b) {          // second click → the full range
+            selStart = Math.min(pairAnchor, b); selEnd = Math.max(pairAnchor, b);
+            pairAnchor = 0;
+            drawSelection();
+            post("select:" + selStart + ":" + selEnd);
+            return;
+          }
+          pairAnchor = (pairAnchor === b) ? 0 : b;       // same bar again = settle on one bar
+          post("select:" + b + ":" + b);
+          if (pairAnchor) post("anchor:" + b);
+          return;
+        }
+        pairAnchor = 0;                                   // a drag defines its own range
         post("select:" + selStart + ":" + selEnd);
       }
       function onMove(e) { moveDrag(e.clientX, e.clientY); }
@@ -579,7 +601,7 @@
       if (!window._escAttached) {
         window._escAttached = true;
         document.addEventListener("keydown", function (e) {
-          if (e.key === "Escape" && selStart) post("deselect");
+          if (e.key === "Escape") { window._clearPairAnchor(); if (selStart) post("deselect"); }
         });
       }
       window._attachSelection = function () {
@@ -589,6 +611,7 @@
         // Mouse (Mac / trackpad)
         cont.addEventListener("mousedown", function (e) {
           if (!beginDrag(e.clientX, e.clientY)) {
+            window._clearPairAnchor();
             if (selStart) post("deselect");   // clicked in whitespace (no bar) → clear selection
             return;
           }

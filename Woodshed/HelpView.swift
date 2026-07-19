@@ -181,7 +181,7 @@ struct HelpView: View {
             p("Most practice happens on a **small section**, not the whole piece.")
             heading("Selecting bars")
             bullets([
-                "**Drag across the bars** on the score to select a range (drag past the top or bottom edge and it scrolls to reach more).",
+                "**Click the loop's first bar, then its last bar** — the easiest way to select a range (the status line guides you; click the same bar twice for just that bar). You can also **drag across the bars** (drag past the top or bottom edge and it scrolls to reach more).",
                 "Or set the **from / to** bars in *Controls ▸ Focus*.",
                 "**Deselect** back to the whole piece by pressing **Escape** or **clicking in the empty space** around the music.",
             ])

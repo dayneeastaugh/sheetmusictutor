@@ -96,6 +96,9 @@ final class PracticeSession: ObservableObject {
     /// reconciliation) — shown as a persistent banner so grading is never
     /// silently wrong. nil = clean import.
     @Published private(set) var ingestWarning: String?
+    /// A bar armed as the loop's first bar by a click (click-click range selection);
+    /// the status line prompts for the closing click. nil = no pairing in progress.
+    @Published var pendingLoopAnchor: Int?
 
     // MARK: Cursor-sync state
     // A schedule of (playback time → notated beat). The tick reads the audio clock
@@ -692,7 +695,11 @@ final class PracticeSession: ObservableObject {
     func onAppear() {
         midi.reviveIfNeeded()   // reversible after shutdown() if the same view re-attaches
         audio.pianoClick = { [weak self] level in self?.midi.sendClick(level) }
-        bridge.onSelect = { [weak self] start, end in self?.sectionStart = start; self?.sectionEnd = end }
+        bridge.onSelect = { [weak self] start, end in
+            self?.pendingLoopAnchor = nil          // a completed selection ends the pairing hint
+            self?.sectionStart = start; self?.sectionEnd = end
+        }
+        bridge.onAnchor = { [weak self] bar in self?.pendingLoopAnchor = bar }
         bridge.onDeselect = { [weak self] in self?.clearBarSelection() }   // Escape / click in whitespace
         bridge.onFlagTap = { [weak self] bar in self?.onFlagTapped?(bar) }
         midi.onNoteOn = { [weak self] pitch, velocity in self?.captureNoteOn(pitch, velocity: velocity) }
@@ -1271,6 +1278,7 @@ final class PracticeSession: ObservableObject {
     /// and **forces** the on-score highlight off directly, so a stale highlight can
     /// never be left behind by section-change side effects.
     func clearBarSelection() {
+        pendingLoopAnchor = nil
         sectionStart = 1; sectionEnd = measureCount
         bridge.clearSelection()
     }
