@@ -223,6 +223,7 @@ struct LibraryView: View {
                 Button("Save") { saveTags() }
                 Button("Cancel", role: .cancel) { tagsTarget = nil }
             } message: { Text("Comma-separated labels — searchable from the library search field.") }
+            .onAppear { StoreIO.onProblem = { [weak library] msg in library?.writeError = msg } }
             .alert("Couldn’t save", isPresented: Binding(get: { library.writeError != nil },
                                                          set: { if !$0 { library.writeError = nil } })) {
                 Button("OK") { library.writeError = nil }

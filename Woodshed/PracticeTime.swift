@@ -23,9 +23,7 @@ enum PracticeTime {
     }
 
     static func load(from folder: URL) -> [String: Double] {
-        guard let data = try? Data(contentsOf: fileURL(in: folder)),
-              let dict = try? JSONDecoder().decode([String: Double].self, from: data) else { return [:] }
-        return dict
+        StoreIO.load([String: Double].self, from: fileURL(in: folder)) ?? [:]
     }
 
     /// Add active seconds to a day's total (atomic rewrite — the file is tiny).
@@ -35,9 +33,7 @@ enum PracticeTime {
         dict[day, default: 0] += seconds
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? enc.encode(dict) {
-            try? data.write(to: fileURL(in: folder), options: .atomic)
-        }
+        StoreIO.write(dict, to: fileURL(in: folder), encoder: enc, what: "your practice time")
     }
 
     static func total(_ dict: [String: Double]) -> Double {

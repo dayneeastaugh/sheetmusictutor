@@ -10,7 +10,7 @@ sandbox off). Imports MuseScore MusicXML+MIDI pairs, renders notation (OSMD in a
 plays back, listens to a MIDI piano, and grades practice with teacher-style feedback.
 Project/scheme/module are named **Woodshed** (internal); the product is **Segno.app** (ADR-037).
 
-## State at handoff (2026-07-19)
+## State at handoff (2026-09-13)
 
 - Everything committed and pushed on `main`; working tree clean. All tests green, both
   platforms build, app boots. Owner: Dayne (intermediate pianist, Swift/Xcode beginner —
@@ -79,6 +79,13 @@ instrument first, reproduce once, read, then fix.
   history.jsonl, flags, sections, time, takes, report.json). Soft-deletes go to Trash.
 
 ## Open tasks (in priority order)
+
+0. **Remaining audit-06 items** (docs/audit/06-code-review-2026-09-13.md; fixed items are in
+   ADR-053/054): full typed practice context incl. tempo/tolerance/scoring version + versioned
+   persistence/migration; take replay fidelity (persist velocity + pedal, reference-vs-take
+   comparison); device event timestamps + latency calibration; drill wrong-note allowance;
+   MIDI device selection UI; backup restore flow; daily practice plan; retention checks;
+   PassConfiguration/state-machine extraction; metronome concurrency ownership + actor warnings.
 
 1. **Calibrate feedback thresholds with the real piano** — evenness gauges (rhythm CV
    mapping, velocity-spread), timing-tint/hotspot 40 ms, theme good/watch/focus

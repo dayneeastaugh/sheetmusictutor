@@ -495,10 +495,12 @@ final class PracticeSession: ObservableObject {
         takeOpen = [:]
         guard !takeNotes.isEmpty else { return }
         let take = Take(sectionStart: sectionStart, sectionEnd: sectionEnd,
-                        tempoPct: tempoPct, accuracy: accuracy,
+                        tempoPct: tempoPct, accuracy: accuracy, handMode: handMode,
                         notes: takeNotes.sorted { $0.on < $1.on })
         lastTake = take
-        if accuracy != nil, TakeStore.keepIfBest(take, in: song.folder) {
+        // A rhythm-only tap-along isn't a performance of the passage — it never
+        // becomes the stored "best take" (audit 06 P2-11).
+        if accuracy != nil, !rhythmMode, TakeStore.keepIfBest(take, in: song.folder) {
             bestTakes = TakeStore.load(from: song.folder)
         }
         takeNotes = []
@@ -506,7 +508,7 @@ final class PracticeSession: ObservableObject {
 
     /// The persisted best graded take covering the current section, if any.
     var bestTakeForCurrentSection: Take? {
-        bestTakes[TakeStore.key(start: sectionStart, end: sectionEnd)]
+        bestTakes[TakeStore.key(start: sectionStart, end: sectionEnd, handMode: handMode)]
     }
 
     /// Play a take back through the current output routing. Replays at the CURRENT
@@ -1027,15 +1029,22 @@ final class PracticeSession: ObservableObject {
         // Comparable = same bars, same hands, graded — most recent first. `history`
         // hasn't had this pass appended yet, so these are strictly previous passes.
         let comparable = history
-            .filter { $0.mode == "grade" && $0.sectionStart == sectionStart
+            .filter { $0.mode == (rhythmMode ? "rhythm" : "grade") && $0.sectionStart == sectionStart
                       && $0.sectionEnd == sectionEnd && $0.handMode == handMode }
         let comparableFaults: [[PassFault]] = comparable.suffix(8).reversed().map { $0.faults ?? [] }
+        // "Improved vs last pass" is only honest against the SAME practice context —
+        // switching both-hands → RH must not read as improvement (audit 06 P2-11).
+        // A report without context (saved before it existed) is never compared.
+        let comparablePrevious = (lastPassReport?.handMode == handMode
+                                  && lastPassReport?.rhythmOnly == rhythmMode) ? lastPassReport : nil
         var report = PassReportBuilder.build(
             notes: reportNotes, wrongNotes: reportWrong,
             sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
-            previous: lastPassReport, previousFaults: comparableFaults,
+            previous: comparablePrevious, previousFaults: comparableFaults,
             priorAccuracies: comparable.map(\.accuracy))
         report.date = Date()
+        report.handMode = handMode
+        report.rhythmOnly = rhythmMode
         lastPassReport = report
         passReportDismissed = false
 
@@ -1073,7 +1082,10 @@ final class PracticeSession: ObservableObject {
             return (beat: $0.beat, pitch: $0.pitch, ms: err * 1000)
         }
 
-        let pass = PracticePass(sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
+        // A rhythm-only pass is a tap-along, not pitch grading — label it honestly so
+        // best-accuracy, mastery, and comparisons never mix the two (audit 06 P2-11).
+        let pass = PracticePass(mode: rhythmMode ? "rhythm" : "grade",
+                                sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
                                 tempoPct: tempoPct, handMode: handMode,
                                 total: t.total, hits: t.hits, missed: t.missed, wrong: t.wrong, avgMs: t.avgAbsMs,
                                 missedBars: matcher.unmatched().map { barForBeat($0.beat) },

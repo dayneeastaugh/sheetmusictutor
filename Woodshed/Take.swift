@@ -26,6 +26,9 @@ struct Take: Codable, Equatable {
     var sectionEnd: Int
     var tempoPct: Double
     var accuracy: Double?      // graded takes only
+    /// 0 both, 1 RH, 2 LH. Optional for takes saved before the practice context was
+    /// recorded — those are context-unknown (treated as both-hands legacy).
+    var handMode: Int? = nil
     var notes: [TakeNote]
 }
 
@@ -35,27 +38,31 @@ enum TakeStore {
         folder.appendingPathComponent("takes.json")
     }
 
-    static func key(start: Int, end: Int) -> String { "\(start)-\(end)" }
-
-    static func load(from folder: URL) -> [String: Take] {
-        guard let data = try? Data(contentsOf: fileURL(in: folder)) else { return [:] }
-        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
-        return (try? dec.decode([String: Take].self, from: data)) ?? [:]
+    /// Bests are kept PER practice context, not just per bar range: a slow one-hand
+    /// 100% must never block a later both-hands 100% from becoming the stored best
+    /// (audit 06 P2-11). Both-hands keeps the legacy "start-end" key so existing
+    /// saved bests stay reachable.
+    static func key(start: Int, end: Int, handMode: Int = 0) -> String {
+        handMode == 0 ? "\(start)-\(end)" : "\(start)-\(end)-h\(handMode)"
     }
 
-    /// Keep `take` if it beats the stored best for its section. Returns true if kept.
+    static func load(from folder: URL) -> [String: Take] {
+        let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+        return StoreIO.load([String: Take].self, from: fileURL(in: folder), decoder: dec) ?? [:]
+    }
+
+    /// Keep `take` if it beats the stored best for its section + hands. Returns true
+    /// only if it was kept AND durably written — a failed write used to return true
+    /// while the take silently vanished (audit 06 P2-8).
     @discardableResult
     static func keepIfBest(_ take: Take, in folder: URL) -> Bool {
         guard let acc = take.accuracy else { return false }
         var all = load(from: folder)
-        let k = key(start: take.sectionStart, end: take.sectionEnd)
+        let k = key(start: take.sectionStart, end: take.sectionEnd, handMode: take.handMode ?? 0)
         if let existing = all[k]?.accuracy, existing >= acc { return false }
         all[k] = take
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? enc.encode(all) {
-            try? data.write(to: fileURL(in: folder), options: .atomic)
-        }
-        return true
+        return StoreIO.write(all, to: fileURL(in: folder), encoder: enc, what: "your best take")
     }
 }

@@ -22,16 +22,12 @@ enum SavedSectionStore {
     }
 
     static func load(from folder: URL) -> [SavedSection] {
-        guard let data = try? Data(contentsOf: fileURL(in: folder)),
-              let sections = try? JSONDecoder().decode([SavedSection].self, from: data) else { return [] }
-        return sections
+        StoreIO.load([SavedSection].self, from: fileURL(in: folder)) ?? []
     }
 
     static func save(_ sections: [SavedSection], to folder: URL) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? enc.encode(sections) {
-            try? data.write(to: fileURL(in: folder), options: .atomic)
-        }
+        StoreIO.write(sections, to: fileURL(in: folder), encoder: enc, what: "your saved sections")
     }
 }

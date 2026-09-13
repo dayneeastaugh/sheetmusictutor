@@ -231,10 +231,23 @@ final class SongLibrary: ObservableObject {
     func exportLibraryURL() -> URL? {
         let fm = FileManager.default
         let staging = fm.temporaryDirectory.appendingPathComponent("Segno Library-\(UUID().uuidString)", isDirectory: true)
-        try? fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
-        for song in songs {
-            try? fm.copyItem(at: song.folder, to: staging.appendingPathComponent(song.folder.lastPathComponent))
+        // A backup that silently omits a song is worse than no backup (audit 06
+        // P2-9): any failed copy FAILS the export with the reason, and the archive
+        // carries a manifest so a future restore can verify completeness.
+        struct ManifestEntry: Codable { var id: UUID; var title: String; var folder: String }
+        do {
+            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+            var manifest: [ManifestEntry] = []
+            for song in songs {
+                try fm.copyItem(at: song.folder, to: staging.appendingPathComponent(song.folder.lastPathComponent))
+                manifest.append(.init(id: song.id, title: song.title, folder: song.folder.lastPathComponent))
+            }
+            let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try enc.encode(manifest).write(to: staging.appendingPathComponent("manifest.json"))
+        } catch {
+            writeError = "Backup NOT created — a song couldn’t be copied, and a backup missing a song would be worse than none. (\(error.localizedDescription))"
+            return nil
         }
         return zipDirectory(staging, named: "Segno Library")
     }

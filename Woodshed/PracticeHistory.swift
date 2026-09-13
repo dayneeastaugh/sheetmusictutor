@@ -68,17 +68,23 @@ enum PracticeHistory {
         folder.appendingPathComponent("history.jsonl")
     }
 
-    /// Append one pass as a JSON line. Falls back to creating the file if absent.
+    /// Append one pass as a JSON line (creating the file if absent). A failed append
+    /// is REPORTED — a recorded pass the player just saw must not silently be missing
+    /// after a relaunch (audit 06 P2-8).
     static func append(_ pass: PracticePass, to folder: URL) {
-        guard var data = try? encoder.encode(pass) else { return }
-        data.append(0x0A)   // newline
         let url = fileURL(in: folder)
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: url)
+        do {
+            var data = try encoder.encode(pass)
+            data.append(0x0A)   // newline
+            if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+            } else {
+                try data.write(to: url)
+            }
+        } catch {
+            StoreIO.report("Couldn’t record that pass in the practice history — it may be gone after closing the app. (\(error.localizedDescription))")
         }
     }
 

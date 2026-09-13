@@ -174,6 +174,17 @@ See ADR-036 for the three-tier split (global pref / per-song meta / transient co
 - The imported score files themselves are the durable input; the derived model can always be rebuilt
   by re-running `Ingest.fuse`.
 
+## Storage integrity (audit 06)
+
+All per-song JSON stores go through `StoreIO`: atomic writes whose failures surface in the UI, and
+corrupt-file handling that sets the damaged original aside as `<name>.corrupt-<timestamp>.json`
+rather than silently starting fresh over it. `PracticePass.mode` is `"grade"`, `"rhythm"`, or
+`"wait"`; `PassReport.handMode`/`rhythmOnly` and `Take.handMode` record the practice context
+(optional — absent in records saved before 2026-09-13, which are treated as context-unknown and
+excluded from comparisons). Best takes are keyed `"start-end"` (both hands, legacy-compatible) or
+`"start-end-hN"` (single hand). The library backup zip contains a `manifest.json` listing every
+song's id/title/folder.
+
 ## Open Questions
 
 - **Persistence is file-based, not a DB.** Per-song `history.jsonl` + `metadata.json` now cover

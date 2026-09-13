@@ -83,6 +83,11 @@ struct PassReport: Codable, Equatable {
     var worstChordSpread: ChordSpread? = nil
     /// True when this accuracy beats every prior comparable pass (≥3 on record).
     var personalBest: Bool = false
+    /// Practice context (audit 06 P2-11): which hands (0 both, 1 RH, 2 LH) and
+    /// whether this was a rhythm-only tap-along. Optional — reports saved before
+    /// these existed are context-UNKNOWN and are never used for comparisons.
+    var handMode: Int? = nil
+    var rhythmOnly: Bool? = nil
 
     struct Balance: Equatable, Codable {
         var rhMeanVelocity: Double
@@ -220,9 +225,13 @@ struct PassReport: Codable, Equatable {
             let maxLean = bars.compactMap(\.meanSignedMs).map(abs).max() ?? 0
             if maxLean >= 25 { rhythmStatus = .watch; rhythmParts.append("mostly steady — a few bars lean \(Int(maxLean)) ms") }
         }
+        let rhythmMeasured = bars.contains { $0.meanSignedMs != nil } || evenness != nil
         let rhythm = ThemeSummary(kind: .rhythm, status: rhythmStatus,
-                                  summary: rhythmParts.isEmpty ? "steady and in place" : rhythmParts.joined(separator: "; "),
-                                  goodWord: "steady", peek: hot?.bars.lowerBound)
+                                  summary: rhythmParts.isEmpty
+                                    ? (rhythmMeasured ? "steady and in place" : "not enough timing data this pass")
+                                    : rhythmParts.joined(separator: "; "),
+                                  goodWord: rhythmMeasured ? "steady" : "not measured",
+                                  peek: hot?.bars.lowerBound)
 
         // Touch & pedal — right sound?
         var touchParts: [String] = []
@@ -243,9 +252,16 @@ struct PassReport: Codable, Equatable {
             touchStatus = max(touchStatus, .watch)
             touchParts.append("uneven touch")
         }
+        // "Good" requires evidence: with no velocity/pedal signals at all this pass,
+        // say so instead of assuring "balanced and clean" (audit 06 refinement).
+        let touchMeasured = balance != nil || !pedalHolds.isEmpty || worstChordSpread != nil
+            || evenness != nil
         let touch = ThemeSummary(kind: .touch, status: touchStatus,
-                                 summary: touchParts.isEmpty ? "balanced and clean" : touchParts.joined(separator: "; "),
-                                 goodWord: "balanced", peek: pedalHolds.first?.lowerBound ?? worstChordSpread?.bar)
+                                 summary: touchParts.isEmpty
+                                    ? (touchMeasured ? "balanced and clean" : "not enough signal to judge this pass")
+                                    : touchParts.joined(separator: "; "),
+                                 goodWord: touchMeasured ? "balanced" : "not measured",
+                                 peek: pedalHolds.first?.lowerBound ?? worstChordSpread?.bar)
 
         return [notes, rhythm, touch].sorted {
             $0.status == $1.status ? $0.kind.rawValue < $1.kind.rawValue : $0.status > $1.status
@@ -315,18 +331,15 @@ enum PassReportStore {
     static func fileURL(in folder: URL) -> URL { folder.appendingPathComponent("report.json") }
 
     static func load(from folder: URL) -> PassReport? {
-        guard let data = try? Data(contentsOf: fileURL(in: folder)) else { return nil }
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
-        return try? dec.decode(PassReport.self, from: data)
+        return StoreIO.load(PassReport.self, from: fileURL(in: folder), decoder: dec)
     }
 
     static func save(_ report: PassReport, to folder: URL) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         enc.dateEncodingStrategy = .iso8601
-        if let data = try? enc.encode(report) {
-            try? data.write(to: fileURL(in: folder), options: .atomic)
-        }
+        StoreIO.write(report, to: fileURL(in: folder), encoder: enc, what: "the pass report")
     }
 }
 

@@ -143,10 +143,12 @@ struct ProgressPanel: View {
 
     private static let masteryThreshold = 0.95
 
-    /// Best full-section Grade accuracy for a named section: passes whose bar range
-    /// matches the section exactly (how the section is drilled) — nil if never played.
+    /// Best full-section Grade accuracy for a named section: PITCH-GRADED passes
+    /// whose bar range matches the section exactly — a Wait walkthrough or a
+    /// rhythm-only tap-along is a different metric and must not read as mastery
+    /// (audit 06 P2-11). nil if never graded.
     private func best(for s: SavedSection) -> Double? {
-        passes.filter { $0.sectionStart == s.start && $0.sectionEnd == s.end }
+        passes.filter { $0.mode == "grade" && $0.sectionStart == s.start && $0.sectionEnd == s.end }
               .map(\.accuracy).max()
     }
 

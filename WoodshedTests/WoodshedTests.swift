@@ -1467,3 +1467,64 @@ struct SectionGradingTests {
         #expect(taps.count == 2)                   // the chord collapses to one tap
     }
 }
+
+@Suite("Persistence truthfulness")
+struct PersistenceTruthTests {
+
+    private func tempFolder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("segno-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("a corrupt store file is set aside for recovery, not silently emptied")
+    func corruptSetAside() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("{not json".utf8).write(to: BarFlagStore.fileURL(in: folder))
+        #expect(BarFlagStore.load(from: folder).isEmpty)
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(!names.contains("flags.json"))                       // moved, not left in place
+        #expect(names.contains { $0.contains("corrupt") })           // original preserved
+    }
+
+    @Test("keepIfBest reports failure instead of claiming a vanished save")
+    func keepIfBestHonest() {
+        let missing = URL(fileURLWithPath: "/nonexistent-segno-test-\(UUID().uuidString)")
+        let take = Take(sectionStart: 1, sectionEnd: 2, tempoPct: 100, accuracy: 1.0,
+                        notes: [TakeNote(p: 60, v: 80, on: 0, off: 0.5)])
+        #expect(TakeStore.keepIfBest(take, in: missing) == false)    // was true + zero takes on load
+    }
+
+    @Test("best takes are kept per hand context — RH can't clobber the both-hands best")
+    func bestTakePerHands() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let both = Take(sectionStart: 1, sectionEnd: 4, tempoPct: 100, accuracy: 0.9, handMode: 0,
+                        notes: [TakeNote(p: 60, v: 80, on: 0, off: 0.5)])
+        let rh = Take(sectionStart: 1, sectionEnd: 4, tempoPct: 60, accuracy: 1.0, handMode: 1,
+                      notes: [TakeNote(p: 72, v: 80, on: 0, off: 0.5)])
+        #expect(TakeStore.keepIfBest(both, in: folder))
+        #expect(TakeStore.keepIfBest(rh, in: folder))
+        let all = TakeStore.load(from: folder)
+        #expect(all.count == 2)                                      // separate keys, both kept
+        #expect(all[TakeStore.key(start: 1, end: 4)]?.accuracy == 0.9)
+        #expect(all[TakeStore.key(start: 1, end: 4, handMode: 1)]?.accuracy == 1.0)
+    }
+
+    @Test("themes admit missing evidence instead of assuring quality")
+    func unmeasuredThemes() {
+        // A pass with nothing hit: no timing, no velocity/pedal signals.
+        let report = PassReportBuilder.build(
+            notes: [PassReportBuilder.Note(bar: 1, pitch: 60, hand: .right, name: "C4",
+                                           matched: false, signedErrorMs: nil, onset: 0)],
+            wrongNotes: [], sectionStart: 1, sectionEnd: 1, tempoPct: 100, previous: nil)
+        let t = report.themes()
+        let rhythm = t.first { $0.kind == .rhythm }!
+        let touch = t.first { $0.kind == .touch }!
+        #expect(rhythm.summary.contains("not enough"))
+        #expect(touch.summary.contains("not enough"))
+        #expect(touch.goodWord == "not measured")
+    }
+}

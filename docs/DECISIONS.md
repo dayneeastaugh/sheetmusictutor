@@ -808,6 +808,31 @@ defects; this batch fixes its P1s and the pass-lifecycle P2s:
   timer and stops the transport without ever restarting the free-run click (`stop()` could); session
   shutdown also stops replay and flushes practice time before disposing MIDI.
 
+### ADR-054 — Audit 06 response, part 2: persistence tells the truth; practice context
+**2026-09-13.** The remaining reproducible findings from docs/audit/06-code-review-2026-09-13.md:
+- **Save failures are reported** (P2-8): the per-song stores (takes, flags, sections, time,
+  report, history append) route through a shared `StoreIO` — a failed write raises the library's
+  existing "Couldn't save" alert instead of showing state that evaporates on relaunch, and
+  `TakeStore.keepIfBest` returns true only when the take was durably written.
+- **Corrupt ≠ missing** (P2-8): a store file that exists but won't decode is set aside as
+  `<name>.corrupt-<timestamp>.json` (recoverable by hand) and reported — never left in place for
+  the next save to overwrite. A missing file is still just a fresh start.
+- **Backups are complete or they fail** (P2-9): the library export fails loudly if any song copy
+  fails, and the archive now carries a `manifest.json` (id/title/folder per song) for a future
+  restore flow to verify against.
+- **Practice context** (P2-11, first slice): rhythm-only passes persist as `mode: "rhythm"` (no
+  longer indistinguishable from pitch grading); section mastery counts pitch-graded passes only;
+  the report's "improved vs last pass" compares only same-hands/same-mode passes (context-unknown
+  legacy records are never compared); best takes are keyed per hand context and a rhythm tap-along
+  never becomes a "best take". `PassReport` gains optional `handMode`/`rhythmOnly`, `Take` gains
+  optional `handMode` — all back-compatible.
+- **Feedback admits missing evidence** (refinement): with no timing or touch signals measured, the
+  theme rows say "not enough … this pass" / "not measured" instead of assuring "steady" and
+  "balanced and clean".
+The full typed practice-context record (tempo/tolerance/scoring version), take velocity/pedal
+replay fidelity, device timestamps + latency calibration, and the review's new-feature list remain
+open — tracked in HANDOFF.md.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
