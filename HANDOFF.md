@@ -25,6 +25,11 @@ Project/scheme/module are named **Woodshed** (internal); the product is **Segno.
   results, timing lane, recurring faults, balance, pedal, drift, chord rolls, evenness,
   wins, **themed two-tier layout** Notes / Rhythm & tempo / Touch & pedal, peek-on-score,
   collapsible, persisted per song as `report.json`).
+- **2026-09-13:** an external code review (docs/audit/06) was verified and answered in two
+  commits — ADR-053 (MIDI memory safety, one section plan for repeats, non-destructive delete,
+  count-in/replay/mid-pass-settings/Wait-reset lifecycle, shutdown silences the metronome) and
+  ADR-054 (StoreIO write-failure surfacing + corrupt-file set-aside, truthful backups with a
+  manifest, first-slice practice context). Remaining review items are open task 0 below.
 
 ## Build / test / verify (the discipline used so far)
 
@@ -33,7 +38,7 @@ Project/scheme/module are named **Woodshed** (internal); the product is **Segno.
 xcodebuild -scheme Woodshed -destination 'platform=macOS' build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
 
 # Tests — run SERIALLY: the parallel runner intermittently reports phantom 0.000s
-# failures (infra flake, seen repeatedly). Serial is the truth. ~71 tests.
+# failures (infra flake, seen repeatedly). Serial is the truth. ~82 tests.
 xcodebuild test -scheme Woodshed -destination 'platform=macOS' -only-testing:WoodshedTests -parallel-testing-enabled NO
 
 # iOS compile check
@@ -51,7 +56,7 @@ Test output format varies by run: count `✔ Test ` lines or `Test case .* passe
 1. **Docs sync every commit** — ALL of `/docs` (PRD, ARCHITECTURE, DATA_MODEL, INGESTION,
    TECH_STACK, DESIGN, DECISIONS) **and CLAUDE.md's Status paragraph**, not just
    DECISIONS/DESIGN. Say explicitly in summaries which docs changed. Significant choices
-   get an ADR (append-only, next number: **ADR-053**).
+   get an ADR (append-only, next number: **ADR-055**).
 2. Verify before claiming done: build both platforms, serial tests, boot. JS changes to
    `Woodshed/Web/index.html` were verified by serving the folder
    (`python3 -m http.server`) and driving the real page in a browser.
