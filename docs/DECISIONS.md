@@ -779,6 +779,35 @@ theming, calibratable alongside the gauge thresholds. **Rejected:** merging the 
 (the strip locates, themes summarise — different questions); showing all-good themes as full rows
 (three green rows claim attention a clean pass doesn't need).
 
+### ADR-053 — Audit 06 response, part 1: input safety + one section plan + honest pass lifecycle
+**2026-09-13.** An external code review (docs/audit/06-code-review-2026-09-13.md) reproduced real
+defects; this batch fixes its P1s and the pass-lifecycle P2s:
+- **MIDI receive is memory-safe** (P1-1): CoreMIDI packets are variable-length, so the receive path
+  no longer copies packets into fixed-size Swift values — it walks pointers into the original
+  callback buffer (`unsafeSequence()` + unaligned word loads) and steps whole UMP messages at their
+  spec widths, so SysEx/MIDI-2 *data* words can't be misread as notes. Decoding is a pure,
+  unit-tested `MIDIInput.messages`.
+- **One section plan** (P1-2): grading now expects exactly the notes whose PERFORMED onsets fall in
+  the playback interval `[sectionStartTime, sectionEndTime)` — not every occurrence of the written
+  bars. A section inside a repeat previously expected notes that never play in the loop (a perfect
+  pass scored 50%). Pure `PracticeSession.gradeExpected`, unit-tested with repeat-shaped events.
+- **Soft delete never hard-deletes** (P1-3): if the Trash move fails, the song stays and the error
+  is shown (`writeError` alert); trashed copies get unique names instead of clobbering prior ones.
+- **Count-in earns no free downbeat** (P2-4): a note during the count-in is timestamped against the
+  real scheduled downbeat (`countInRemainingWallSeconds`), so only tolerance-window early entries
+  match — with their true earliness — instead of the whole count-in being "exactly on time".
+- **Replay is listening, not performing** (P2-5): take replay sounds through an output-only route
+  and no longer advances Wait, records passes, or trips the armed sync-start.
+- **Settings changes can't corrupt a pass** (P2-6): changing hands / section / rhythm mode /
+  tolerance during a Grade pass restarts the pass (fresh matcher + take) from the section start;
+  stopped, it just rebuilds the expected notes. One policy, one code path (`gradeConfigChanged`).
+- **Wait pass state resets as one unit** (P2-7): `mistakes`/fumbles/`waitPlayed` clear together on
+  restart, section change, and hand change — an old slip no longer survives a clean retry into the
+  recorded history.
+- **Shutdown really silences** (P2-10): `AudioEnginePlayer.shutdownAudio()` cancels the metronome
+  timer and stops the transport without ever restarting the free-run click (`stop()` could); session
+  shutdown also stops replay and flushes practice time before disposing MIDI.
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

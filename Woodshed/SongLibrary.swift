@@ -129,12 +129,23 @@ final class SongLibrary: ObservableObject {
         #if os(macOS)
         if (try? fm.trashItem(at: song.folder, resultingItemURL: nil)) != nil { reload(); return }
         #endif
-        let trash = scoresDir.appendingPathComponent(".Trash", isDirectory: true)
-        try? fm.createDirectory(at: trash, withIntermediateDirectories: true)
-        let dest = trash.appendingPathComponent(song.folder.lastPathComponent, isDirectory: true)
-        try? fm.removeItem(at: dest)                              // clear any prior trashed copy
-        if (try? fm.moveItem(at: song.folder, to: dest)) == nil {
-            try? fm.removeItem(at: song.folder)                  // last resort: hard delete
+        // Fallback trash (iPad, or a macOS Trash failure). If ANY step fails the
+        // original folder stays untouched and the user is told — a promised soft
+        // delete must never fall through to permanent removal (audit 06 P1-3). Each
+        // trashed copy gets a unique name, so a re-imported + re-deleted song never
+        // overwrites the earlier trashed copy either.
+        do {
+            let trash = scoresDir.appendingPathComponent(".Trash", isDirectory: true)
+            try fm.createDirectory(at: trash, withIntermediateDirectories: true)
+            var dest = trash.appendingPathComponent(song.folder.lastPathComponent, isDirectory: true)
+            if fm.fileExists(atPath: dest.path) {
+                dest = trash.appendingPathComponent(
+                    song.folder.lastPathComponent + "-\(Int(Date().timeIntervalSince1970))",
+                    isDirectory: true)
+            }
+            try fm.moveItem(at: song.folder, to: dest)
+        } catch {
+            writeError = "Couldn’t move “\(song.title)” to the Trash — it was NOT deleted. (\(error.localizedDescription))"
         }
         reload()
     }

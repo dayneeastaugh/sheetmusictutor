@@ -324,6 +324,7 @@ final class PracticeSession: ObservableObject {
         didSet {
             applyHands()
             rebuildRhythmGrid()   // rhythm-only ticks follow the selected hand(s)
+            gradeConfigChanged()  // a Grade pass restarts under the new hands
         }
     }
     /// Which hands are audible/graded for the current `handMode`. One source of truth
@@ -349,7 +350,7 @@ final class PracticeSession: ObservableObject {
     @Published var rhythmMode = false {
         didSet {
             audio.setRhythmOnly(rhythmMode)
-            if gradeMode { startGradePass() }   // rebuild expected (collapsed onsets / pitches)
+            gradeConfigChanged()   // rebuild expected (collapsed onsets / pitches); restart mid-pass
         }
     }
 
@@ -388,7 +389,7 @@ final class PracticeSession: ObservableObject {
     /// Grading tolerance in **musical** seconds (window scales with the tempo slider,
     /// matching the clock everything else runs on). Tunable: strict/normal/relaxed.
     @Published var gradeTolerance = AppSettings.gradeTolerance {
-        didSet { AppSettings.gradeTolerance = gradeTolerance }
+        didSet { AppSettings.gradeTolerance = gradeTolerance; gradeConfigChanged() }
     }
     // Real-time grading state for the current pass:
     private var matcher: GradeMatcher?           // the pure matching engine (GradeMatcher.swift)
@@ -527,9 +528,23 @@ final class PracticeSession: ObservableObject {
     func stopReplay() {
         guard isReplaying else { return }
         isReplaying = false
-        for p in replaySounding { previewNoteOff(p) }
+        for p in replaySounding { soundOnly(off: p) }
         replaySounding = []
         replayEvents = []
+    }
+
+    /// Sound a note through the current output routing WITHOUT it counting as
+    /// playing. Replay must never feed the matching pipeline — a replayed take was
+    /// advancing Wait steps, recording passes, and tripping the armed sync-start
+    /// (audit 06 P2-5). The on-screen keyboard keeps using previewNoteOn/Off, which
+    /// DO count as playing.
+    private func soundOnly(on pitch: Int) {
+        if outputMode != 1 { audio.playNote(pitch) }
+        if outputMode != 0 { midi.sendNoteOn(pitch) }
+    }
+    private func soundOnly(off pitch: Int) {
+        if outputMode != 1 { audio.stopNote(pitch) }
+        if outputMode != 0 { midi.sendNoteOff(pitch) }
     }
 
     /// Driven from the shared 50 Hz tick: fire due replay events.
@@ -540,8 +555,8 @@ final class PracticeSession: ObservableObject {
         let t = Date().timeIntervalSince(replayBegan) * rate
         while replayIdx < replayEvents.count && replayEvents[replayIdx].t <= t {
             let e = replayEvents[replayIdx]
-            if e.isOn { previewNoteOn(e.p); replaySounding.insert(e.p) }
-            else { previewNoteOff(e.p); replaySounding.remove(e.p) }
+            if e.isOn { soundOnly(on: e.p); replaySounding.insert(e.p) }
+            else { soundOnly(off: e.p); replaySounding.remove(e.p) }
             replayIdx += 1
         }
         if replayIdx >= replayEvents.count { stopReplay() }
@@ -686,7 +701,9 @@ final class PracticeSession: ObservableObject {
     /// sessions' MIDI inputs kept receiving — the 2–3× duplicated-input bug).
     func shutdown() {
         DebugLog.shared.log("session", "shutdown: \(song.title)")
-        if audio.isPlaying { audio.stop() }
+        stopReplay()                       // a running take replay must not outlive the view
+        flushPracticeTime()                // bank the session's practice seconds NOW
+        audio.shutdownAudio()              // transport + metronome silenced, never restarted
         flushPianoOutput()                 // notes off + pedal up + scheduler reset
         midi.teardown()                    // dispose the CoreMIDI client — stop receiving
         armed = false
@@ -872,17 +889,34 @@ final class PracticeSession: ObservableObject {
 
     /// The section's expected notes (selected hands) for grading. In rhythm mode
     /// chords collapse to ONE expected tap per onset (timing is graded, not pitch).
+    ///
+    /// ONE section plan for playback AND grading: playback runs the continuous
+    /// performed interval [sectionStartTime, sectionEndTime) — the section's FIRST
+    /// occurrence when it sits inside a repeat — so grading expects exactly the notes
+    /// whose PERFORMED onsets fall in that interval. Filtering by *written* beat also
+    /// pulled in the repeat's other occurrences (notes that never play in the loop):
+    /// a perfectly played section pass could score 50% (audit 06 P1-2). The full
+    /// piece plays the whole unfolded timeline, so there every occurrence is still
+    /// expected — the window makes the two agree by construction.
     private func buildGradeExpected() -> [(pitch: Int, onset: Double, beat: Double, hand: Hand)] {
-        guard let events = score?.events else { return [] }
-        let (rhOn, lhOn) = handsOn
+        Self.gradeExpected(events: score?.events ?? [], rhOn: handsOn.rh, lhOn: handsOn.lh,
+                           window: (sectionStartTime, sectionEndTime), rhythmMode: rhythmMode)
+    }
+
+    /// Pure worker for `buildGradeExpected` (unit-tested with repeat-shaped events).
+    static func gradeExpected(events: [NoteEvent], rhOn: Bool, lhOn: Bool,
+                              window: (start: Double, end: Double), rhythmMode: Bool)
+        -> [(pitch: Int, onset: Double, beat: Double, hand: Hand)] {
         let notes = events
-            .filter { (($0.hand == .left) ? lhOn : rhOn) && inSection($0.notatedBeat) }
+            .filter { (($0.hand == .left) ? lhOn : rhOn)
+                && $0.onsetSeconds >= window.start - 0.001
+                && $0.onsetSeconds < window.end - 0.001 }
             .map { (pitch: $0.pitch, onset: $0.onsetSeconds, beat: $0.notatedBeat, hand: $0.hand) }
         guard rhythmMode else { return notes }
         // Rhythm mode collapses chords to one tap — a merged onset has no single hand.
         var collapsed: [(pitch: Int, onset: Double, beat: Double, hand: Hand)] = []
         for n in notes.sorted(by: { $0.onset < $1.onset }) {
-            if let last = collapsed.last, abs(last.onset - n.onset) < Self.chordEpsilon { continue }   // same chord
+            if let last = collapsed.last, abs(last.onset - n.onset) < chordEpsilon { continue }   // same chord
             collapsed.append((n.pitch, n.onset, n.beat, .unknown))
         }
         return collapsed
@@ -904,9 +938,18 @@ final class PracticeSession: ObservableObject {
     /// which extra keys you hit, and where). Rhythm mode is pitch-agnostic, so a
     /// "wrong" note there has no meaningful pitch to place — skip the marks.
     private func handleGradeNoteOn(_ added: Set<Int>) {
-        let t = audio.currentTime
-        let beat = tracker.continuousBeat(at: t, schedule: schedule)
+        var t = audio.currentTime
         let running = audio.isRunning           // false during a count-in (clock parked)
+        // During the count-in the clock is parked at the section start. Grading a
+        // note against that parked time made the ENTIRE count-in a perfect downbeat
+        // (audit 06 P2-4). Timestamp it relative to the real scheduled downbeat
+        // instead: a note within tolerance of the downbeat still matches (with its
+        // true earliness); anything earlier falls outside the window and is ignored
+        // (recordWrong stays false — getting ready isn't a fault).
+        if !running, let rem = audio.countInRemainingWallSeconds {
+            t -= rem * Double(tempoPct) / 100   // wall → musical seconds before the downbeat
+        }
+        let beat = tracker.continuousBeat(at: t, schedule: schedule)
         var changed = false
         for p in added {
             let hit = matcher?.noteOn(p, at: t, recordWrong: running) ?? true
@@ -1118,9 +1161,16 @@ final class PracticeSession: ObservableObject {
     /// Fumbles reset per pass — each walkthrough is honest on its own.
     func restartWaitWalkthrough() {
         guard waitMode, !waitSteps.isEmpty else { return }
-        fumbledSteps = []; mistakeCount = 0
+        resetWaitPassState()
         waitIndex = 0
         showWaitStep(0)
+    }
+
+    /// The complete per-pass Wait fault state, reset as ONE unit. Leaving `mistakes`
+    /// behind let an earlier slip survive a clean retry into the recorded history
+    /// (audit 06 P2-7).
+    private func resetWaitPassState() {
+        mistakes = []; fumbledSteps = []; mistakeCount = 0; waitPlayed = []
     }
 
     private func showWaitStep(_ i: Int) {
@@ -1262,11 +1312,13 @@ final class PracticeSession: ObservableObject {
         if speedMode != .off { resetDrill() }                       // a new section restarts the drill
         if isFullPiece { bridge.clearSelection() } else { bridge.setSelection(sectionStart, sectionEnd) }
         if waitMode {
+            resetWaitPassState()   // a new section is a new walkthrough — no stale faults
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count; waitIndex = 0
             if waitSteps.isEmpty { setWaitMode(false) } else { showWaitStep(0) }
         } else if !audio.isPlaying {
             bridge.seek(sectionStartBeat)   // jump the cursor to the section start as a preview
         }
+        gradeConfigChanged()   // a Grade pass restarts under the new section
     }
 
     /// Reset the section to the whole piece.
@@ -1438,6 +1490,7 @@ final class PracticeSession: ObservableObject {
     private func applyHands() {
         audio.setHands(rhAudible: handsOn.rh, lhAudible: handsOn.lh)
         if waitMode {                       // rebuild the step list for the new hands
+            resetWaitPassState()            // new hands = a new walkthrough — no stale faults
             waitSteps = buildWaitSteps(); waitStepCount = waitSteps.count
             waitIndex = 0
             if waitSteps.isEmpty { setWaitMode(false) } else { showWaitStep(0) }
@@ -1579,10 +1632,30 @@ final class PracticeSession: ObservableObject {
             audio.loopBackToStart()
             bridge.seek(sectionStartBeat)
             lastSentBeat = sectionStartBeat
+            beginTakeCapture()                       // the take restarts with the pass
         } else {
             resetCursor()
             bridge.seek(sectionStartBeat)
         }
+    }
+
+    /// A grading-relevant setting changed (hands, section, rhythm mode, tolerance).
+    /// A half-finished pass graded under the OLD settings can't honestly be scored
+    /// or labelled with the new ones (audit 06 P2-6): mid-pass, restart the pass
+    /// from the section start under the new settings; stopped, just rebuild the
+    /// expected notes so the next pass starts correct.
+    private func gradeConfigChanged() {
+        guard gradeMode else { return }
+        guard audio.isPlaying else { startGradePass(); return }
+        DebugLog.shared.log("grade", "settings changed mid-pass → pass restarted")
+        flushPianoOutput()
+        lastDiscreteBeat = -1
+        audio.startSeconds = sectionStartTime
+        startGradePass()
+        audio.loopBackToStart()
+        bridge.seek(sectionStartBeat)
+        lastSentBeat = sectionStartBeat
+        beginTakeCapture()
     }
 
     /// ◀ / ▶ one bar, clamped to the section. Stopped: moves the playhead (and the

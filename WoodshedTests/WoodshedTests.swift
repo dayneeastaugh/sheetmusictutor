@@ -1372,3 +1372,98 @@ struct PianoSchedulerTests {
         #expect(s.advance(to: 0.12, rhOn: true, lhOn: true) == [.noteOn(60)])
     }
 }
+
+// MARK: - Audit 06 regressions (MIDI packet safety, repeat-section grading)
+
+@Suite("UMP packet decoding")
+struct UMPDecodingTests {
+
+    private func decode(_ words: [UInt32]) -> [MIDIInput.Message] {
+        words.withUnsafeBytes { MIDIInput.messages(words: $0.baseAddress!, wordCount: words.count) }
+    }
+
+    @Test("channel voice notes, note-off, vel-0, and pedal decode")
+    func basics() {
+        let msgs = decode([0x20_90_3C_64,   // note on C4 vel 100
+                           0x20_80_3C_00,   // note off C4
+                           0x20_90_40_00,   // note on vel 0 = off
+                           0x20_B0_40_7F,   // CC64 (sustain) down
+                           0x20_B0_40_00])  // CC64 up
+        #expect(msgs == [.noteOn(pitch: 60, velocity: 100), .noteOff(pitch: 60),
+                         .noteOff(pitch: 64), .pedal(down: true), .pedal(down: false)])
+    }
+
+    @Test("a packet larger than the 64-word struct tuple decodes fully, no crash")
+    func oversizedPacket() {
+        // The P1 crash case: CoreMIDI packets are variable-length and may carry more
+        // words than the imported struct's fixed 64-word tuple. The decoder walks a
+        // raw pointer, so 65+ words must simply work.
+        var words: [UInt32] = []
+        for p in 0..<65 { words.append(0x20_90_00_50 | UInt32((21 + p % 88)) << 8) }
+        let msgs = decode(words)
+        #expect(msgs.count == 65)
+        #expect(msgs.first == .noteOn(pitch: 21, velocity: 0x50))
+    }
+
+    @Test("SysEx and MIDI-2 data words are never misread as notes")
+    func messageWidths() {
+        // A SysEx7 message is TWO words; its second word is raw data that here
+        // happens to look exactly like a note-on. Same for a MIDI-2 CVM's second
+        // word. Walking at message width must skip both.
+        let msgs = decode([0x30_01_02_03, 0x20_90_3C_64,    // sysex7 + data word
+                           0x40_90_3C_00, 0x20_90_45_60,    // MIDI-2 note-on + data word
+                           0x20_90_45_60])                  // then a REAL MIDI-1 note
+        #expect(msgs == [.noteOn(pitch: 69, velocity: 0x60)])
+    }
+
+    @Test("UMP word counts match the MIDI 2.0 spec")
+    func widths() {
+        #expect(MIDIInput.umpWordCount(messageType: 0x2) == 1)
+        #expect(MIDIInput.umpWordCount(messageType: 0x3) == 2)
+        #expect(MIDIInput.umpWordCount(messageType: 0x4) == 2)
+        #expect(MIDIInput.umpWordCount(messageType: 0x5) == 4)
+        #expect(MIDIInput.umpWordCount(messageType: 0xF) == 4)
+    }
+}
+
+@Suite("Section grading window")
+struct SectionGradingTests {
+
+    private func ev(_ pitch: Int, onset: Double, beat: Double, hand: Hand = .right) -> NoteEvent {
+        NoteEvent(pitch: pitch, spelledName: "", hand: hand, voice: 0, notatedType: "?",
+                  onsetSeconds: onset, durationSeconds: 0.4, notatedBeat: beat,
+                  matchedXML: true, ornamentNotes: 0)
+    }
+
+    @Test("a repeated bar's second occurrence is NOT expected when the section plays only the first")
+    func repeatSection() {
+        // Bar 1 (written beat 0) plays twice: onsets 0s and 4s (a two-bar repeat).
+        // Playback of "section = bar 1" runs seconds [0, 2) — the first occurrence.
+        let events = [ev(60, onset: 0.0, beat: 0), ev(60, onset: 4.0, beat: 0),
+                      ev(62, onset: 2.0, beat: 4), ev(62, onset: 6.0, beat: 4)]
+        let exp = PracticeSession.gradeExpected(events: events, rhOn: true, lhOn: true,
+                                                window: (0, 2), rhythmMode: false)
+        #expect(exp.count == 1)                    // was 2 → a perfect pass scored 50%
+        #expect(exp.first?.onset == 0.0)
+    }
+
+    @Test("the full piece still expects every performed occurrence")
+    func fullPiece() {
+        let events = [ev(60, onset: 0.0, beat: 0), ev(60, onset: 4.0, beat: 0)]
+        let exp = PracticeSession.gradeExpected(events: events, rhOn: true, lhOn: true,
+                                                window: (0, 8), rhythmMode: false)
+        #expect(exp.count == 2)
+    }
+
+    @Test("hand filter and rhythm-mode chord collapse still apply inside the window")
+    func handsAndRhythm() {
+        let events = [ev(60, onset: 0.0, beat: 0, hand: .right), ev(40, onset: 0.0, beat: 0, hand: .left),
+                      ev(64, onset: 1.0, beat: 2, hand: .right)]
+        let rhOnly = PracticeSession.gradeExpected(events: events, rhOn: true, lhOn: false,
+                                                   window: (0, 2), rhythmMode: false)
+        #expect(rhOnly.map(\.pitch) == [60, 64])
+        let taps = PracticeSession.gradeExpected(events: events, rhOn: true, lhOn: true,
+                                                 window: (0, 2), rhythmMode: true)
+        #expect(taps.count == 2)                   // the chord collapses to one tap
+    }
+}

@@ -196,33 +196,73 @@ final class MIDIInput: ObservableObject {
     // MARK: - Receive (runs on a CoreMIDI thread)
 
     private func receive(_ eventListPtr: UnsafePointer<MIDIEventList>) {
-        let eventList = eventListPtr.pointee
-        var packet = eventList.packet
-        for _ in 0..<eventList.numPackets {
-            var pkt = packet
-            withUnsafeBytes(of: &pkt.words) { raw in
-                let words = raw.bindMemory(to: UInt32.self)
-                for i in 0..<Int(pkt.wordCount) { parse(word: words[i]) }
-            }
-            packet = MIDIEventPacketNext(&packet).pointee
+        // CoreMIDI packets are VARIABLE length: `wordCount` may legally exceed the
+        // 64-word tuple in the imported Swift struct, so the packet must never be
+        // copied into a local and indexed (that read past the copy's buffer — a real
+        // 65-word packet crashed; audit 06 P1-1). Walk pointers into the original
+        // callback buffer: `unsafeSequence()` advances packet-by-packet within it,
+        // and the words are read at their true offsets with unaligned loads.
+        for packetPtr in eventListPtr.unsafeSequence() {
+            let count = Int(packetPtr.pointee.wordCount)
+            let words = UnsafeRawPointer(packetPtr) + Self.wordsOffset
+            for m in Self.messages(words: words, wordCount: count) { apply(m) }
         }
     }
 
-    private func parse(word: UInt32) {
-        // Message type 0x2 = MIDI 1.0 channel voice. Byte layout in the word:
-        // [mt|group][status][data1][data2].
-        guard (word >> 28) & 0xF == 0x2 else { return }
-        let status = UInt8((word >> 16) & 0xFF)
-        let note = Int((word >> 8) & 0x7F)
-        let velocity = Int(word & 0x7F)
-        switch status & 0xF0 {
-        case 0x90 where velocity > 0: noteOn(note, velocity: velocity)
-        case 0x80, 0x90:              noteOff(note)   // 0x80, or note-on with velocity 0
-        case 0xB0 where note == 64:                    // your sustain pedal (data1 = controller)
-            let down = velocity >= 64                  // data2 = value
+    /// Byte offset of the flexible `words` array inside a `MIDIEventPacket`.
+    static let wordsOffset = MemoryLayout<MIDIEventPacket>.offset(of: \MIDIEventPacket.words)!
+
+    /// One decoded input event. Pure value so packet parsing is unit-testable.
+    enum Message: Equatable {
+        case noteOn(pitch: Int, velocity: Int)
+        case noteOff(pitch: Int)
+        case pedal(down: Bool)
+    }
+
+    /// UMP message sizes in 32-bit words by message-type nibble (MIDI 2.0 spec).
+    /// Walking at message width matters for correctness, not just speed: a SysEx or
+    /// MIDI-2 message's *data* words can coincidentally look like channel-voice
+    /// words and must never be decoded as notes.
+    static func umpWordCount(messageType mt: UInt32) -> Int {
+        switch mt {
+        case 0x0, 0x1, 0x2, 0x6, 0x7: return 1
+        case 0x3, 0x4, 0x8, 0x9, 0xA: return 2
+        case 0xB, 0xC:                return 3
+        default:                      return 4   // 0x5, 0xD–0xF
+        }
+    }
+
+    /// Decode a packet's words into events. Steps whole UMP messages; decodes only
+    /// MIDI 1.0 channel voice (mt 0x2), which is what our MIDI-1 protocol port carries.
+    static func messages(words: UnsafeRawPointer, wordCount: Int) -> [Message] {
+        var out: [Message] = []
+        var i = 0
+        while i < wordCount {
+            let word = words.loadUnaligned(fromByteOffset: i * 4, as: UInt32.self)
+            let mt = (word >> 28) & 0xF
+            defer { i += umpWordCount(messageType: mt) }
+            guard mt == 0x2 else { continue }
+            // Byte layout in the word: [mt|group][status][data1][data2].
+            let status = UInt8((word >> 16) & 0xFF)
+            let note = Int((word >> 8) & 0x7F)
+            let velocity = Int(word & 0x7F)
+            switch status & 0xF0 {
+            case 0x90 where velocity > 0: out.append(.noteOn(pitch: note, velocity: velocity))
+            case 0x80, 0x90:              out.append(.noteOff(pitch: note))   // or note-on vel 0
+            case 0xB0 where note == 64:   out.append(.pedal(down: velocity >= 64))
+            default: break
+            }
+        }
+        return out
+    }
+
+    private func apply(_ m: Message) {
+        switch m {
+        case .noteOn(let p, let v): noteOn(p, velocity: v)
+        case .noteOff(let p):       noteOff(p)
+        case .pedal(let down):
             DebugLog.shared.log("midi", "#\(instanceId) pedal \(down ? "down" : "up")")
             DispatchQueue.main.async { [weak self] in self?.onPedal?(down) }
-        default: break
         }
     }
 

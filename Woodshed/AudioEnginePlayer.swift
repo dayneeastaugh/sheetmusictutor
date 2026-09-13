@@ -328,6 +328,17 @@ final class AudioEnginePlayer: ObservableObject {
         timer.resume()
     }
 
+    /// When the scheduled downbeat lands, in wall-clock terms, while a count-in is
+    /// running (nil otherwise). Lets grading timestamp a note played DURING the
+    /// count-in relative to the real downbeat instead of crediting the whole
+    /// count-in as "exactly on time" (audit 06 P2-4).
+    private(set) var countInDownbeatDate: Date?
+    /// Wall seconds until the count-in's downbeat; nil when not counting in.
+    var countInRemainingWallSeconds: Double? {
+        guard isPlaying, !isRunning, let d = countInDownbeatDate else { return nil }
+        return max(0, d.timeIntervalSinceNow)
+    }
+
     /// Click N bars of the (section-aware) pattern, then call `completion` on the
     /// next downbeat.
     private func startCountIn(bars: Int, completion: @escaping () -> Void) {
@@ -337,6 +348,7 @@ final class AudioEnginePlayer: ObservableObject {
         let total = bars * pattern.count
         var idx = 0
         let interval = pulse / Double(playbackRate)   // count in at the chosen tempo
+        countInDownbeatDate = Date().addingTimeInterval(interval * Double(total))
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -364,6 +376,7 @@ final class AudioEnginePlayer: ObservableObject {
         let startIdx = barLen - n                              // last n pulses → lead into the downbeat
         var idx = 0
         let interval = pulse / Double(playbackRate)            // count in at the chosen tempo
+        countInDownbeatDate = Date().addingTimeInterval(interval * Double(n))
         let timer = DispatchSource.makeTimerSource(queue: metroQueue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -512,6 +525,7 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
+            countInDownbeatDate = nil
             if metronomeOn || rhythmOnly { startSynced(referenceTime: startSeconds) }
         } catch {
             status = "play error: \(error.localizedDescription)"
@@ -557,6 +571,7 @@ final class AudioEnginePlayer: ObservableObject {
             seq.currentPositionInSeconds = startSeconds
             try seq.start()
             isRunning = true
+            countInDownbeatDate = nil
             if metronomeOn || rhythmOnly { startSynced(referenceTime: startSeconds) }
         } catch {
             status = "loop resume error: \(error.localizedDescription)"
@@ -573,6 +588,7 @@ final class AudioEnginePlayer: ObservableObject {
 
     func stop() {
         stopMetroTimer()
+        countInDownbeatDate = nil
         if let seq = sequencer {
             if seq.isPlaying { seq.stop() }
             seq.currentPositionInSeconds = startSeconds
@@ -581,5 +597,19 @@ final class AudioEnginePlayer: ObservableObject {
         isPlaying = false
         isRunning = false
         if metronomeOn && metronomeFreeRuns { startFreeRun() }   // resume free-run only if enabled
+    }
+
+    /// Final teardown for a session being discarded. Unlike `stop()`, this must be
+    /// safe on an ALREADY-stopped transport and must never restart anything: a
+    /// free-running metronome on a SwiftUI-retained old session kept clicking after
+    /// a song switch (audit 06 P2-10). Idempotent.
+    func shutdownAudio() {
+        metronomeOn = false                 // a discarded session never clicks again
+        stopMetroTimer()
+        countInDownbeatDate = nil
+        if let seq = sequencer, seq.isPlaying { seq.stop() }
+        allSamplerNotesOff()
+        isPlaying = false
+        isRunning = false
     }
 }
