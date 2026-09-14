@@ -607,6 +607,11 @@ struct PracticeView: View {
                 Picker("“Clean” means", selection: $session.speedThreshold) {
                     ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
                 }
+                Picker("Wrong notes allowed", selection: $session.drillMaxWrong) {
+                    Text("None").tag(0); Text("1").tag(1); Text("2").tag(2)
+                    Text("5").tag(5); Text("Any").tag(-1)
+                }
+                .help("Extra wrong notes a pass may contain and still count as clean — 100% accuracy alone only checks the expected notes")
                 Picker("Clean passes to add a bar", selection: $session.speedPassesPerStep) {
                     ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
                 }
@@ -629,6 +634,11 @@ struct PracticeView: View {
                     Picker("“Clean” means", selection: $session.speedThreshold) {
                         ForEach([80, 85, 90, 95, 100], id: \.self) { Text("≥ \($0)%").tag(Double($0) / 100) }
                     }
+                    Picker("Wrong notes allowed", selection: $session.drillMaxWrong) {
+                        Text("None").tag(0); Text("1").tag(1); Text("2").tag(2)
+                        Text("5").tag(5); Text("Any").tag(-1)
+                }
+                    .help("Extra wrong notes a pass may contain and still count as clean — 100% accuracy alone only checks the expected notes")
                     Picker("Clean passes to speed up", selection: $session.speedPassesPerStep) {
                         ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
                     }

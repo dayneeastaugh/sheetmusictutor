@@ -103,7 +103,9 @@ in the overflow menu).
    these controls are **global preferences** that persist across launches and carry between songs
    (View toggles, output routing, metronome/start behaviour, grading tolerance, speed-drill config —
    ADR-036); the tempo, hand, section/loop, and whether a drill is running are per-practice context.
-   Sections by type: **Hands & sound** (Hands, Output — all types); **Playback** (Tempo, metronome
+   Sections by type: **Hands & sound** (Hands, Output — all types); the Drill group gains **"Wrong notes allowed"**
+   (0/1/2/5/Any, default 2) — a pass must be accurate AND not littered with extra wrong notes to
+   count as clean for the mastery gate (both drill styles); **Playback** (Tempo, metronome
    start/stop-with-playback — the on/off toggle is in the transport; **Rhythm only** in Practice/Grade;
    hidden in Wait); **Focus / Section to drill** (Section from/to, **Suggest a spot**, Loop
    (Practice/Grade), Loop count-in (not Wait), Whole piece, **saved sections**); **Drill**

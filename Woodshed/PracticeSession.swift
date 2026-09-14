@@ -249,6 +249,12 @@ final class PracticeSession: ObservableObject {
     @Published var speedThreshold: Double = AppSettings.speedThreshold {  // accuracy for a "clean" pass (byAccuracy)
         didSet { AppSettings.speedThreshold = speedThreshold }
     }
+    /// Extra WRONG notes a drill pass may contain and still count as clean (-1 = no
+    /// limit). 100% accuracy only says every EXPECTED note was hit — a pass full of
+    /// extra wrong notes advanced the drill anyway (audit 06 refinement).
+    @Published var drillMaxWrong: Int = AppSettings.drillMaxWrong {
+        didSet { AppSettings.drillMaxWrong = drillMaxWrong }
+    }
     @Published var speedPassesPerStep = AppSettings.speedPassesPerStep {  // passes needed to advance one step
         didSet { AppSettings.speedPassesPerStep = speedPassesPerStep }
     }
@@ -267,11 +273,12 @@ final class PracticeSession: ObservableObject {
     /// With hands progression on, mastering a stage advances R.H. → L.H. → both (the
     /// ramp restarts from the stage's starting tempo); only the final stage sets
     /// `mastered` (which stops the loop and celebrates).
-    private func applySpeedTrainer(accuracy: Double) {
+    private func applySpeedTrainer(accuracy: Double, wrong: Int) {
         guard speedMode != .off, loopSection else { return }
         let next = Self.drillAdvance(mode: speedMode, accuracy: accuracy, threshold: speedThreshold,
                                      passesPerStep: speedPassesPerStep, passes: passesAtThisTempo,
-                                     tempoPct: tempoPct, target: speedTargetPct, step: speedStepPct, mastered: mastered)
+                                     tempoPct: tempoPct, target: speedTargetPct, step: speedStepPct, mastered: mastered,
+                                     wrong: wrong, maxWrong: drillMaxWrong)
         passesAtThisTempo = next.passes
         if next.tempoPct != tempoPct { tempoPct = next.tempoPct }   // didSet → audio.setRate; slider follows
         if next.mastered, handsProgression, let following = drillStage.next {
@@ -291,9 +298,11 @@ final class PracticeSession: ObservableObject {
     struct DrillState: Equatable { var passes: Int; var tempoPct: Double; var mastered: Bool }
     static func drillAdvance(mode: SpeedTrainerMode, accuracy: Double, threshold: Double,
                              passesPerStep: Int, passes: Int, tempoPct: Double,
-                             target: Double, step: Double, mastered: Bool) -> DrillState {
+                             target: Double, step: Double, mastered: Bool,
+                             wrong: Int = 0, maxWrong: Int = -1) -> DrillState {
         guard mode != .off, !mastered else { return DrillState(passes: passes, tempoPct: tempoPct, mastered: mastered) }
-        let clean = (mode == .byReps) ? true : accuracy >= threshold
+        // "Clean" = accurate AND without a pile of extra wrong notes (maxWrong < 0 = no limit).
+        let clean = (mode == .byReps) ? true : accuracy >= threshold && (maxWrong < 0 || wrong <= maxWrong)
         var p = clean ? passes + 1 : 0
         var tempo = tempoPct
         var done = mastered
@@ -1133,7 +1142,7 @@ final class PracticeSession: ObservableObject {
         if progressiveDrill {
             applyProgressiveDrill(newestBarClean: barPlayedClean(sectionEnd))   // grade the newest bar alone
         } else {
-            applySpeedTrainer(accuracy: r.accuracy)   // ramp tempo / gate mastery for the next pass
+            applySpeedTrainer(accuracy: r.accuracy, wrong: r.extra)   // ramp tempo / gate mastery for the next pass
         }
     }
 
@@ -1493,8 +1502,9 @@ final class PracticeSession: ObservableObject {
         }
         let matched = notes.filter(\.matched).count
         let ratio = Double(matched) / Double(notes.count)
-        DebugLog.shared.log("drill", "bar \(bar): \(matched)/\(notes.count) matched = \(Int(ratio * 100))% vs threshold \(Int(speedThreshold * 100))%")
-        return ratio >= speedThreshold
+        let wrongHere = wrongMarks.filter { barForBeat($0.beat) == bar }.count
+        DebugLog.shared.log("drill", "bar \(bar): \(matched)/\(notes.count) matched = \(Int(ratio * 100))% vs threshold \(Int(speedThreshold * 100))%, wrong \(wrongHere)")
+        return ratio >= speedThreshold && (drillMaxWrong < 0 || wrongHere <= drillMaxWrong)
     }
 
     /// Drill progress 0…1 for the prominent top bar (nil when not in a drill).

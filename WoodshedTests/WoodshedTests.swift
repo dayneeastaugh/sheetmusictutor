@@ -1578,3 +1578,33 @@ struct VersionedStoreTests {
         #expect(loaded.first?.scoring == PracticeSession.scoringVersion)
     }
 }
+
+@Suite("Drill wrong-note allowance")
+struct DrillWrongNoteTests {
+
+    private func advance(accuracy: Double, wrong: Int, maxWrong: Int) -> PracticeSession.DrillState {
+        PracticeSession.drillAdvance(mode: .byAccuracy, accuracy: accuracy, threshold: 0.9,
+                                     passesPerStep: 1, passes: 0, tempoPct: 60,
+                                     target: 100, step: 5, mastered: false,
+                                     wrong: wrong, maxWrong: maxWrong)
+    }
+
+    @Test("a dirty pass (100% accurate, too many wrong notes) does NOT advance")
+    func dirtyPassBlocked() {
+        // The audit's reproduction: one wrong note + 100% accuracy advanced 60→65.
+        let s = advance(accuracy: 1.0, wrong: 3, maxWrong: 2)
+        #expect(s.tempoPct == 60)                 // streak reset, no ramp
+        #expect(s.passes == 0)
+    }
+
+    @Test("within the allowance still advances")
+    func withinAllowance() {
+        #expect(advance(accuracy: 1.0, wrong: 2, maxWrong: 2).tempoPct == 65)
+        #expect(advance(accuracy: 1.0, wrong: 0, maxWrong: 0).tempoPct == 65)
+    }
+
+    @Test("no limit preserves the old behavior")
+    func unlimited() {
+        #expect(advance(accuracy: 1.0, wrong: 10, maxWrong: -1).tempoPct == 65)
+    }
+}

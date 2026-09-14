@@ -33,6 +33,7 @@ enum AppSettings {
             Key.speedTargetPct: 100.0,
             Key.speedStepPct: 5.0,
             Key.speedThreshold: 0.9,
+            Key.drillMaxWrong: 2,
             Key.speedPassesPerStep: 2,
         ])
     }
@@ -53,6 +54,7 @@ enum AppSettings {
         static let speedTargetPct = "pref.speedTargetPct"
         static let speedStepPct = "pref.speedStepPct"
         static let speedThreshold = "pref.speedThreshold"
+        static let drillMaxWrong = "pref.drillMaxWrong"
         static let speedPassesPerStep = "pref.speedPassesPerStep"
         static let handsProgression = "pref.handsProgression"
         static let timingTintOnScore = "pref.timingTintOnScore"
@@ -86,6 +88,8 @@ enum AppSettings {
     static var speedTargetPct: Double { get { d.double(forKey: Key.speedTargetPct) } set { d.set(newValue, forKey: Key.speedTargetPct) } }
     static var speedStepPct: Double { get { d.double(forKey: Key.speedStepPct) } set { d.set(newValue, forKey: Key.speedStepPct) } }
     static var speedThreshold: Double { get { d.double(forKey: Key.speedThreshold) } set { d.set(newValue, forKey: Key.speedThreshold) } }
+    /// Extra WRONG notes a drill pass may contain and still count as clean (-1 = no limit).
+    static var drillMaxWrong: Int { get { d.integer(forKey: Key.drillMaxWrong) } set { d.set(newValue, forKey: Key.drillMaxWrong) } }
     static var speedPassesPerStep: Int { get { d.integer(forKey: Key.speedPassesPerStep) } set { d.set(newValue, forKey: Key.speedPassesPerStep) } }
     static var handsProgression: Bool { get { d.bool(forKey: Key.handsProgression) } set { d.set(newValue, forKey: Key.handsProgression) } }
 }
