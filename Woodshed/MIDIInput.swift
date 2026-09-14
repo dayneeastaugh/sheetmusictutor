@@ -28,6 +28,30 @@ final class MIDIInput: ObservableObject {
     @Published var status: String = "Starting MIDI…"
     /// Names of connected input sources.
     @Published var sources: [String] = []
+    /// Names of available output destinations (for the device picker).
+    @Published private(set) var destinations: [String] = []
+    /// Live sustain-pedal state (input side), published only on transitions —
+    /// the Controls pedal indicator.
+    @Published private(set) var pedalDown = false
+    /// Listen only to this input by display name ("" = every device). Explicit
+    /// selection stops a second keyboard or virtual port confusing Wait/Grade
+    /// (audit 06 suggestion 3).
+    var preferredSource: String = AppSettings.midiSource {
+        didSet {
+            guard preferredSource != oldValue else { return }
+            AppSettings.midiSource = preferredSource
+            if !activeNotes.isEmpty { activeNotes = [] }   // a filtered-out device may hold notes
+            connectSources()
+        }
+    }
+    /// Send only to this destination by display name ("" = every device).
+    var preferredDestination: String = AppSettings.midiDest {
+        didSet {
+            guard preferredDestination != oldValue else { return }
+            AppSettings.midiDest = preferredDestination
+            connectSources()   // refresh status/destination availability
+        }
+    }
 
     private var client = MIDIClientRef()
     private var inputPort = MIDIPortRef()
@@ -104,8 +128,18 @@ final class MIDIInput: ObservableObject {
 
     // MARK: - Output (send playback to the piano)
 
-    /// True if there's at least one MIDI destination (e.g. the piano) to play to.
-    var hasDestination: Bool { MIDIGetNumberOfDestinations() > 0 }
+    /// True if there's a MIDI destination to play to — the CHOSEN one when a device
+    /// is selected (so a vanished chosen piano correctly falls back to speakers).
+    var hasDestination: Bool {
+        guard !preferredDestination.isEmpty else { return MIDIGetNumberOfDestinations() > 0 }
+        return (0..<MIDIGetNumberOfDestinations()).contains { name(of: MIDIGetDestination($0)) == preferredDestination }
+    }
+
+    /// A short middle-C to the selected output — "is this thing on?" for device setup.
+    func sendTestNote() {
+        sendNoteOn(60, velocity: 100)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.sendNoteOff(60) }
+    }
 
     func sendNoteOn(_ note: Int, velocity: Int = 90) {
         DebugLog.shared.log("out", "→piano ON  \(note)")
@@ -144,7 +178,9 @@ final class MIDIInput: ObservableObject {
         _ = MIDIPacketListAdd(&packetList, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, bytes)
         for i in 0..<destCount {
             let dest = MIDIGetDestination(i)
-            if dest != 0 { MIDISend(outputPort, dest, &packetList) }
+            guard dest != 0 else { continue }
+            if !preferredDestination.isEmpty && name(of: dest) != preferredDestination { continue }
+            MIDISend(outputPort, dest, &packetList)
         }
     }
 
@@ -157,11 +193,19 @@ final class MIDIInput: ObservableObject {
         guard client != 0 else { return }
         var current = Set<MIDIEndpointRef>()
         var names: [String] = []
+        var allNames: [String] = []
         for i in 0..<MIDIGetNumberOfSources() {
             let src = MIDIGetSource(i)
             guard src != 0 else { continue }
+            let srcName = name(of: src)
+            allNames.append(srcName)
+            // Honour the device selection: connect only the chosen input (all when "").
+            guard preferredSource.isEmpty || srcName == preferredSource else {
+                if connected.contains(src) { MIDIPortDisconnectSource(inputPort, src); connected.remove(src) }
+                continue
+            }
             current.insert(src)
-            names.append(name(of: src))
+            names.append(srcName)
             if !connected.contains(src), MIDIPortConnectSource(inputPort, src, nil) == noErr {
                 connected.insert(src)
             }
@@ -183,9 +227,20 @@ final class MIDIInput: ObservableObject {
             sources = names
         }
         status = names.isEmpty
-            ? "No MIDI input detected — connect a piano (USB/Bluetooth)"
+            ? (!preferredSource.isEmpty && !allNames.isEmpty
+               ? "“\(preferredSource)” not found — check the connection (or pick another input)"
+               : "No MIDI input detected — connect a piano (USB/Bluetooth)")
             : "Connected: \(names.joined(separator: ", "))"
+        // The device pickers need EVERY name (selection incl. currently filtered-out).
+        if allNames != knownSources { knownSources = allNames }
+        let destNames = (0..<MIDIGetNumberOfDestinations()).compactMap { i -> String? in
+            let d = MIDIGetDestination(i); return d != 0 ? name(of: d) : nil
+        }
+        if destNames != destinations { destinations = destNames }
     }
+
+    /// Every input that exists (even ones the selection filters out) — the picker list.
+    @Published private(set) var knownSources: [String] = []
 
     private func name(of endpoint: MIDIEndpointRef) -> String {
         var cf: Unmanaged<CFString>?
@@ -262,7 +317,11 @@ final class MIDIInput: ObservableObject {
         case .noteOff(let p):       noteOff(p)
         case .pedal(let down):
             DebugLog.shared.log("midi", "#\(instanceId) pedal \(down ? "down" : "up")")
-            DispatchQueue.main.async { [weak self] in self?.onPedal?(down) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.pedalDown != down { self.pedalDown = down }   // transitions only
+                self.onPedal?(down)
+            }
         }
     }
 

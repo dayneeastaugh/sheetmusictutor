@@ -484,6 +484,7 @@ struct PracticeView: View {
                     Text("Speakers").tag(0); Text("Piano").tag(1); Text("Both").tag(2)
                 }
             }
+            midiDeviceSection
             if mode != .wait {
                 Section("Playback") {
                     LabeledContent("Tempo") {
@@ -594,9 +595,47 @@ struct PracticeView: View {
         .formStyle(.grouped)
     }
 
+    /// Explicit MIDI device selection + a test note + a live pedal light — with a
+    /// second keyboard or a virtual port present, "connect everything, broadcast to
+    /// everything" gets confusing fast (audit 06). Default stays "All devices".
+    @ViewBuilder
+    private var midiDeviceSection: some View {
+        Section("MIDI piano") {
+            Picker("Listen to", selection: Binding(get: { session.midi.preferredSource },
+                                                   set: { session.midi.preferredSource = $0 })) {
+                Text("All devices").tag("")
+                ForEach(session.midi.knownSources, id: \.self) { Text($0).tag($0) }
+                if !session.midi.preferredSource.isEmpty,
+                   !session.midi.knownSources.contains(session.midi.preferredSource) {
+                    Text("\(session.midi.preferredSource) (not connected)").tag(session.midi.preferredSource)
+                }
+            }
+            Picker("Play to", selection: Binding(get: { session.midi.preferredDestination },
+                                                 set: { session.midi.preferredDestination = $0 })) {
+                Text("All devices").tag("")
+                ForEach(session.midi.destinations, id: \.self) { Text($0).tag($0) }
+                if !session.midi.preferredDestination.isEmpty,
+                   !session.midi.destinations.contains(session.midi.preferredDestination) {
+                    Text("\(session.midi.preferredDestination) (not connected)").tag(session.midi.preferredDestination)
+                }
+            }
+            HStack {
+                Button("Send test note") { session.midi.sendTestNote() }
+                    .disabled(!session.midi.hasDestination)
+                    .help("Plays a short middle C on the selected output — confirms the piano is reachable")
+                Spacer()
+                HStack(spacing: 5) {
+                    Circle().fill(session.midi.pedalDown ? Color.green : Color.secondary.opacity(0.3))
+                        .frame(width: 8, height: 8)
+                    Text("Pedal").font(.caption2).foregroundStyle(.secondary)
+                }
+                .help("Lights while your sustain pedal is down — confirms the pedal reaches the app")
+            }
+        }
+    }
+
     /// The drill setup (shown only in the Drill session type). No "off" here — you
     /// leave a drill by switching training-session type.
-    @ViewBuilder
     private var drillSection: some View {
         Section("Drill") {
             Picker("Drill", selection: Binding(get: { session.drillStyle },

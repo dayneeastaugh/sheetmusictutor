@@ -34,6 +34,8 @@ enum AppSettings {
             Key.speedStepPct: 5.0,
             Key.speedThreshold: 0.9,
             Key.drillMaxWrong: 2,
+            Key.midiSource: "",
+            Key.midiDest: "",
             Key.speedPassesPerStep: 2,
         ])
     }
@@ -55,6 +57,8 @@ enum AppSettings {
         static let speedStepPct = "pref.speedStepPct"
         static let speedThreshold = "pref.speedThreshold"
         static let drillMaxWrong = "pref.drillMaxWrong"
+        static let midiSource = "pref.midiSource"
+        static let midiDest = "pref.midiDest"
         static let speedPassesPerStep = "pref.speedPassesPerStep"
         static let handsProgression = "pref.handsProgression"
         static let timingTintOnScore = "pref.timingTintOnScore"
@@ -90,6 +94,9 @@ enum AppSettings {
     static var speedThreshold: Double { get { d.double(forKey: Key.speedThreshold) } set { d.set(newValue, forKey: Key.speedThreshold) } }
     /// Extra WRONG notes a drill pass may contain and still count as clean (-1 = no limit).
     static var drillMaxWrong: Int { get { d.integer(forKey: Key.drillMaxWrong) } set { d.set(newValue, forKey: Key.drillMaxWrong) } }
+    /// Chosen MIDI input/output device by display name ("" = all devices).
+    static var midiSource: String { get { d.string(forKey: Key.midiSource) ?? "" } set { d.set(newValue, forKey: Key.midiSource) } }
+    static var midiDest: String { get { d.string(forKey: Key.midiDest) ?? "" } set { d.set(newValue, forKey: Key.midiDest) } }
     static var speedPassesPerStep: Int { get { d.integer(forKey: Key.speedPassesPerStep) } set { d.set(newValue, forKey: Key.speedPassesPerStep) } }
     static var handsProgression: Bool { get { d.bool(forKey: Key.handsProgression) } set { d.set(newValue, forKey: Key.handsProgression) } }
 }
