@@ -1072,6 +1072,39 @@ final class PracticeSession: ObservableObject {
         return names[((p % 12) + 12) % 12] + String(p / 12 - 1)
     }
 
+    /// One [calib] line per finalized pass with every teacher metric AND its raw
+    /// value — the data for tuning thresholds against the real piano (task 1).
+    /// Costs nothing when logging is off.
+    private func logCalibration(_ r: PassReport, cfg: PassConfiguration) {
+        guard DebugLog.shared.enabled else { return }
+        var bits: [String] = []
+        bits.append("acc \(Int(r.accuracy * 100))% tol \(Int(cfg.tolerance * 1000))ms tempo \(Int(cfg.tempoPct))%")
+        for h in r.hands {
+            bits.append("\(h.hand == .right ? "RH" : "LH") \(Int(h.accuracy * 100))%"
+                + (h.meanSignedMs.map { String(format: " %+0.0fms", $0) } ?? ""))
+        }
+        let leans = r.bars.compactMap { b in b.meanSignedMs.map { (b.bar, $0) } }
+        if let worst = leans.max(by: { abs($0.1) < abs($1.1) }) {
+            bits.append(String(format: "worstLean bar%d %+0.0fms", worst.0, worst.1))
+        }
+        if let hot = r.timingHotspot() {
+            bits.append(String(format: "hotspot %d–%d %+0.0fms", hot.bars.lowerBound, hot.bars.upperBound, hot.meanMs))
+        }
+        if let d = r.tempoDriftPct { bits.append(String(format: "drift %+0.1f%%", d)) }
+        if let b = r.balance {
+            bits.append(String(format: "balance RH %.0f LH %.0f (Δ%+.0f)", b.rhMeanVelocity, b.lhMeanVelocity, b.lhLouderBy))
+        }
+        if let c = r.worstChordSpread { bits.append(String(format: "chordSpread bar%d %.0fms", c.bar, c.ms)) }
+        if !r.pedalHolds.isEmpty {
+            bits.append("pedalHolds " + r.pedalHolds.map { "\($0.lowerBound)–\($0.upperBound)" }.joined(separator: ","))
+        }
+        if let e = r.evenness {
+            bits.append(String(format: "even timing %.2f (CV %.3f) dyn %.2f (std %.1f)",
+                               e.timingScore, e.rawTimingCV ?? -1, e.dynamicScore, e.rawVelocityStd ?? -1))
+        }
+        DebugLog.shared.log("calib", bits.joined(separator: " · "))
+    }
+
     /// Tally the finished pass into the progress history and persist it. Idempotent:
     /// a pass is recorded at most once (completion), never again when playback stops.
     private func finalizeGradePass() {
@@ -1130,6 +1163,7 @@ final class PracticeSession: ObservableObject {
         report.handMode = cfg.handMode
         report.rhythmOnly = cfg.rhythmMode
         report.tolerance = cfg.tolerance
+        logCalibration(report, cfg: cfg)
         lastPassReport = report
         passReportDismissed = false
 

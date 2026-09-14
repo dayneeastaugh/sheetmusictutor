@@ -106,6 +106,11 @@ struct PassReport: Codable, Equatable {
         var dynamicScore: Double       // 0…1 (1 = perfectly level)
         var softest: NoteVel?
         var loudest: NoteVel?
+        /// Raw values behind the scores, for threshold calibration against the real
+        /// piano (task 1): IOI coefficient of variation and velocity std deviation.
+        /// Optional/back-compat.
+        var rawTimingCV: Double? = nil
+        var rawVelocityStd: Double? = nil
     }
 
     /// A run of adjacent problem bars, for the compact long-score view: rather than a
@@ -564,7 +569,8 @@ enum PassReportBuilder {
         return PassReport.Evenness(
             timingScore: timingScore, dynamicScore: dynamicScore,
             softest: soft.map { .init(name: noteName($0.pitch), velocity: $0.velocity) },
-            loudest: loud.map { .init(name: noteName($0.pitch), velocity: $0.velocity) })
+            loudest: loud.map { .init(name: noteName($0.pitch), velocity: $0.velocity) },
+            rawTimingCV: cv, rawVelocityStd: vVar.squareRoot())
     }
 
     /// This pass's per-note faults, for persisting on the PracticePass record.

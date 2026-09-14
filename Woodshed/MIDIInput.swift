@@ -259,10 +259,23 @@ final class MIDIInput: ObservableObject {
         // and the words are read at their true offsets with unaligned loads.
         for packetPtr in eventListPtr.unsafeSequence() {
             let count = Int(packetPtr.pointee.wordCount)
+            // Delivery latency: how far behind the DEVICE's own timestamp this
+            // callback runs (mach ticks → ms). The calibration data (task 1) that
+            // decides whether grading should use event timestamps. 0 = no stamp.
+            let stamp = packetPtr.pointee.timeStamp
+            let latencyMs: Double? = stamp > 0
+                ? Double(mach_absolute_time() &- stamp) * Self.machToMs : nil
             let words = UnsafeRawPointer(packetPtr) + Self.wordsOffset
-            for m in Self.messages(words: words, wordCount: count) { apply(m) }
+            for m in Self.messages(words: words, wordCount: count) { apply(m, latencyMs: latencyMs) }
         }
     }
+
+    /// mach_absolute_time tick → milliseconds conversion factor.
+    static let machToMs: Double = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return Double(info.numer) / Double(info.denom) / 1_000_000
+    }()
 
     /// Byte offset of the flexible `words` array inside a `MIDIEventPacket`.
     static let wordsOffset = MemoryLayout<MIDIEventPacket>.offset(of: \MIDIEventPacket.words)!
@@ -311,9 +324,9 @@ final class MIDIInput: ObservableObject {
         return out
     }
 
-    private func apply(_ m: Message) {
+    private func apply(_ m: Message, latencyMs: Double? = nil) {
         switch m {
-        case .noteOn(let p, let v): noteOn(p, velocity: v)
+        case .noteOn(let p, let v): noteOn(p, velocity: v, latencyMs: latencyMs)
         case .noteOff(let p):       noteOff(p)
         case .pedal(let down):
             DebugLog.shared.log("midi", "#\(instanceId) pedal \(down ? "down" : "up")")
@@ -325,8 +338,9 @@ final class MIDIInput: ObservableObject {
         }
     }
 
-    private func noteOn(_ note: Int, velocity: Int) {
-        DebugLog.shared.log("midi", "#\(instanceId) noteOn \(note) vel \(velocity)")
+    private func noteOn(_ note: Int, velocity: Int, latencyMs: Double? = nil) {
+        DebugLog.shared.log("midi", "#\(instanceId) noteOn \(note) vel \(velocity)"
+            + (latencyMs.map { String(format: " lat %.1fms", $0) } ?? ""))
         DispatchQueue.main.async {
             self.activeNotes.insert(note)
             self.onNoteOn?(note, velocity)
