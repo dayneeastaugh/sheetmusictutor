@@ -494,13 +494,19 @@ final class PracticeSession: ObservableObject {
         }
         takeOpen = [:]
         guard !takeNotes.isEmpty else { return }
-        let take = Take(sectionStart: sectionStart, sectionEnd: sectionEnd,
-                        tempoPct: tempoPct, accuracy: accuracy, handMode: handMode,
+        // A GRADED take belongs to its pass — label it by the pass configuration,
+        // not by whatever the controls read when capture closed.
+        let cfg = accuracy != nil ? passConfig : nil
+        let take = Take(sectionStart: cfg?.sectionStart ?? sectionStart,
+                        sectionEnd: cfg?.sectionEnd ?? sectionEnd,
+                        tempoPct: cfg?.tempoPct ?? tempoPct, accuracy: accuracy,
+                        handMode: cfg?.handMode ?? handMode,
                         notes: takeNotes.sorted { $0.on < $1.on })
         lastTake = take
         // A rhythm-only tap-along isn't a performance of the passage — it never
         // becomes the stored "best take" (audit 06 P2-11).
-        if accuracy != nil, !rhythmMode, TakeStore.keepIfBest(take, in: song.folder) {
+        if accuracy != nil, !(cfg?.rhythmMode ?? rhythmMode),
+           TakeStore.keepIfBest(take, in: song.folder) {
             bestTakes = TakeStore.load(from: song.folder)
         }
         takeNotes = []
@@ -924,8 +930,31 @@ final class PracticeSession: ObservableObject {
         return collapsed
     }
 
+    /// Version of the scoring algorithm, persisted on each pass so records from
+    /// different eras are never silently compared as equivalents.
+    /// 1 = written-beat section scoping; 2 = performed-time section plan (ADR-053).
+    static let scoringVersion = 2
+
+    /// The immutable configuration a Grade pass runs under, captured when the pass
+    /// STARTS (audit 06): the finished pass is scored, labelled, and persisted by
+    /// what it started as — structurally, not by whatever the controls read at the
+    /// end. (`gradeConfigChanged` restarts the pass on mid-pass edits; this makes
+    /// the label correct even if a future edit path forgets to.)
+    struct PassConfiguration: Equatable {
+        var sectionStart: Int
+        var sectionEnd: Int
+        var handMode: Int
+        var rhythmMode: Bool
+        var tempoPct: Double
+        var tolerance: Double
+    }
+    private(set) var passConfig: PassConfiguration?
+
     /// Begin a fresh grading pass (Play start / each loop): new matcher, wipe rings.
     private func startGradePass() {
+        passConfig = PassConfiguration(sectionStart: sectionStart, sectionEnd: sectionEnd,
+                                       handMode: handMode, rhythmMode: rhythmMode,
+                                       tempoPct: tempoPct, tolerance: gradeTolerance)
         matcher = GradeMatcher(expected: buildGradeExpected(), tolerance: gradeTolerance,
                                pitchAgnostic: rhythmMode)
         gradeMissed = []
@@ -997,8 +1026,12 @@ final class PracticeSession: ObservableObject {
     private func finalizeGradePass() {
         guard let matcher, matcher.expected.count > 0, !gradePassRecorded else { return }
         gradePassRecorded = true
+        // Score and label by the configuration the pass STARTED under.
+        let cfg = passConfig ?? PassConfiguration(sectionStart: sectionStart, sectionEnd: sectionEnd,
+                                                  handMode: handMode, rhythmMode: rhythmMode,
+                                                  tempoPct: tempoPct, tolerance: gradeTolerance)
         let t = matcher.tally()
-        DebugLog.shared.log("grade", "pass finalized bars \(sectionStart)–\(sectionEnd): \(t.hits)/\(t.total) hits = \(Int(t.accuracy * 100))%, wrong \(t.wrong)")
+        DebugLog.shared.log("grade", "pass finalized bars \(cfg.sectionStart)–\(cfg.sectionEnd): \(t.hits)/\(t.total) hits = \(Int(t.accuracy * 100))%, wrong \(t.wrong)")
         let r = GradeResult(accuracy: t.accuracy, hits: t.hits, total: t.total, missed: t.missed,
                             extra: t.wrong, avgMs: t.avgAbsMs, signedMs: t.meanSignedMs)
         gradeResult = r
@@ -1029,22 +1062,23 @@ final class PracticeSession: ObservableObject {
         // Comparable = same bars, same hands, graded — most recent first. `history`
         // hasn't had this pass appended yet, so these are strictly previous passes.
         let comparable = history
-            .filter { $0.mode == (rhythmMode ? "rhythm" : "grade") && $0.sectionStart == sectionStart
-                      && $0.sectionEnd == sectionEnd && $0.handMode == handMode }
+            .filter { $0.mode == (cfg.rhythmMode ? "rhythm" : "grade") && $0.sectionStart == cfg.sectionStart
+                      && $0.sectionEnd == cfg.sectionEnd && $0.handMode == cfg.handMode }
         let comparableFaults: [[PassFault]] = comparable.suffix(8).reversed().map { $0.faults ?? [] }
         // "Improved vs last pass" is only honest against the SAME practice context —
         // switching both-hands → RH must not read as improvement (audit 06 P2-11).
         // A report without context (saved before it existed) is never compared.
-        let comparablePrevious = (lastPassReport?.handMode == handMode
-                                  && lastPassReport?.rhythmOnly == rhythmMode) ? lastPassReport : nil
+        let comparablePrevious = (lastPassReport?.handMode == cfg.handMode
+                                  && lastPassReport?.rhythmOnly == cfg.rhythmMode) ? lastPassReport : nil
         var report = PassReportBuilder.build(
             notes: reportNotes, wrongNotes: reportWrong,
-            sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
+            sectionStart: cfg.sectionStart, sectionEnd: cfg.sectionEnd, tempoPct: cfg.tempoPct,
             previous: comparablePrevious, previousFaults: comparableFaults,
             priorAccuracies: comparable.map(\.accuracy))
         report.date = Date()
-        report.handMode = handMode
-        report.rhythmOnly = rhythmMode
+        report.handMode = cfg.handMode
+        report.rhythmOnly = cfg.rhythmMode
+        report.tolerance = cfg.tolerance
         lastPassReport = report
         passReportDismissed = false
 
@@ -1084,13 +1118,14 @@ final class PracticeSession: ObservableObject {
 
         // A rhythm-only pass is a tap-along, not pitch grading — label it honestly so
         // best-accuracy, mastery, and comparisons never mix the two (audit 06 P2-11).
-        let pass = PracticePass(mode: rhythmMode ? "rhythm" : "grade",
-                                sectionStart: sectionStart, sectionEnd: sectionEnd, measureCount: measureCount,
-                                tempoPct: tempoPct, handMode: handMode,
+        let pass = PracticePass(mode: cfg.rhythmMode ? "rhythm" : "grade",
+                                sectionStart: cfg.sectionStart, sectionEnd: cfg.sectionEnd, measureCount: measureCount,
+                                tempoPct: cfg.tempoPct, handMode: cfg.handMode,
                                 total: t.total, hits: t.hits, missed: t.missed, wrong: t.wrong, avgMs: t.avgAbsMs,
                                 missedBars: matcher.unmatched().map { barForBeat($0.beat) },
                                 signedMs: t.meanSignedMs,
-                                faults: PassReportBuilder.faults(notes: reportNotes, wrongNotes: reportWrong))
+                                faults: PassReportBuilder.faults(notes: reportNotes, wrongNotes: reportWrong),
+                                tolerance: cfg.tolerance, scoring: Self.scoringVersion)
         onPassRecorded?(pass)          // persist (disk + library stats)
         history.append(pass)           // mirror in memory for progress + trouble overlay
         refreshTroubleOverlay()        // a cleaned bar drops off; a newly-missed one lights up

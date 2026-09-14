@@ -24,17 +24,19 @@ enum BarFlagStore {
         folder.appendingPathComponent("flags.json")
     }
 
+    static let schemaVersion = 2   // 1 = bare array (pre-envelope)
+
     /// Load flags sorted by bar. Missing → none; corrupt → set aside + reported.
     static func load(from folder: URL) -> [BarFlag] {
-        (StoreIO.load([BarFlag].self, from: fileURL(in: folder), decoder: decoder) ?? [])
+        (StoreIO.loadVersioned([BarFlag].self, from: fileURL(in: folder), decoder: decoder) ?? [])
             .sorted { $0.bar < $1.bar }
     }
 
     /// Persist the whole set (empty writes an empty array). Atomic, so a kill
     /// mid-write can't leave a truncated flags.json. Failures are reported.
     static func save(_ flags: [BarFlag], to folder: URL) {
-        StoreIO.write(flags.sorted { $0.bar < $1.bar }, to: fileURL(in: folder),
-                      encoder: encoder, what: "your bar flags")
+        StoreIO.writeVersioned(flags.sorted { $0.bar < $1.bar }, v: schemaVersion,
+                               to: fileURL(in: folder), encoder: encoder, what: "your bar flags")
     }
 
     static let encoder: JSONEncoder = {

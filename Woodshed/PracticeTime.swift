@@ -22,8 +22,10 @@ enum PracticeTime {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
+    static let schemaVersion = 2   // 1 = bare dictionary (pre-envelope)
+
     static func load(from folder: URL) -> [String: Double] {
-        StoreIO.load([String: Double].self, from: fileURL(in: folder)) ?? [:]
+        StoreIO.loadVersioned([String: Double].self, from: fileURL(in: folder)) ?? [:]
     }
 
     /// Add active seconds to a day's total (atomic rewrite — the file is tiny).
@@ -33,7 +35,8 @@ enum PracticeTime {
         dict[day, default: 0] += seconds
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        StoreIO.write(dict, to: fileURL(in: folder), encoder: enc, what: "your practice time")
+        StoreIO.writeVersioned(dict, v: schemaVersion, to: fileURL(in: folder),
+                               encoder: enc, what: "your practice time")
     }
 
     static func total(_ dict: [String: Double]) -> Double {

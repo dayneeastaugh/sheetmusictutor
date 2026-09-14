@@ -21,13 +21,16 @@ enum SavedSectionStore {
         folder.appendingPathComponent("sections.json")
     }
 
+    static let schemaVersion = 2   // 1 = bare array (pre-envelope)
+
     static func load(from folder: URL) -> [SavedSection] {
-        StoreIO.load([SavedSection].self, from: fileURL(in: folder)) ?? []
+        StoreIO.loadVersioned([SavedSection].self, from: fileURL(in: folder)) ?? []
     }
 
     static func save(_ sections: [SavedSection], to folder: URL) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        StoreIO.write(sections, to: fileURL(in: folder), encoder: enc, what: "your saved sections")
+        StoreIO.writeVersioned(sections, v: schemaVersion, to: fileURL(in: folder),
+                               encoder: enc, what: "your saved sections")
     }
 }

@@ -31,6 +31,12 @@ struct PracticePass: Codable, Identifiable, Hashable {
     /// Per-note faults (capped) — feeds recurring-fault detection ("missed E♭4 in bar
     /// 6, 4 passes in a row"). Optional for back-compat with older history lines.
     var faults: [PassFault]? = nil
+    /// Grading tolerance (musical seconds) this pass ran under. Optional: absent in
+    /// records from before the practice context was persisted (context-unknown).
+    var tolerance: Double? = nil
+    /// Scoring-algorithm version (see `PracticeSession.scoringVersion`). Optional:
+    /// absent = scored before versioning existed.
+    var scoring: Int? = nil
 
     var accuracy: Double { total > 0 ? Double(hits) / Double(total) : 0 }
     var isFullPiece: Bool { sectionStart <= 1 && sectionEnd >= measureCount }

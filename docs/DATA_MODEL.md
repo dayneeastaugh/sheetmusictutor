@@ -178,7 +178,9 @@ See ADR-036 for the three-tier split (global pref / per-song meta / transient co
 
 All per-song JSON stores go through `StoreIO`: atomic writes whose failures surface in the UI, and
 corrupt-file handling that sets the damaged original aside as `<name>.corrupt-<timestamp>.json`
-rather than silently starting fresh over it. `PracticePass.mode` is `"grade"`, `"rhythm"`, or
+rather than silently starting fresh over it. Store files are **versioned** (`{"v": 2, "data": …}`;
+bare v1 payloads load forever and upgrade on next save). `PracticePass` records `tolerance` and
+`scoring` (algorithm version, 2 = performed-time section plan); `PassReport` records `tolerance`. `PracticePass.mode` is `"grade"`, `"rhythm"`, or
 `"wait"`; `PassReport.handMode`/`rhythmOnly` and `Take.handMode` record the practice context
 (optional — absent in records saved before 2026-09-13, which are treated as context-unknown and
 excluded from comparisons). Best takes are keyed `"start-end"` (both hands, legacy-compatible) or

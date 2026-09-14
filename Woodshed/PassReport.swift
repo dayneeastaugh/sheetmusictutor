@@ -88,6 +88,8 @@ struct PassReport: Codable, Equatable {
     /// these existed are context-UNKNOWN and are never used for comparisons.
     var handMode: Int? = nil
     var rhythmOnly: Bool? = nil
+    /// Grading tolerance (musical seconds) the pass ran under. Optional/back-compat.
+    var tolerance: Double? = nil
 
     struct Balance: Equatable, Codable {
         var rhMeanVelocity: Double
@@ -330,16 +332,19 @@ struct PassReport: Codable, Equatable {
 enum PassReportStore {
     static func fileURL(in folder: URL) -> URL { folder.appendingPathComponent("report.json") }
 
+    static let schemaVersion = 2   // 1 = bare report (pre-envelope)
+
     static func load(from folder: URL) -> PassReport? {
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
-        return StoreIO.load(PassReport.self, from: fileURL(in: folder), decoder: dec)
+        return StoreIO.loadVersioned(PassReport.self, from: fileURL(in: folder), decoder: dec)
     }
 
     static func save(_ report: PassReport, to folder: URL) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         enc.dateEncodingStrategy = .iso8601
-        StoreIO.write(report, to: fileURL(in: folder), encoder: enc, what: "the pass report")
+        StoreIO.writeVersioned(report, v: schemaVersion, to: fileURL(in: folder),
+                               encoder: enc, what: "the pass report")
     }
 }
 

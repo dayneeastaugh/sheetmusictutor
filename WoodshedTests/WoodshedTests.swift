@@ -1528,3 +1528,53 @@ struct PersistenceTruthTests {
         #expect(touch.goodWord == "not measured")
     }
 }
+
+@Suite("Versioned stores")
+struct VersionedStoreTests {
+
+    private func tempFolder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("segno-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("saves carry the schema version envelope and round-trip")
+    func envelopeRoundTrip() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        BarFlagStore.save([BarFlag(bar: 3, note: "LH jump")], to: folder)
+        let raw = try String(contentsOf: BarFlagStore.fileURL(in: folder), encoding: .utf8)
+        #expect(raw.contains("\"v\""))
+        #expect(BarFlagStore.load(from: folder).map(\.bar) == [3])
+    }
+
+    @Test("a legacy pre-envelope file still loads, and upgrades on next save")
+    func legacyMigration() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // v1 shape: the bare payload, as every pre-2026-09 build wrote it.
+        try Data(#"[{"bar": 7, "note": "trill", "date": "2026-01-01T00:00:00Z"}]"#.utf8)
+            .write(to: BarFlagStore.fileURL(in: folder))
+        let loaded = BarFlagStore.load(from: folder)
+        #expect(loaded.map(\.bar) == [7])
+        BarFlagStore.save(loaded, to: folder)                      // migrate
+        let raw = try String(contentsOf: BarFlagStore.fileURL(in: folder), encoding: .utf8)
+        #expect(raw.contains("\"v\""))                             // now enveloped
+        #expect(BarFlagStore.load(from: folder).map(\.bar) == [7])
+    }
+
+    @Test("passes persist their full practice context")
+    func passContext() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var pass = PracticePass(sectionStart: 1, sectionEnd: 4, measureCount: 8, tempoPct: 80,
+                                handMode: 1, total: 10, hits: 9, missed: 1, wrong: 0, avgMs: 20)
+        pass.tolerance = 0.15
+        pass.scoring = PracticeSession.scoringVersion
+        PracticeHistory.append(pass, to: folder)
+        let loaded = PracticeHistory.load(from: folder)
+        #expect(loaded.first?.tolerance == 0.15)
+        #expect(loaded.first?.scoring == PracticeSession.scoringVersion)
+    }
+}

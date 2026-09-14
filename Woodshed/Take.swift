@@ -46,9 +46,11 @@ enum TakeStore {
         handMode == 0 ? "\(start)-\(end)" : "\(start)-\(end)-h\(handMode)"
     }
 
+    static let schemaVersion = 2   // 1 = bare dictionary (pre-envelope)
+
     static func load(from folder: URL) -> [String: Take] {
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
-        return StoreIO.load([String: Take].self, from: fileURL(in: folder), decoder: dec) ?? [:]
+        return StoreIO.loadVersioned([String: Take].self, from: fileURL(in: folder), decoder: dec) ?? [:]
     }
 
     /// Keep `take` if it beats the stored best for its section + hands. Returns true
@@ -63,6 +65,7 @@ enum TakeStore {
         all[k] = take
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return StoreIO.write(all, to: fileURL(in: folder), encoder: enc, what: "your best take")
+        return StoreIO.writeVersioned(all, v: schemaVersion, to: fileURL(in: folder),
+                                      encoder: enc, what: "your best take")
     }
 }

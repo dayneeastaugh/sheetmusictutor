@@ -833,6 +833,20 @@ The full typed practice-context record (tempo/tolerance/scoring version), take v
 replay fidelity, device timestamps + latency calibration, and the review's new-feature list remain
 open — tracked in HANDOFF.md.
 
+### ADR-055 — Versioned stores + PassConfiguration (typed practice context, complete)
+**2026-09-14.** Completes the audit-06 practice-context work (ADR-054 was the first slice):
+- **Versioned persistence**: the per-song JSON stores (takes, flags, sections, time, report) write
+  a `{"v": N, "data": …}` envelope (v2). v1 — the bare pre-envelope payload — loads forever and
+  upgrades on its next save; a file decoding as neither is set aside as corrupt. History stays
+  append-only JSONL (fields are additive there).
+- **Full context on records**: `PracticePass` gains `tolerance` and `scoring` (the scoring-
+  algorithm version, currently 2 = the ADR-053 performed-time section plan); `PassReport` gains
+  `tolerance`. All optional → old records are context-unknown.
+- **`PassConfiguration`** (the audit's named first extraction step): the session captures an
+  immutable {section, hands, rhythm, tempo, tolerance} when a Grade pass starts, and the finished
+  pass/report/graded-take are scored + labelled from that capture — structurally immune to mid-pass
+  control edits (belt to `gradeConfigChanged`'s braces).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).
