@@ -1661,7 +1661,10 @@ struct BackupRestoreTests {
          {"id":"\(idB)","title":"Waltz","folder":"\(idB)"},
          {"id":"33333333-3333-3333-3333-333333333333","title":"Ghost","folder":"33333333-3333-3333-3333-333333333333"}]
         """.utf8)
-        let metaA = Data(#"{"id":"11111111-1111-1111-1111-111111111111","title":"Nocturne","dateAdded":"2026-01-01T00:00:00Z"}"#.utf8)
+        // Encode a REAL SongMeta — hand-written JSON drifts from the model.
+        let metaA = try! SongLibrary.encoder.encode(
+            SongMeta(id: UUID(uuidString: idA)!, title: "Nocturne", composer: nil,
+                     dateAdded: Date(timeIntervalSince1970: 700_000_000)))
         return makeZip([
             ("Segno Library-x/manifest.json", manifest),
             ("Segno Library-x/\(idA)/metadata.json", metaA),
