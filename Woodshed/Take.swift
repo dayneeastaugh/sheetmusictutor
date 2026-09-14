@@ -20,6 +20,12 @@ struct TakeNote: Codable, Equatable {
     var off: Double
 }
 
+/// One sustain-pedal transition in a take (musical seconds from take start).
+struct PedalPoint: Codable, Equatable {
+    var t: Double
+    var down: Bool
+}
+
 struct Take: Codable, Equatable {
     var date = Date()
     var sectionStart: Int
@@ -30,6 +36,10 @@ struct Take: Codable, Equatable {
     /// recorded — those are context-unknown (treated as both-hands legacy).
     var handMode: Int? = nil
     var notes: [TakeNote]
+    /// Sustain-pedal transitions during the take. Optional: takes recorded before
+    /// pedal capture persisted have none (audit 06: replay was hiding exactly the
+    /// touch/pedal differences the report card measures).
+    var pedal: [PedalPoint]? = nil
 }
 
 /// Best graded take per section, persisted per song (atomic JSON like flags/sections).

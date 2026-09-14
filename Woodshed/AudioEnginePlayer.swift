@@ -500,8 +500,14 @@ final class AudioEnginePlayer: ObservableObject {
 
     // MARK: - Live note playing (on-screen keyboard testing)
 
-    func playNote(_ note: Int) { samplerRH.startNote(UInt8(clamping: note), withVelocity: 90, onChannel: 0) }
+    func playNote(_ note: Int, velocity: Int = 90) {
+        samplerRH.startNote(UInt8(clamping: note), withVelocity: UInt8(clamping: velocity), onChannel: 0)
+    }
     func stopNote(_ note: Int) { samplerRH.stopNote(UInt8(clamping: note), onChannel: 0) }
+    /// Sustain pedal for the preview/replay sampler (CC64).
+    func setSustain(_ down: Bool) {
+        samplerRH.sendController(64, withValue: down ? 127 : 0, onChannel: 0)
+    }
 
     /// Start playback, optionally preceded by an N-bar count-in.
     func play(countInBars: Int = 0) {

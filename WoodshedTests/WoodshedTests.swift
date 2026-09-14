@@ -1497,6 +1497,20 @@ struct PersistenceTruthTests {
         #expect(TakeStore.keepIfBest(take, in: missing) == false)    // was true + zero takes on load
     }
 
+    @Test("a take's pedal timeline and velocities survive the round trip")
+    func takeFidelity() throws {
+        let folder = try tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let take = Take(sectionStart: 1, sectionEnd: 2, tempoPct: 100, accuracy: 0.97, handMode: 0,
+                        notes: [TakeNote(p: 60, v: 47, on: 0, off: 0.5),
+                                TakeNote(p: 64, v: 101, on: 0.5, off: 1.0)],
+                        pedal: [PedalPoint(t: 0.1, down: true), PedalPoint(t: 0.9, down: false)])
+        #expect(TakeStore.keepIfBest(take, in: folder))
+        let loaded = TakeStore.load(from: folder)[TakeStore.key(start: 1, end: 2)]
+        #expect(loaded?.notes.map(\.v) == [47, 101])
+        #expect(loaded?.pedal == [PedalPoint(t: 0.1, down: true), PedalPoint(t: 0.9, down: false)])
+    }
+
     @Test("best takes are kept per hand context — RH can't clobber the both-hands best")
     func bestTakePerHands() throws {
         let folder = try tempFolder()

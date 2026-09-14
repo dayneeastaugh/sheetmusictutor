@@ -673,6 +673,13 @@ struct PracticeView: View {
                 }
                 .disabled(session.lastTake == nil || session.audio.isPlaying)
                 Button {
+                    if let ref = session.referenceTake() { session.startReplay(ref) }
+                } label: {
+                    Label("Play score (reference) — same bars", systemImage: "music.quarternote.3")
+                }
+                .disabled(session.referenceTake() == nil || session.audio.isPlaying)
+                .help("Hear the score itself for these bars through the same route and tempo — A/B it against your take")
+                Button {
                     if let t = session.bestTakeForCurrentSection { session.startReplay(t) }
                 } label: {
                     Label(session.bestTakeForCurrentSection.map {

@@ -476,6 +476,9 @@ final class PracticeSession: ObservableObject {
     // Replay: a merged on/off event stream driven from the shared 50 Hz tick.
     private var replayEvents: [(t: Double, p: Int, v: Int, isOn: Bool)] = []
     private var replayIdx = 0
+    private var replayPedal: [PedalPoint] = []
+    private var replayPedalIdx = 0
+    private var replayPedalDown = false
     private var replayBegan = Date()
     private var replaySounding: Set<Int> = []
 
@@ -510,7 +513,8 @@ final class PracticeSession: ObservableObject {
                         sectionEnd: cfg?.sectionEnd ?? sectionEnd,
                         tempoPct: cfg?.tempoPct ?? tempoPct, accuracy: accuracy,
                         handMode: cfg?.handMode ?? handMode,
-                        notes: takeNotes.sorted { $0.on < $1.on })
+                        notes: takeNotes.sorted { $0.on < $1.on },
+                        pedal: takePedal.isEmpty ? nil : takePedal.map { PedalPoint(t: max(0, $0.t), down: $0.down) })
         lastTake = take
         // A rhythm-only tap-along isn't a performance of the passage — it never
         // becomes the stored "best take" (audit 06 P2-11).
@@ -527,7 +531,9 @@ final class PracticeSession: ObservableObject {
     }
 
     /// Play a take back through the current output routing. Replays at the CURRENT
-    /// tempo slider (timestamps are musical seconds).
+    /// tempo slider (timestamps are musical seconds), with the take's own velocities
+    /// and pedal — listening back must not hide the touch differences the report
+    /// card measures (audit 06 refinement).
     func startReplay(_ take: Take) {
         guard !audio.isPlaying else { return }
         stopReplay()
@@ -537,17 +543,47 @@ final class PracticeSession: ObservableObject {
             events.append((max(n.off, n.on + 0.05), n.p, n.v, false))
         }
         replayEvents = events.sorted { $0.t < $1.t }
+        replayPedal = (take.pedal ?? []).sorted { $0.t < $1.t }
+        replayPedalIdx = 0
         replayIdx = 0
         replayBegan = Date()
         isReplaying = true
+    }
+
+    /// The SCORE's own notes for the current section, packaged as a Take — the
+    /// reference for A/B listening ("how it should sound" vs "how I played it"),
+    /// through the identical replay route and tempo. nil when the section is empty.
+    func referenceTake() -> Take? {
+        guard let score else { return nil }
+        let t0 = sectionStartTime, t1 = sectionEndTime
+        let notes = score.events
+            .filter { $0.onsetSeconds >= t0 - 0.001 && $0.onsetSeconds < t1 - 0.001 }
+            .map { TakeNote(p: $0.pitch, v: 84, on: $0.onsetSeconds - t0,
+                            off: $0.onsetSeconds - t0 + max(0.05, $0.durationSeconds)) }
+        guard !notes.isEmpty else { return nil }
+        let pedal = score.pedalTimeline
+            .filter { $0.time >= t0 - 0.001 && $0.time < t1 }
+            .map { PedalPoint(t: max(0, $0.time - t0), down: $0.down) }
+        return Take(sectionStart: sectionStart, sectionEnd: sectionEnd, tempoPct: tempoPct,
+                    accuracy: nil, handMode: handMode, notes: notes,
+                    pedal: pedal.isEmpty ? nil : pedal)
     }
 
     func stopReplay() {
         guard isReplaying else { return }
         isReplaying = false
         for p in replaySounding { soundOnly(off: p) }
+        if replayPedalDown { soundPedal(false) }
         replaySounding = []
         replayEvents = []
+        replayPedal = []
+    }
+
+    /// Sustain for the sound-only route (replay): speakers and/or piano per routing.
+    private func soundPedal(_ down: Bool) {
+        replayPedalDown = down
+        if outputMode != 1 { audio.setSustain(down) }
+        if outputMode != 0 { midi.sendSustain(down) }
     }
 
     /// Sound a note through the current output routing WITHOUT it counting as
@@ -555,9 +591,9 @@ final class PracticeSession: ObservableObject {
     /// advancing Wait steps, recording passes, and tripping the armed sync-start
     /// (audit 06 P2-5). The on-screen keyboard keeps using previewNoteOn/Off, which
     /// DO count as playing.
-    private func soundOnly(on pitch: Int) {
-        if outputMode != 1 { audio.playNote(pitch) }
-        if outputMode != 0 { midi.sendNoteOn(pitch) }
+    private func soundOnly(on pitch: Int, velocity: Int = 90) {
+        if outputMode != 1 { audio.playNote(pitch, velocity: velocity) }
+        if outputMode != 0 { midi.sendNoteOn(pitch, velocity: velocity) }
     }
     private func soundOnly(off pitch: Int) {
         if outputMode != 1 { audio.stopNote(pitch) }
@@ -572,11 +608,15 @@ final class PracticeSession: ObservableObject {
         let t = Date().timeIntervalSince(replayBegan) * rate
         while replayIdx < replayEvents.count && replayEvents[replayIdx].t <= t {
             let e = replayEvents[replayIdx]
-            if e.isOn { soundOnly(on: e.p); replaySounding.insert(e.p) }
+            if e.isOn { soundOnly(on: e.p, velocity: e.v); replaySounding.insert(e.p) }
             else { soundOnly(off: e.p); replaySounding.remove(e.p) }
             replayIdx += 1
         }
-        if replayIdx >= replayEvents.count { stopReplay() }
+        while replayPedalIdx < replayPedal.count && replayPedal[replayPedalIdx].t <= t {
+            soundPedal(replayPedal[replayPedalIdx].down)
+            replayPedalIdx += 1
+        }
+        if replayIdx >= replayEvents.count && replayPedalIdx >= replayPedal.count { stopReplay() }
     }
 
     /// Capture a played note-on (velocity from CoreMIDI) while a take is running.
