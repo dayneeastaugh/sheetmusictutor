@@ -266,7 +266,11 @@ final class PracticeSession: ObservableObject {
         mastered = false
         drillStartTempo = tempoPct
         drillStage = handsProgression ? .rh : .both
-        if speedMode != .off, handsProgression { handMode = drillStage.handMode }
+        if speedMode != .off, handsProgression {
+            drillIsChangingHands = true
+            handMode = drillStage.handMode
+            drillIsChangingHands = false
+        }
     }
 
     /// After a graded loop pass, ramp the tempo toward the target per the trainer rule.
@@ -283,7 +287,9 @@ final class PracticeSession: ObservableObject {
         if next.tempoPct != tempoPct { tempoPct = next.tempoPct }   // didSet → audio.setRate; slider follows
         if next.mastered, handsProgression, let following = drillStage.next {
             drillStage = following                 // stage cleared — on to the next hands
+            drillIsChangingHands = true
             handMode = following.handMode          // didSet re-mutes samplers; next pass rebuilds expected
+            drillIsChangingHands = false
             tempoPct = drillStartTempo             // each stage earns the ramp again
             passesAtThisTempo = 0
         } else {
@@ -1777,8 +1783,13 @@ final class PracticeSession: ObservableObject {
     /// or labelled with the new ones (audit 06 P2-6): mid-pass, restart the pass
     /// from the section start under the new settings; stopped, just rebuild the
     /// expected notes so the next pass starts correct.
+    /// True while the DRILL machinery itself is changing handMode (stage
+    /// progression / reset) — those paths manage their own pass lifecycle, and the
+    /// user-edit restart on top caused a double loop-back (stuttered count-in).
+    private var drillIsChangingHands = false
+
     private func gradeConfigChanged() {
-        guard gradeMode else { return }
+        guard gradeMode, !drillIsChangingHands else { return }
         guard audio.isPlaying else { startGradePass(); return }
         DebugLog.shared.log("grade", "settings changed mid-pass → pass restarted")
         flushPianoOutput()

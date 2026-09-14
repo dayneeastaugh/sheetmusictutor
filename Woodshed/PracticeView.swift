@@ -21,7 +21,9 @@ struct PracticeView: View {
     let song: Song
     @ObservedObject var library: SongLibrary
     @StateObject private var session: PracticeSession
-    @ObservedObject private var debugLog = DebugLog.shared
+    // NOT @ObservedObject: the practice screen must never re-render per log line
+    // (the diagnostics sheet's own subview observes the log for its live tail).
+    private let debugLog = DebugLog.shared
     @State private var showDiagnostics = false
     @State private var showHelp = false
     @State private var showProgressReport = false
@@ -828,34 +830,8 @@ struct PracticeView: View {
         .frame(minWidth: 480, minHeight: 560)
     }
 
-    @ViewBuilder
     private var debugLogSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Diagnostic logging").font(.headline)
-            Toggle("Record a detailed log (MIDI input, grading, drills)", isOn: $debugLog.enabled)
-            Text("Off by default. Turn on, reproduce the issue, then Export the log — it's a single file you can send. The setting and the log survive restarts.")
-                .font(.caption2).foregroundStyle(.secondary)
-            HStack(spacing: 10) {
-                Button("Export log…") { exportDebugLog() }
-                    .disabled(debugLog.byteCount == 0)
-                Button("Clear log", role: .destructive) { debugLog.clear() }
-                    .disabled(debugLog.byteCount == 0)
-                Spacer()
-                Text(debugLog.byteCount > 0 ? "\(debugLog.byteCount) bytes" : "empty")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if debugLog.enabled && !debugLog.tail.isEmpty {
-                Text("Recent (live tail)").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
-                ScrollView {
-                    Text(debugLog.tail.suffix(40).joined(separator: "\n"))
-                        .font(.system(.caption2, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(height: 120)
-                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
-            }
-        }
+        DebugLogSection(onExport: { exportDebugLog() })
     }
 
     /// Cross-platform log export (macOS save panel + iPad share/save sheet) via

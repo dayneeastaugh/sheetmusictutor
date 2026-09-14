@@ -1773,3 +1773,69 @@ struct PracticePlanTests {
         #expect(plan.map(\.minutes).reduce(0, +) == 20)
     }
 }
+
+@Suite("Metronome click jitter (calibration harness)")
+struct MetronomeJitterTests {
+
+    @Test("synced clicks track the playing sequencer evenly")
+    func syncedJitter() async throws {
+        let audio = AudioEnginePlayer()
+        audio.setMetronomeOutput(speakers: false, piano: true)
+        let lock = NSLock()
+        var stamps: [Double] = []
+        audio.pianoClick = { _ in
+            lock.lock(); stamps.append(Date().timeIntervalSinceReferenceDate); lock.unlock()
+        }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("jitter-\(UUID().uuidString).mid")
+        try fixtureData("Fly Me To the Moon", "mid").write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        audio.load(midiURL: tmp, trackHands: [.right, .left])
+        // A uniform wall-clock click grid, denser than any real bar — jitter shows fast.
+        let grid = stride(from: 0.25, to: 5.0, by: 0.25).map { (time: $0, level: ClickLevel.beat) }
+        audio.configureMetronome(clickGrid: grid, barPattern: [.beat], pulseSeconds: 0.25)
+        audio.setSpeakerOutput(false)                     // silence the piece itself
+        try await Task.sleep(for: .milliseconds(100))
+        audio.metronomeOn = true
+        audio.play(countInBars: 0)
+        try await Task.sleep(for: .seconds(5))
+        audio.stop()
+
+        lock.lock(); let s = stamps; lock.unlock()
+        try #require(s.count >= 12)
+        let intervals = zip(s.dropFirst(), s).map(-)
+        let devs = intervals.map { abs($0 - 0.25) * 1000 }
+        let sortedDevs = devs.sorted()
+        let p90 = sortedDevs[Int(Double(devs.count) * 0.9)]
+        print("[jitter] synced n=\(intervals.count) p90dev=\(String(format: "%.1f", p90))ms maxdev=\(String(format: "%.1f", sortedDevs.last ?? 0))ms")
+        #expect(p90 < 20)
+    }
+
+    @Test("free-run clicks fire evenly (piano-callback capture, no audio needed)")
+    func freeRunJitter() async throws {
+        let audio = AudioEnginePlayer()
+        audio.setMetronomeOutput(speakers: false, piano: true)
+        let lock = NSLock()
+        var stamps: [Double] = []
+        audio.pianoClick = { _ in
+            lock.lock(); stamps.append(Date().timeIntervalSinceReferenceDate); lock.unlock()
+        }
+        audio.configureMetronome(clickGrid: [], barPattern: [.downbeat, .beat, .beat, .beat],
+                                 pulseSeconds: 0.25)          // 240 clicks/min — stress it
+        audio.metronomeFreeRuns = true
+        try await Task.sleep(for: .milliseconds(100))          // let configure land on metroQueue
+        audio.setMetronome(true)
+        try await Task.sleep(for: .seconds(4))
+        audio.setMetronome(false)
+
+        lock.lock(); let s = stamps; lock.unlock()
+        try #require(s.count >= 12)
+        let intervals = zip(s.dropFirst(), s).map(-)
+        let mean = intervals.reduce(0, +) / Double(intervals.count)
+        let devs = intervals.map { abs($0 - 0.25) * 1000 }
+        let maxDev = devs.max() ?? 0
+        let p90 = devs.sorted()[Int(Double(devs.count) * 0.9)]
+        print("[jitter] free-run n=\(intervals.count) mean=\(Int(mean * 1000))ms p90dev=\(String(format: "%.1f", p90))ms maxdev=\(String(format: "%.1f", maxDev))ms")
+        #expect(abs(mean - 0.25) < 0.01)     // right tempo on average
+        #expect(p90 < 15)                    // clicks land within 15ms, 90% of the time
+    }
+}

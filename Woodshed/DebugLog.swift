@@ -42,6 +42,13 @@ final class DebugLog: ObservableObject {
 
     let fileURL: URL
     private let queue = DispatchQueue(label: "woodshed.debuglog")
+    // Coalescing: publishing tail/byteCount per LINE made every log line a SwiftUI
+    // invalidation — at piano-playback log rates that starved the main thread and
+    // made the 50 Hz output tick (and so the piano) audibly uneven. Lines batch on
+    // the log queue and publish at most ~4×/s.
+    private var pending: [String] = []          // owned by `queue`
+    private var pendingBytes = 0                // owned by `queue`
+    private var flushScheduled = false          // owned by `queue`
     private let df: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"; return f
     }()
@@ -71,12 +78,26 @@ final class DebugLog: ObservableObject {
                     try? (line + "\n").data(using: .utf8)?.write(to: self.fileURL)
                 }
             }
-            let size = (try? FileManager.default.attributesOfItem(atPath: self.fileURL.path)[.size] as? Int) ?? 0 ?? 0
-            DispatchQueue.main.async {
-                self.tail.append(line)
-                if self.tail.count > 200 { self.tail.removeFirst(self.tail.count - 200) }
-                self.byteCount = size
+            self.pendingBytes = (try? FileManager.default.attributesOfItem(atPath: self.fileURL.path)[.size] as? Int) ?? 0 ?? 0
+            self.pending.append(line)
+            if !self.flushScheduled {
+                self.flushScheduled = true
+                self.queue.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.flushToMain() }
             }
+        }
+    }
+
+    /// Publish the batched lines (runs on `queue`).
+    private func flushToMain() {
+        let batch = pending
+        pending = []
+        flushScheduled = false
+        let size = pendingBytes
+        guard !batch.isEmpty else { return }
+        DispatchQueue.main.async {
+            self.tail.append(contentsOf: batch)
+            if self.tail.count > 200 { self.tail.removeFirst(self.tail.count - 200) }
+            self.byteCount = size
         }
     }
 
@@ -104,5 +125,42 @@ final class DebugLog: ObservableObject {
             .appendingPathComponent("Segno-debug-\(Int(Date().timeIntervalSince1970)).log")
         try? (header + "\n" + body).data(using: .utf8)?.write(to: out)
         return out
+    }
+}
+
+/// The diagnostics sheet's logging section — the ONLY view that observes the log
+/// (its live tail). Kept out of the practice screen so log lines never invalidate
+/// the playing surface.
+struct DebugLogSection: View {
+    var onExport: () -> Void
+    @ObservedObject private var debugLog = DebugLog.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Diagnostic logging").font(.headline)
+            Toggle("Record a detailed log (MIDI input, grading, drills)", isOn: $debugLog.enabled)
+            Text("Off by default. Turn on, reproduce the issue, then Export the log — it's a single file you can send. The setting and the log survive restarts.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("Export log…") { onExport() }
+                    .disabled(debugLog.byteCount == 0)
+                Button("Clear log", role: .destructive) { debugLog.clear() }
+                    .disabled(debugLog.byteCount == 0)
+                Spacer()
+                Text(debugLog.byteCount > 0 ? "\(debugLog.byteCount) bytes" : "empty")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if debugLog.enabled && !debugLog.tail.isEmpty {
+                Text("Recent (live tail)").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+                ScrollView {
+                    Text(debugLog.tail.suffix(40).joined(separator: "\n"))
+                        .font(.system(.caption2, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(height: 120)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
+            }
+        }
     }
 }
