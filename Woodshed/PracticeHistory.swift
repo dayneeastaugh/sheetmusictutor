@@ -43,7 +43,9 @@ struct PracticePass: Codable, Identifiable, Hashable {
 }
 
 /// One specific fault in a pass: which bar, which pitch, missed or wrong.
-struct PassFault: Codable, Hashable {
+/// A plain value — nonisolated so its Hashable/Codable conformances work off the
+/// main actor (the report builder runs pure).
+nonisolated struct PassFault: Codable, Hashable {
     var bar: Int
     var pitch: Int
     var kind: String                    // "missed" | "wrong"

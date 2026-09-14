@@ -1065,7 +1065,9 @@ final class PracticeSession: ObservableObject {
     @Published var passReportDismissed = false
 
     /// MIDI pitch → note name (C♯5 etc.), matching the on-score wrong-note labels.
-    static func noteName(_ p: Int) -> String {
+    /// Pure — nonisolated so background contexts (log lines, builders) can use it
+    /// under the project's MainActor-by-default isolation.
+    nonisolated static func noteName(_ p: Int) -> String {
         let names = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"]
         return names[((p % 12) + 12) % 12] + String(p / 12 - 1)
     }

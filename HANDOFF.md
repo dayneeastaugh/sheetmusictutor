@@ -10,7 +10,7 @@ sandbox off). Imports MuseScore MusicXML+MIDI pairs, renders notation (OSMD in a
 plays back, listens to a MIDI piano, and grades practice with teacher-style feedback.
 Project/scheme/module are named **Woodshed** (internal); the product is **Segno.app** (ADR-037).
 
-## State at handoff (2026-09-13)
+## State at handoff (2026-09-14)
 
 - Everything committed and pushed on `main`; working tree clean. All tests green, both
   platforms build, app boots. Owner: Dayne (intermediate pianist, Swift/Xcode beginner —
@@ -38,7 +38,7 @@ Project/scheme/module are named **Woodshed** (internal); the product is **Segno.
 xcodebuild -scheme Woodshed -destination 'platform=macOS' build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
 
 # Tests — run SERIALLY: the parallel runner intermittently reports phantom 0.000s
-# failures (infra flake, seen repeatedly). Serial is the truth. ~82 tests.
+# failures (infra flake, seen repeatedly). Serial is the truth. ~95 tests.
 xcodebuild test -scheme Woodshed -destination 'platform=macOS' -only-testing:WoodshedTests -parallel-testing-enabled NO
 
 # iOS compile check
@@ -56,7 +56,7 @@ Test output format varies by run: count `✔ Test ` lines or `Test case .* passe
 1. **Docs sync every commit** — ALL of `/docs` (PRD, ARCHITECTURE, DATA_MODEL, INGESTION,
    TECH_STACK, DESIGN, DECISIONS) **and CLAUDE.md's Status paragraph**, not just
    DECISIONS/DESIGN. Say explicitly in summaries which docs changed. Significant choices
-   get an ADR (append-only, next number: **ADR-055**).
+   get an ADR (append-only, next number: **ADR-057**).
 2. Verify before claiming done: build both platforms, serial tests, boot. JS changes to
    `Woodshed/Web/index.html` were verified by serving the folder
    (`python3 -m http.server`) and driving the real page in a browser.
@@ -85,12 +85,12 @@ instrument first, reproduce once, read, then fix.
 
 ## Open tasks (in priority order)
 
-0. **Remaining audit-06 items** (docs/audit/06-code-review-2026-09-13.md; fixed items are in
-   ADR-053/054): full typed practice context incl. tempo/tolerance/scoring version + versioned
-   persistence/migration; take replay fidelity (persist velocity + pedal, reference-vs-take
-   comparison); device event timestamps + latency calibration; drill wrong-note allowance;
-   MIDI device selection UI; backup restore flow; daily practice plan; retention checks;
-   PassConfiguration/state-machine extraction; metronome concurrency ownership + actor warnings.
+0. **Remaining audit-06 items** (most are DONE — ADR-053…056; 2026-09-14): still open are
+   (a) device event timestamps + a latency calibration flow — changes grading feel, so it
+   belongs in the hardware calibration session (task 1); (b) the metronome timer-lifecycle
+   migration fully onto `metroQueue` (needs a device audio pass; actor warnings are already
+   zero); (c) session decomposition beyond `PassConfiguration` (Take/Drill/Clock controllers —
+   task 3).
 
 1. **Calibrate feedback thresholds with the real piano** — evenness gauges (rhythm CV
    mapping, velocity-spread), timing-tint/hotspot 40 ms, theme good/watch/focus
