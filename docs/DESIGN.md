@@ -28,7 +28,9 @@ a misregistration is the literal "Help isn't available" error) and far less main
 ### Library (root)
 A `List` of songs (title + a subtitle: **last-practised + best % + #tags** once set, else
 date-added; ⭐ for favourites), a **search field** (titles + tags), a **sort menu** (title / last
-practised / best), a **Practice overview** toolbar button (cross-song totals + stalest-first
+practised / best), a **Restore backup…** toolbar button (previewed restore of an Export zip: inventory validated
+against its manifest, per-song tick-list, duplicates restored as fresh-id copies — an existing
+song is never overwritten), a **Practice overview** toolbar button (cross-song totals + stalest-first
 "most due" list + practice-time totals, in a sheet), and a **+** toolbar button that runs a
 **guided two-step import** (a score + MIDI pair can also be **dragged from Finder** onto the list):
 pick the score (`.musicxml`/`.xml`/**`.mxl`**), then the MIDI — no multi-select needed. The pair is

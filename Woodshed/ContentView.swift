@@ -260,12 +260,62 @@ struct LibraryView: View {
                 Button { exportLibrary() } label: { Label("Export library…", systemImage: "square.and.arrow.up") }
                     .help("Save a .zip backup of all songs and their practice history")
                     .disabled(library.songs.isEmpty)
+                Button { showRestoreImporter = true } label: { Label("Restore backup…", systemImage: "square.and.arrow.down") }
+                    .help("Bring songs back from a .zip made with Export — previewed, never overwrites")
                 Button { importPrompt = .score } label: { Label("Add song", systemImage: "plus") }
             }
         }
         .fileExporter(isPresented: $showExporter, document: exportDoc,
                       contentType: .zip, defaultFilename: exportName) { _ in exportDoc = nil }
         .sheet(isPresented: $showOverview) { PracticeOverviewView(library: library) }
+        .fileImporter(isPresented: $showRestoreImporter, allowedContentTypes: [.zip],
+                      allowsMultipleSelection: false) { result in
+            handleRestorePick(result)
+        }
+        .sheet(item: $restorePayload) { payload in
+            BackupRestoreView(inventory: payload.inventory,
+                              onRestore: { performRestore(payload, folders: $0) },
+                              onCancel: { restorePayload = nil })
+        }
+    }
+
+    /// A picked backup zip + its inventory, driving the previewed-restore sheet.
+    private struct RestorePayload: Identifiable {
+        let id = UUID()
+        let zip: Data
+        let inventory: BackupArchive.Inventory
+    }
+    @State private var showRestoreImporter = false
+    @State private var restorePayload: RestorePayload?
+
+    private func handleRestorePick(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let zip = try Data(contentsOf: url)
+            let existing = Set(library.songs.map { $0.folder.lastPathComponent })
+            let inv = try BackupArchive.inventory(zip: zip, existingFolders: existing)
+            guard !inv.songs.isEmpty else {
+                importError = "No songs found in that archive — is it a Segno backup?"; return
+            }
+            restorePayload = RestorePayload(zip: zip, inventory: inv)
+        } catch {
+            importError = "Couldn’t read that backup: \(error.localizedDescription)"
+        }
+    }
+
+    private func performRestore(_ payload: RestorePayload, folders: Set<String>) {
+        restorePayload = nil
+        do {
+            let n = try BackupArchive.restore(zip: payload.zip, folders: folders,
+                                              into: library.scoresDir)
+            library.reload()
+            importError = "Restored \(n) song\(n == 1 ? "" : "s")."
+        } catch {
+            library.reload()   // pick up whatever landed cleanly before the failure
+            importError = "Restore stopped: \(error.localizedDescription) Nothing was overwritten; fully-restored songs were kept."
+        }
     }
 
     /// The two-step import result handler (extracted so the body stays type-checkable).

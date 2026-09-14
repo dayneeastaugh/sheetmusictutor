@@ -1622,3 +1622,88 @@ struct DrillWrongNoteTests {
         #expect(advance(accuracy: 1.0, wrong: 10, maxWrong: -1).tempoPct == 65)
     }
 }
+
+@Suite("Backup restore")
+struct BackupRestoreTests {
+
+    /// Hand-build a ZIP of STORED entries (no compression) — same hermetic approach
+    /// as the MXL tests, enough for the backup reader.
+    private func makeZip(_ files: [(name: String, data: Data)]) -> Data {
+        func u16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF)] }
+        func u32(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF), UInt8((v >> 16) & 0xFF), UInt8((v >> 24) & 0xFF)] }
+        var zip: [UInt8] = [], central: [UInt8] = []
+        for f in files {
+            let nameBytes = [UInt8](f.name.utf8), payload = [UInt8](f.data), offset = zip.count
+            zip += [0x50, 0x4B, 0x03, 0x04]; zip += u16(20); zip += u16(0); zip += u16(0)
+            zip += u16(0); zip += u16(0); zip += u32(0)
+            zip += u32(payload.count); zip += u32(payload.count)
+            zip += u16(nameBytes.count); zip += u16(0); zip += nameBytes; zip += payload
+            central += [0x50, 0x4B, 0x01, 0x02]; central += u16(20); central += u16(20)
+            central += u16(0); central += u16(0); central += u16(0); central += u16(0); central += u32(0)
+            central += u32(payload.count); central += u32(payload.count)
+            central += u16(nameBytes.count); central += u16(0); central += u16(0)
+            central += u16(0); central += u16(0); central += u32(0); central += u32(offset)
+            central += nameBytes
+        }
+        let cdOffset = zip.count
+        zip += central
+        zip += [0x50, 0x4B, 0x05, 0x06]; zip += u16(0); zip += u16(0)
+        zip += u16(files.count); zip += u16(files.count)
+        zip += u32(central.count); zip += u32(cdOffset); zip += u16(0)
+        return Data(zip)
+    }
+
+    private func sampleZip() -> Data {
+        let idA = "11111111-1111-1111-1111-111111111111"
+        let idB = "22222222-2222-2222-2222-222222222222"
+        let manifest = Data("""
+        [{"id":"\(idA)","title":"Nocturne","folder":"\(idA)"},
+         {"id":"\(idB)","title":"Waltz","folder":"\(idB)"},
+         {"id":"33333333-3333-3333-3333-333333333333","title":"Ghost","folder":"33333333-3333-3333-3333-333333333333"}]
+        """.utf8)
+        let metaA = Data(#"{"id":"11111111-1111-1111-1111-111111111111","title":"Nocturne","dateAdded":"2026-01-01T00:00:00Z"}"#.utf8)
+        return makeZip([
+            ("Segno Library-x/manifest.json", manifest),
+            ("Segno Library-x/\(idA)/metadata.json", metaA),
+            ("Segno Library-x/\(idA)/score.musicxml", Data("<score/>".utf8)),
+            ("Segno Library-x/\(idA)/score.mid", Data([0x4D])),
+            ("Segno Library-x/\(idB)/score.musicxml", Data("<score/>".utf8)),   // no MIDI → not restorable
+        ])
+    }
+
+    @Test("inventory: titles from the manifest, missing songs surfaced, restorability checked")
+    func inventory() throws {
+        let inv = try BackupArchive.inventory(zip: sampleZip(), existingFolders: [])
+        #expect(inv.hasManifest)
+        #expect(inv.missingFromArchive == ["33333333-3333-3333-3333-333333333333"])
+        #expect(inv.songs.map(\.title).sorted() == ["Nocturne", "Waltz"])
+        #expect(inv.songs.first { $0.title == "Nocturne" }?.hasScorePair == true)
+        #expect(inv.songs.first { $0.title == "Waltz" }?.hasScorePair == false)
+    }
+
+    @Test("restore lands the files; a duplicate becomes a fresh-id copy, never an overwrite")
+    func restoreAndDuplicate() throws {
+        let idA = "11111111-1111-1111-1111-111111111111"
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("segno-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        #expect(try BackupArchive.restore(zip: sampleZip(), folders: [idA], into: dir) == 1)
+        let restored = dir.appendingPathComponent(idA)
+        #expect(FileManager.default.fileExists(atPath: restored.appendingPathComponent("score.mid").path))
+
+        // Second restore of the same folder: the original is untouched, the copy is
+        // a new folder with a new metadata id and a "(restored)" title.
+        try Data("ORIGINAL".utf8).write(to: restored.appendingPathComponent("marker.txt"))
+        #expect(try BackupArchive.restore(zip: sampleZip(), folders: [idA], into: dir) == 1)
+        #expect(FileManager.default.fileExists(atPath: restored.appendingPathComponent("marker.txt").path))
+        let folders = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { !$0.hasPrefix(".") }
+        #expect(folders.count == 2)
+        let copyName = folders.first { $0 != idA }!
+        let copyMeta = try SongLibrary.decoder.decode(SongMeta.self,
+            from: Data(contentsOf: dir.appendingPathComponent(copyName).appendingPathComponent("metadata.json")))
+        #expect(copyMeta.id.uuidString != idA)
+        #expect(copyMeta.title == "Nocturne (restored)")
+    }
+}

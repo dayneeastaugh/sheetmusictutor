@@ -188,7 +188,10 @@ score's own events gives an A/B against the section through the identical output
 (optional — absent in records saved before 2026-09-13, which are treated as context-unknown and
 excluded from comparisons). Best takes are keyed `"start-end"` (both hands, legacy-compatible) or
 `"start-end-hN"` (single hand). The library backup zip contains a `manifest.json` listing every
-song's id/title/folder.
+song's id/title/folder; **Restore backup…** reads the zip with the app's own ZIP reader
+(`BackupArchive` over `MXLArchive`), validates against the manifest (missing songs surfaced),
+and restores selected folders — a folder that already exists is restored as a copy with a fresh
+metadata id and "(restored)" title, all-or-nothing per song.
 
 ## Open Questions
 
