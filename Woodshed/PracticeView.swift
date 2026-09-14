@@ -458,6 +458,8 @@ struct PracticeView: View {
                               onExpand: { showProgressReport = true },
                               onDrillSlow: { session.drillSlowRamp(bar: $0) },
                               onPeekBar: { session.peekBar($0) },
+                              flags: session.flags, measureCount: session.measureCount,
+                              onApplyRange: { session.sectionStart = $0; session.sectionEnd = $1 },
                               onReset: { library.resetProgress(for: song); session.reloadHistory() })
             case .flags:
                 FlagsPanel(session: session)
@@ -760,7 +762,9 @@ struct PracticeView: View {
                           onDrillSlow: { session.drillSlowRamp(bar: $0); showProgressReport = false },
                           onPeekBar: { session.peekBar($0); showProgressReport = false },
                           wide: true,
-                          onReset: { library.resetProgress(for: song); session.reloadHistory() })
+                          flags: session.flags, measureCount: session.measureCount,
+                              onApplyRange: { session.sectionStart = $0; session.sectionEnd = $1 },
+                              onReset: { library.resetProgress(for: song); session.reloadHistory() })
                 .padding(.horizontal, 6)
                 .navigationTitle("Progress — \(song.title)")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showProgressReport = false } } }

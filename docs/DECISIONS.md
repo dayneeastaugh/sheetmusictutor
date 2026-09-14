@@ -847,6 +847,30 @@ open — tracked in HANDOFF.md.
   pass/report/graded-take are scored + labelled from that capture — structurally immune to mid-pass
   control edits (belt to `gradeConfigChanged`'s braces).
 
+### ADR-056 — Audit 06 features: device selection, restore, take fidelity, plan + retention
+**2026-09-14.** The remaining self-serviceable audit-06 items, one commit each (this entry is the
+arc's summary):
+- **Drill wrong-note allowance**: "clean" = accurate AND ≤ N extra wrong notes (default 2,
+  None/1/2/5/Any, both drill styles) — 100% accuracy alone let a dirty pass ramp the tempo.
+- **Take fidelity**: takes persist per-note velocity AND the pedal timeline; replay honours both;
+  "Play score (reference) — same bars" A/Bs the score against your take through the identical
+  replay route and tempo.
+- **MIDI device selection**: Listen-to / Play-to pickers (persisted, "All devices" default), a
+  test-note button, and a live pedal indicator — with the chosen-device-vanished case falling back
+  to speakers via the existing banner.
+- **Backup restore**: previewed, manifest-validated, per-song all-or-nothing, duplicates restored
+  as fresh-id "(restored)" copies — never overwrites (reuses the app's own ZIP reader).
+- **Today's plan** (`PracticePlan`, pure + tested): a 10/20/30-minute session assembled from
+  flags/history/sections — warm-up, data-chosen weak spots (swap-able, each explaining WHY), an
+  optional retention check, a graded run-through; items configure the session via the existing
+  drill machinery.
+- **Retention checks** (`PracticePlan.retentionDue`): mastered sections ungraded ≥3 days show a
+  "recheck" badge on the mastery grid and join the plan as "play it cold" — distinguishing "clean
+  in today's loop" from "still remembered later". On-device, computed at render.
+**Deferred deliberately**: device event timestamps + latency calibration (changes grading feel —
+belongs in the hardware calibration session), and the metronome-queue concurrency migration (its
+own note requires a device audio pass).
+
 ## Open Questions
 - Revisit ADR-009 (sandbox) before distribution (ADR-010's iPad half is resolved by the bundled
   SoundFont).

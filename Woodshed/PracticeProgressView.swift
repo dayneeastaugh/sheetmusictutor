@@ -34,6 +34,12 @@ struct ProgressPanel: View {
     var onPeekBar: ((Int) -> Void)? = nil
     /// The full-size sheet passes true so the report card wraps its strip / shows all.
     var wide: Bool = false
+    /// Bar flags (feed the plan's weak-spot candidates alongside trouble bars).
+    var flags: [BarFlag] = []
+    /// Bars in the piece (the plan's warm-up + run-through ranges).
+    var measureCount: Int = 1
+    /// Apply a bar range as the practice section (plan items: warm-up, retention).
+    var onApplyRange: (Int, Int) -> Void = { _, _ in }
 
     /// The saved-section name covering a bar, if any — lets a long-piece callout say
     /// "bar 42 — in Bridge".
@@ -67,6 +73,7 @@ struct ProgressPanel: View {
                         .help("Open a full-size view — the report card and heatmap are easier to read wide")
                     }
                     statRow
+                    planSection
                     suggestedFocus
                     if let report = lastPassReport {
                         PassReportCard(report: report, onDrillBar: onDrillBar,
@@ -93,6 +100,71 @@ struct ProgressPanel: View {
             } message: {
                 Text("This permanently clears every recorded pass, the trend, trouble spots, and best score for this song.")
             }
+        }
+    }
+
+    // MARK: - Today's plan (audit 06: assemble a short session from the data)
+
+    @AppStorage("pref.planMinutes") private var planMinutes = 20
+    @State private var planExcluded: Set<Int> = []   // swapped-away drill spots
+
+    private var retentionDue: [SavedSection] {
+        PracticePlan.retentionDue(sections: sections, passes: passes)
+    }
+
+    private var planSection: some View {
+        let plan = PracticePlan.build(minutes: planMinutes, measureCount: measureCount,
+                                      trouble: trouble, flags: flags,
+                                      retentionDue: retentionDue, excludedBars: planExcluded)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Today's plan").font(.headline)
+                Spacer()
+                Picker("", selection: $planMinutes) {
+                    Text("10 min").tag(10); Text("20 min").tag(20); Text("30 min").tag(30)
+                }
+                .pickerStyle(.segmented).fixedSize()
+                .help("How long you have — the plan reshapes to fit")
+            }
+            ForEach(plan) { item in planRow(item) }
+        }
+    }
+
+    private func planRow(_ item: PlanItem) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: item.kind.icon).font(.caption).foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text("\(item.minutes)′").font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary).frame(width: 24, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 1) {
+                Button { apply(item) } label: {
+                    Text(item.title).font(.caption).multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain).foregroundStyle(.blue)
+                .help("Set the session up for this item")
+                Text(item.why).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if item.kind == .drill, let bar = item.bar {
+                Button { planExcluded.insert(bar) } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .help("Swap this spot for the next candidate")
+            }
+        }
+    }
+
+    /// Configure the session for a plan item using the existing machinery.
+    private func apply(_ item: PlanItem) {
+        switch item.kind {
+        case .warmup, .runThrough:
+            if let a = item.rangeStart, let b = item.rangeEnd { onApplyRange(a, b) }
+        case .drill:
+            if let bar = item.bar { (onDrillSlow ?? onDrillBar)(bar) }
+        case .retention:
+            if let s = item.section { onApplySection(s) }
         }
     }
 
@@ -153,6 +225,7 @@ struct ProgressPanel: View {
     }
 
     private var masterySection: some View {
+        let due = Set(retentionDue.map(\.id))
         let mastered = sections.filter { (best(for: $0) ?? 0) >= Self.masteryThreshold }.count
         let cols = [GridItem(.adaptive(minimum: 128), spacing: 6)]
         return VStack(alignment: .leading, spacing: 6) {
@@ -166,14 +239,14 @@ struct ProgressPanel: View {
             LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
                 ForEach(sections) { s in
                     let b = best(for: s)
-                    Button { onApplySection(s) } label: { masteryCell(s, best: b) }
+                    Button { onApplySection(s) } label: { masteryCell(s, best: b, recheckDue: due.contains(s.id)) }
                         .buttonStyle(.plain)
                 }
             }
         }
     }
 
-    private func masteryCell(_ s: SavedSection, best: Double?) -> some View {
+    private func masteryCell(_ s: SavedSection, best: Double?, recheckDue: Bool = false) -> some View {
         let tint = masteryColor(best)
         return HStack(spacing: 6) {
             Image(systemName: (best ?? 0) >= Self.masteryThreshold ? "checkmark.seal.fill"
@@ -182,6 +255,13 @@ struct ProgressPanel: View {
                 .font(.caption)
             Text(s.name).font(.caption).lineLimit(1)
             Spacer(minLength: 2)
+            if recheckDue {
+                // Mastered a while ago, ungraded since: "clean back then" is not
+                // "still remembered" — tap to check it cold (audit 06 feature 2).
+                Text("recheck").font(.system(size: 9)).foregroundStyle(.orange)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+            }
             Text(best.map { "\(Int($0 * 100))%" } ?? "—")
                 .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
         }

@@ -1710,3 +1710,66 @@ struct BackupRestoreTests {
         #expect(copyMeta.title == "Nocturne (restored)")
     }
 }
+
+@Suite("Practice plan + retention")
+struct PracticePlanTests {
+
+    private func pass(_ start: Int, _ end: Int, accuracy: Double, daysAgo: Double,
+                      mode: String = "grade") -> PracticePass {
+        var p = PracticePass(mode: mode, sectionStart: start, sectionEnd: end, measureCount: 16,
+                             tempoPct: 100, handMode: 0, total: 20,
+                             hits: Int(accuracy * 20), missed: 20 - Int(accuracy * 20),
+                             wrong: 0, avgMs: 20)
+        p.date = Date(timeIntervalSinceNow: -daysAgo * 86_400)
+        return p
+    }
+
+    @Test("retention: mastered-and-stale sections come due; fresh or unmastered don't")
+    func retention() {
+        let bridge = SavedSection(name: "Bridge", start: 5, end: 8)
+        let intro = SavedSection(name: "Intro", start: 1, end: 4)
+        let coda = SavedSection(name: "Coda", start: 13, end: 16)
+        let passes = [pass(5, 8, accuracy: 1.0, daysAgo: 10),      // Bridge: mastered, stale → due
+                      pass(1, 4, accuracy: 1.0, daysAgo: 0.5),     // Intro: mastered, fresh
+                      pass(13, 16, accuracy: 0.7, daysAgo: 20)]    // Coda: never mastered
+        let due = PracticePlan.retentionDue(sections: [bridge, intro, coda], passes: passes)
+        #expect(due.map(\.name) == ["Bridge"])
+        // A Wait walkthrough at "100%" is not mastery evidence.
+        let waitOnly = [pass(5, 8, accuracy: 1.0, daysAgo: 10, mode: "wait")]
+        #expect(PracticePlan.retentionDue(sections: [bridge], passes: waitOnly).isEmpty)
+    }
+
+    @Test("the plan fits its budget: warm-up first, run-through last, spots from the data")
+    func planShape() {
+        let plan = PracticePlan.build(minutes: 20, measureCount: 16,
+                                      trouble: [TroubleBar(bar: 9, misses: 6), TroubleBar(bar: 3, misses: 2)],
+                                      flags: [], retentionDue: [])
+        #expect(plan.first?.kind == .warmup)
+        #expect(plan.last?.kind == .runThrough)
+        #expect(plan.filter { $0.kind == .drill }.map(\.bar) == [9, 3])   // worst first
+        #expect(plan.map(\.minutes).reduce(0, +) == 20)
+        #expect(plan.allSatisfy { $0.minutes >= 2 })
+        #expect(plan.first { $0.kind == .drill }?.why.contains("6×") == true)   // says WHY
+    }
+
+    @Test("swap excludes a spot and the next candidate (a flag) steps in")
+    func swap() {
+        let flags = [BarFlag(bar: 12, note: "LH jump")]
+        let plan = PracticePlan.build(minutes: 10, measureCount: 16,
+                                      trouble: [TroubleBar(bar: 9, misses: 6)],
+                                      flags: flags, retentionDue: [], excludedBars: [9])
+        #expect(plan.first { $0.kind == .drill }?.bar == 12)
+        #expect(plan.first { $0.kind == .drill }?.why.contains("LH jump") == true)
+    }
+
+    @Test("a due retention check gets its own cold-play item")
+    func retentionItem() {
+        let bridge = SavedSection(name: "Bridge", start: 5, end: 8)
+        let plan = PracticePlan.build(minutes: 20, measureCount: 16, trouble: [],
+                                      flags: [], retentionDue: [bridge])
+        let item = plan.first { $0.kind == .retention }
+        #expect(item?.title.contains("Bridge") == true)
+        #expect(item?.title.contains("cold") == true)
+        #expect(plan.map(\.minutes).reduce(0, +) == 20)
+    }
+}

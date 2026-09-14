@@ -128,7 +128,11 @@ in the overflow menu).
    *preferred/maximum* scale (the fit never grows past it) — both remembered per song; the status
    line reports the outcome, e.g. "4 bars/line · score size 53%" — Smooth cursor, Highlight score
    notes, **Problem marks** (all grade marks — trouble bars, missed & wrong notes), Colour hands, Show keyboard).
-7. **Inspector — Progress tab** — headline stats (passes, best full run, last, **today's / total
+7. **Inspector — Progress tab** — opens with **Today's plan** (10/20/30-min segmented picker,
+   persisted): an assembled session — warm-up, up to two data-chosen weak spots (tap to slow-drill,
+   ↻ swaps for the next candidate, each item says *why* it was chosen), an optional **memory
+   check** (a mastered-but-stale section, played cold), and a graded run-through. The mastery grid
+   badges stale mastered sections with **recheck**. Below the plan: headline stats (passes, best full run, last, **today's / total
    practice time**), the accuracy **trend sparkline** (95% guide), a **tempo trend** sparkline
    (100% guide — the PRD's "reaches target tempo faster" made visible), the **"still need work"**
    list (tap to drill; clears as you improve), the recent-pass log, and **Reset progress**
