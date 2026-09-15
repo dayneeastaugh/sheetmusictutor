@@ -85,20 +85,18 @@ final class AudioEnginePlayer: ObservableObject {
         engine.connect(samplerRH, to: engine.mainMixerNode, format: nil)
         engine.connect(samplerLH, to: engine.mainMixerNode, format: nil)
         engine.attach(clickNode)
-        let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
-        clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
-        engine.connect(clickNode, to: engine.mainMixerNode, format: clickFormat)
-        downbeatBuf = makeClick(frequency: 1600, amplitude: 0.72)  // strong
-        beatBuf     = makeClick(frequency: 1200, amplitude: 0.55)  // medium
-        subBuf      = makeClick(frequency: 900,  amplitude: 0.38)  // light
-        noteBuf     = makeClick(frequency: 1450, amplitude: 0.60)  // rhythm-only note tick
         do {
             try engine.start()
-            clickNode.play()
             loadPianoSound()
         } catch {
             status = "engine error: \(error.localizedDescription)"
         }
+        // Build the click path AFTER the engine starts: only then has the mixer
+        // negotiated the output device's real sample rate. Buffers rendered at a
+        // guessed pre-start rate (44.1k vs a 48k device) made the metronome
+        // silent/wrong after device changes — and the rate can change again on any
+        // route switch, so revives rebuild this too.
+        rebuildClickPath()
         logEngineGeometry("init")
         registerAudioNotifications()
     }
@@ -165,7 +163,7 @@ final class AudioEnginePlayer: ObservableObject {
         let wasRunning = isRunning
         do {
             if !engine.isRunning { try engine.start() }
-            if !clickNode.isPlaying { clickNode.play() }
+            rebuildClickPath()          // the device (and its rate) may have changed
             if resumeSequencer, wasRunning, let seq = sequencer {
                 if !seq.isPlaying { seq.currentPositionInSeconds = resumePos; try seq.start() }
                 if metronomeOn || rhythmOnly { startSynced(referenceTime: resumePos) }
@@ -175,6 +173,23 @@ final class AudioEnginePlayer: ObservableObject {
         } catch {
             status = "audio recovery error: \(error.localizedDescription)"
         }
+    }
+
+    /// (Re)connect the click node and (re)render the click buffers at the CURRENT
+    /// mixer output rate. Safe to call repeatedly; called at init and on revive.
+    private func rebuildClickPath() {
+        let sr = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
+        guard sr > 0 else { return }
+        if clickFormat?.sampleRate != sr {
+            clickFormat = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 1)
+            downbeatBuf = makeClick(frequency: 1600, amplitude: 0.72)  // strong
+            beatBuf     = makeClick(frequency: 1200, amplitude: 0.55)  // medium
+            subBuf      = makeClick(frequency: 900,  amplitude: 0.38)  // light
+            noteBuf     = makeClick(frequency: 1450, amplitude: 0.60)  // rhythm-only note tick
+            engine.disconnectNodeOutput(clickNode)
+            engine.connect(clickNode, to: engine.mainMixerNode, format: clickFormat)
+        }
+        if !clickNode.isPlaying, engine.isRunning { clickNode.play() }
     }
 
     /// One line describing the live audio graph — output rate vs the click buffer's
