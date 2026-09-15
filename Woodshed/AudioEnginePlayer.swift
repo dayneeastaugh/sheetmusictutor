@@ -99,6 +99,7 @@ final class AudioEnginePlayer: ObservableObject {
         } catch {
             status = "engine error: \(error.localizedDescription)"
         }
+        logEngineGeometry("init")
         registerAudioNotifications()
     }
 
@@ -170,9 +171,22 @@ final class AudioEnginePlayer: ObservableObject {
                 if metronomeOn || rhythmOnly { startSynced(referenceTime: resumePos) }
             }
             DebugLog.shared.log("audio", "engine revived (\(reason))")
+            logEngineGeometry("revive")
         } catch {
             status = "audio recovery error: \(error.localizedDescription)"
         }
+    }
+
+    /// One line describing the live audio graph — output rate vs the click buffer's
+    /// rate (a mismatch after a device change makes clicks silent), and whether the
+    /// click node is running. The "can't hear the metronome" question, in the log.
+    private func logEngineGeometry(_ when: String) {
+        let mixerRate = engine.mainMixerNode.outputFormat(forBus: 0).sampleRate
+        let outRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        DebugLog.shared.log("audio", String(format: "%@: mixer %.0fHz out %.0fHz click %.0fHz clickNode %@ engine %@",
+                                            when, mixerRate, outRate, clickFormat?.sampleRate ?? 0,
+                                            clickNode.isPlaying ? "playing" : "STOPPED",
+                                            engine.isRunning ? "running" : "STOPPED"))
     }
 
     /// A short decaying sine "tick" rendered into a buffer once, reused per click.
@@ -417,7 +431,13 @@ final class AudioEnginePlayer: ObservableObject {
         metronomePiano = piano
     }
 
+    private var clickTroubleLogged = false
     private func click(_ level: ClickLevel) {
+        if metronomeSpeakers, !clickTroubleLogged,
+           !clickNode.isPlaying || !engine.isRunning {
+            clickTroubleLogged = true
+            DebugLog.shared.log("audio", "click scheduled but clickNode \(clickNode.isPlaying ? "ok" : "STOPPED") / engine \(engine.isRunning ? "ok" : "STOPPED") — metronome will be silent")
+        }
         if metronomeSpeakers {
             let buf: AVAudioPCMBuffer?
             switch level {
@@ -448,12 +468,15 @@ final class AudioEnginePlayer: ObservableObject {
             do {
                 try samplerRH.loadSoundBankInstrument(at: url, program: 0, bankMSB: 0x79, bankLSB: 0)
                 try samplerLH.loadSoundBankInstrument(at: url, program: 0, bankMSB: 0x79, bankLSB: 0)
+                DebugLog.shared.log("audio", "sound bank: \(url.lastPathComponent)")
                 return
             } catch {
                 status = "sound load error: \(error.localizedDescription)"
+                DebugLog.shared.log("audio", "sound bank FAILED \(url.lastPathComponent): \(error.localizedDescription)")
             }
         }
         if status.isEmpty { status = "no sound bank found — playback will be silent" }
+        DebugLog.shared.log("audio", "no sound bank found")
     }
 
     /// Point the player at a MIDI file, routing each track to its hand's sampler.
