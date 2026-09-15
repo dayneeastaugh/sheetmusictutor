@@ -176,13 +176,25 @@ final class MIDIInput: ObservableObject {
         var packetList = MIDIPacketList()
         let packet = MIDIPacketListInit(&packetList)
         _ = MIDIPacketListAdd(&packetList, MemoryLayout<MIDIPacketList>.size, packet, 0, bytes.count, bytes)
+        var sentTo = 0
         for i in 0..<destCount {
             let dest = MIDIGetDestination(i)
             guard dest != 0 else { continue }
             if !preferredDestination.isEmpty && name(of: dest) != preferredDestination { continue }
             MIDISend(outputPort, dest, &packetList)
+            sentTo += 1
+        }
+        // The chosen output matching NOTHING would look like a silent piano while
+        // the log still shows sends — say it plainly (throttled to ~1 line/s).
+        if sentTo == 0, !preferredDestination.isEmpty {
+            let now = Date()
+            if now.timeIntervalSince(lastNoDestLog) > 1 {
+                lastNoDestLog = now
+                DebugLog.shared.log("out", "chosen output “\(preferredDestination)” matched none of \(destCount) destination(s) — nothing sent")
+            }
         }
     }
+    private var lastNoDestLog = Date.distantPast
 
     /// Reconcile our connections with the sources that currently exist: connect any
     /// new source, and DISCONNECT sources that have vanished (unplug / Bluetooth drop).

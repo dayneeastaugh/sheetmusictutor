@@ -645,6 +645,7 @@ final class PracticeSession: ObservableObject {
     // the per-song time.json on stop/teardown. "Active" = playback running, or Wait
     // mode with input in the last 30 s (so an idly-open app doesn't count).
     @Published private(set) var practicedToday: Double = 0     // incl. unflushed seconds
+    private var practicedTodayRaw: Double = 0   // accumulates per tick; published at 1s steps
     private var unflushedSeconds: Double = 0
     private var lastTickDate: Date?
     private var lastWaitInputDate: Date?
@@ -657,7 +658,10 @@ final class PracticeSession: ObservableObject {
         let waitActive = waitMode && (lastWaitInputDate.map { now.timeIntervalSince($0) < 30 } ?? false)
         guard (audio.isPlaying && audio.isRunning) || waitActive else { return }
         unflushedSeconds += dt
-        practicedToday += dt
+        // Publish at 1-second granularity: a 50 Hz @Published bump re-rendered the
+        // whole practice screen on every tick for a value displayed in minutes.
+        practicedTodayRaw += dt
+        if practicedTodayRaw - practicedToday >= 1 { practicedToday = practicedTodayRaw }
         if unflushedSeconds >= 30 { flushPracticeTime() }       // durable in 30 s chunks
     }
 
@@ -795,6 +799,7 @@ final class PracticeSession: ObservableObject {
         ingest()
         reloadHistory()
         practicedToday = PracticeTime.load(from: song.folder)[PracticeTime.dayKey()] ?? 0
+        practicedTodayRaw = practicedToday
         flags = BarFlagStore.load(from: song.folder)
         savedSections = SavedSectionStore.load(from: song.folder)
         bestTakes = TakeStore.load(from: song.folder)
@@ -1866,7 +1871,28 @@ final class PracticeSession: ObservableObject {
     /// On each timer tick, advance the cursor to where the playback clock is.
     /// Smooth mode interpolates a continuous beat (fluid glide); step mode jumps to
     /// the latest note's exact notated beat when it changes.
+    private var lastPerfTick: Date?
+    private var tickGaps: [Double] = []
+
+    /// 5-second summaries of the 50 Hz tick's actual spacing — late ticks mean the
+    /// main thread is starved, which is exactly what makes piano output uneven.
+    private func perfProbe() {
+        guard DebugLog.shared.enabled else { lastPerfTick = nil; tickGaps = []; return }
+        let now = Date()
+        defer { lastPerfTick = now }
+        guard let last = lastPerfTick else { return }
+        tickGaps.append(now.timeIntervalSince(last) * 1000)
+        guard tickGaps.count >= 250 else { return }
+        let sorted = tickGaps.sorted()
+        let late = tickGaps.filter { $0 > 40 }.count
+        DebugLog.shared.log("perf", String(format: "tick p50 %.0fms p90 %.0fms max %.0fms late(>40ms) %d/%d",
+                                           sorted[sorted.count / 2], sorted[Int(Double(sorted.count) * 0.9)],
+                                           sorted.last ?? 0, late, tickGaps.count))
+        tickGaps = []
+    }
+
     func advanceCursorWithPlayback() {
+        perfProbe()
         accumulatePracticeTime()
         replayTick()
         guard audio.isPlaying else {

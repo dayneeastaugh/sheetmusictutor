@@ -259,6 +259,7 @@ final class AudioEnginePlayer: ObservableObject {
                 while self.nextClick < self.clickGrid.count && self.clickGrid[self.nextClick].time <= t {
                     if self.clickGrid[self.nextClick].time < self.clickCeiling - 0.001 {
                         self.click(self.clickGrid[self.nextClick].level)
+                        self.recordClickDrift((t - self.clickGrid[self.nextClick].time) * 1000)
                     }
                     self.nextClick += 1
                 }
@@ -395,6 +396,19 @@ final class AudioEnginePlayer: ObservableObject {
 
     private func stopMetroTimer() {
         metroTimer?.cancel(); metroTimer = nil
+    }
+
+    // How late synced clicks fire vs their grid time (metroQueue-owned; ~10-click
+    // summaries under [metro] when logging is on). "Even metronome" is measurable.
+    private var clickDrifts: [Double] = []
+    private func recordClickDrift(_ ms: Double) {
+        guard DebugLog.shared.enabled else { clickDrifts = []; return }
+        clickDrifts.append(ms)
+        guard clickDrifts.count >= 10 else { return }
+        let sorted = clickDrifts.sorted()
+        DebugLog.shared.log("metro", String(format: "click drift p50 %.1fms max %.1fms (n=%d)",
+                                            sorted[sorted.count / 2], sorted.last ?? 0, clickDrifts.count))
+        clickDrifts = []
     }
 
     /// Route the metronome click to PC speakers, the piano (MIDI), or both.
